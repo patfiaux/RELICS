@@ -1,6 +1,5 @@
 
 print('Loading packages...')
-
 suppressPackageStartupMessages(require(IRanges))
 suppressPackageStartupMessages(require(GenomicRanges))
 suppressPackageStartupMessages(require(dplyr))
@@ -859,6 +858,20 @@ RELICS_likelihood_calculation <- function(input.counts, input.par.list, input.sp
 
 }
 
+# generic function generator; given input parameters a function for liikelihood calculation is created
+RELICS_function_generator <- function(input.obs, input.beta, input.tau,
+  input.dispersion, input.mean){
+    # x is ranging around the mean
+  function(x){
+    likelihood <- dnorm(x, mean = input.mean, sd = input.tau)
+    for(i in 1:length(input.obs)){
+      likelihood <- likelihood * dnbinom(input.obs[i], mu = exp(input.beta[i] + x),
+        size = input.dispersion)
+    }
+    likelihood
+  }
+}
+
 # calculating area under the curve using regular AUC, looking at %negative control vs %positive control included
 # input:
 #   formatted.pvals: formatted p-values as input. Largest one is treated as most significant one
@@ -1466,4 +1479,15 @@ plotZoomChrom <- function(input.scores, input.specs, input.name, input.chroms, p
     create_chromosome_scorePlot(zoom.x.pos, zoom.y.pos, zoom.labels, gene.pos.df, chrom.range, input.specs)
     dev.off()
   }
+}
+
+# based on list input, create the analysis specification file:
+write_specs_file <- function(input.specs.list, input.filename){
+
+  specs.names <- names(input.specs.list)
+  for(name in specs.names){
+    temp_line <- paste(name,':',paste(input.specs.list[[name]],collapse = ','),sep='')
+    write(temp_line,file = paste(input.filename, '.txt', sep = ''),append = TRUE)
+  }
+
 }
