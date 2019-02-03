@@ -1000,6 +1000,237 @@ RELICS_summary <- function(input.list){
   return(out.df)
 }
 
+#apply sliding window to all score datasets
+#input:
+#   input.list: all method-specifi results to be analyzed using a specific RRA
+#   input.specs: specification list
+#output: list
+#   rawScores, formatScores, log2_rate_ratio, chromosome, label, sgRNA targets (can be 1 or 2 columns)
+RELICS_genomeScoring_wrapper <- function(input.list, input.specs){
+  out.list <- list()
+  list.names <- names(input.list)
+
+  for(i in 1:length(input.list)){
+    if(! list.names[i] %in% c('viterbi', 'frwdBkwd', 'dirichletMultinom', 'nbGlmmUntr')){
+      temp.list.name <- paste(list.names[i], 'genomeScores', sep = '_')
+      out.list[[temp.list.name]] <- RELICS_genomeScoring(input.list[[i]], input.specs, list.names[i])
+    } else {
+      temp.list.name <- list.names[i]
+      out.list[[temp.list.name]] <- input.list[[i]]
+    }
+  }
+
+  return(out.list)
+}
+
+# slide window along scores and claculate sum or average, depending on type of analysis
+# input.window, input.ll.df, input.label.hierarchy, input.gene, input.pdf.name
+RELICS_genomeScoring <- function(input.df, input.specs, analysis.name){
+
+  # generate a window of effect for each guide
+  if(input.specs$crisprSystem %in% c('CRISPRcas9', 'CRISPRi', 'CRISPRa')){
+    input.df$start <- input.df$start - round(input.specs$crisprEffectRange / 2)
+    input.df$end <- input.df$end + round(input.specs$crisprEffectRange / 2)
+  }
+
+  # need to sort the data according to start of guide
+  targeting.window.scores <- c()
+
+  #separate out chromsome from non-chromosome guides
+  targeting.df <- c()  # data frame containing only valid chromosomes
+  avg.overlaps <- c()
+  non.targeting.df <- c()
+  if('NA' %in% input.df$chrom){
+    targeting.df <- filter(input.df, grepl('chr',chrom))
+    non.targeting.df <- filter(input.df, grepl('NA',chrom))
+  } else {
+    targeting.df <- input.df
+  }
+
+  scoring.type <- c()
+
+  if(analysis.name %in% c('RELICS','nbGlmm','nbGlmmDev', 'allDataNbGlmmCategoryParallel',
+    'allDataNbGlmm', 'numIntPoisGlmm', 'uniPoisGlmm', 'multiPoisGlmm', 'allDataMultiPoisGlmmPerRepl',
+    'allDataMultiPoisGlmmAcrossRepl', 'reducedDataMultiPoisGlmmPerRepl', 'reducedDataMultiPoisGlmmAcrossRepl')){
+      scoring.type <- 1
+    } else if(analysis.name %in% 'FoldChange'){
+      scoring.type <- 2
+    } else { # DESeq2, edgeR, ... p-value based
+      scoring.type <- 3
+    }
+
+  if(length(unique(targeting.df$chrom)) == 1){
+    sorted.targeting.chrom <- targeting.df[order(targeting.df$start),]
+    targeting.window.scores <- score_regions(sorted.targeting.chrom,
+      input.specs$labelHierarchy, scoring.type)
+  } else {
+    all.chroms <- unique(targeting.df$chrom)
+    for(i in 1:length(all.chroms)){
+      targeting.chrom <- targeting.df[(which(targeting.df$chrom == all.chroms[i])),]
+      sorted.targeting.chrom <- targeting.chrom[order(targeting.chrom$start),]
+      targeting.window.scores <- score_regions(sorted.targeting.chrom,
+        input.specs$labelHierarchy, scoring.type)
+      # avg.overlaps <- c(avg.overlaps, temp.score.list$avg_overlaps)
+      targeting.window.scores <- rbind(targeting.window.scores, temp.targeting.window.scores)
+    }
+  }
+  if(nrow(targeting.df) != nrow(input.df)){
+    avg.overlap <- round(median(targeting.window.scores$nrSupportGuides))
+    # avg.overlap <- round(mean(avg.overlaps))
+    non.targeting.window.scores <- score_nonTarget_regions(scoring.type,
+      non.targeting.df, avg.overlap, non.targeting.df$label[1])
+    targeting.window.scores <- rbind(targeting.window.scores, non.targeting.window.scores)
+  }
+
+  return(targeting.window.scores)
+}
+
+# function to score regions:
+# breaks genome into windows of non-changing information and assigns scores
+# based on input scores (summation for bayes factors, average for fold change,
+#  fisher's method for p-values)
+score_regions <- function(input.df, input.label.hierarchy, scoringType){
+
+  all.breaks <- unique(c(input.df$start, input.df$end))
+  sorted.breaks <- sort(all.breaks)
+  all.region.breaks <- sorted.breaks
+  start.regions <- all.region.breaks[c(1:(length(all.region.breaks) - 1))]
+  end.regions <- all.region.breaks[c(2:length(all.region.breaks))] - 1
+
+  region.ranges <- GRanges(seqnames = rep(input.df$chrom[1], length(start.regions)),
+    ranges = IRanges(start.regions, end.regions))
+
+  # adjust score ranges such that they fall within, not onto, boarders of genomic ranges
+  score.ranges <- GRanges(seqnames = input.df$chrom,
+    ranges = IRanges(input.df$start+1, input.df$end-1))
+
+  score.overlaps <- as.data.frame(findOverlaps(region.ranges, score.ranges, type = 'any'))
+
+  region.overlap.list <- split(score.overlaps, score.overlaps$queryHits)
+
+  # all.region.scores <- vector('numeric', length = length(start.regions))
+  all.region.rawScores <- vector('numeric', length = length(start.regions))
+  all.region.formatScores <- vector('numeric', length = length(start.regions))
+  all.region.foldChange <- vector('numeric', length = length(start.regions))
+
+  all.region.guide.supports <- vector('numeric', length = length(start.regions))
+  unique.regions <- unique(score.overlaps$queryHits)
+
+  region.labels <- unlist(lapply(region.overlap.list, function(x){
+    temp.label <- input.df$label[x$subjectHits]
+    temp.labels.present <- which(input.label.hierarchy %in% temp.label)
+    out.label <- input.label.hierarchy[max(temp.labels.present)]
+    return(out.label)
+    }))
+
+  avg.region.overlaps <- unlist(lapply(region.overlap.list, function(x){
+    temp.overlaps <- length(input.df$formatScores[x$subjectHits])
+    return(temp.overlaps)
+    }))
+
+  # if the input is based on bayes factor, add the scores, else take the mean
+  region.scores <- c()
+
+  if(scoringType == 1) {
+    region.scores <- do.call(rbind, lapply(region.overlap.list, function(x){
+      temp.scores <- input.df$formatScores[x$subjectHits]
+      out.score <- sum(temp.scores)
+      out.values <- c(out.score, out.score, rep(1, length(out.score)) )
+      return(out.values)
+      }))
+  } else if(scoringType == 2){ # fold change
+    region.scores <- do.call(rbind, lapply(region.overlap.list, function(x){
+      temp.df <- input.df[x$subjectHits,]
+      out.score <- mean(temp.df$formatScores)
+      out.values <- c(out.score, out.score, out.score)
+      return(out.values)
+      }))
+  } else { # p-value based result, use Fisher's method to combine
+    region.scores <- do.call(rbind, lapply(region.overlap.list, function(x){
+      temp.df <- input.df[x$subjectHits,]
+      avg.sign <- mean(temp.df$log2_rate_ratio)
+      temp.pval <- pchisq(-2 * sum(log(temp.df$rawScores)), df = 2 * nrow(temp.df), lower.tail=F)
+      out.pval <- -log10(temp.pval) * sign(avg.sign)
+      out.values <- c(temp.pval, out.pval, avg.sign)
+      return(out.values)
+      }))
+  }
+
+  all.region.rawScores[unique.regions] <- region.scores[,1]
+  all.region.formatScores[unique.regions] <- region.scores[,2]
+  all.region.foldChange[unique.regions] <- region.scores[,3]
+
+  all.region.labels <- rep('chr', length(all.region.rawScores))
+  all.region.labels[unique.regions] <- region.labels
+  all.region.guide.supports[unique.regions] <- avg.region.overlaps
+
+  out.df <- data.frame(rawScores = all.region.rawScores, formatScores = all.region.formatScores,
+    log2_rate_ratio = all.region.foldChange,
+    chrom = rep(input.df$chrom[1], length(all.region.rawScores)),
+    label = all.region.labels, start = start.regions, end = end.regions,
+    nrSupportGuides = all.region.guide.supports, stringsAsFactors = F)
+
+  return(out.df)
+}
+
+# score when conmbining information of non-targeting guides
+score_nonTarget_regions <- function(scoringType, input.df, avg.overlap, input.label){
+
+  row.seq <- seq(1, nrow(input.df), by = avg.overlap)
+  out.raw.scores <- vector('numeric', length = length(row.seq))
+  out.format.scores <- vector('numeric', length = length(row.seq))
+  out.log2.fc <- vector('numeric', length = length(row.seq))
+
+  overlapping <- c(0:(avg.overlap - 1))
+  for(i in 1:(length(row.seq) - 1)){
+    temp.rows <- row.seq[i] + overlapping
+    if(scoringType == 1){ # llr based
+      out.raw.scores[i] <- sum(input.df$formatScores[temp.rows])
+      out.format.scores[i] <- sum(input.df$formatScores[temp.rows])
+      out.log2.fc[i] <- 1
+    } else if(scoringType == 2){
+      out.raw.scores[i] <- mean(input.df$formatScores[temp.rows])
+      out.format.scores[i] <- mean(input.df$formatScores[temp.rows])
+      out.log2.fc[i] <- mean(input.df$formatScores[temp.rows])
+    } else {
+      temp.df <- input.df[temp.rows,]
+      avg.sign <- mean(temp.df$log2_rate_ratio)
+      temp.pval <- pchisq(-2 * sum(log(temp.df$rawScores)), df = 2 * nrow(temp.df), lower.tail=F)
+
+      out.raw.scores[i] <- temp.pval
+      out.format.scores[i] <- -log10(temp.pval) * sign(avg.sign)
+      out.log2.fc[i] <- avg.sign
+    }
+  }
+  last.index <- length(row.seq)
+  temp.rows <- c(row.seq[last.index]:nrow(input.df))
+  if(scoringType == 1){ # llr based
+    out.raw.scores[last.index] <- sum(input.df$formatScores[temp.rows])
+    out.format.scores[last.index] <- sum(input.df$formatScores[temp.rows])
+    out.log2.fc[last.index] <- 1
+  } else if(scoringType == 2){
+    out.raw.scores[last.index] <- mean(input.df$formatScores[temp.rows])
+    out.format.scores[last.index] <- mean(input.df$formatScores[temp.rows])
+    out.log2.fc[last.index] <- mean(input.df$formatScores[temp.rows])
+  } else {
+    temp.df <- input.df[temp.rows,]
+    avg.sign <- mean(temp.df$log2_rate_ratio)
+    temp.pval <- pchisq(-2 * sum(log(temp.df$rawScores)), df = 2 * nrow(temp.df), lower.tail=F)
+
+    out.raw.scores[last.index] <- temp.pval
+    out.format.scores[last.index] <- -log10(temp.pval) * sign(avg.sign)
+    out.log2.fc[last.index] <- avg.sign
+  }
+
+  out.df <- data.frame(rawScores = out.raw.scores, formatScores = out.format.scores,
+    log2_rate_ratio = rep(1, length(out.raw.scores)), chrom = rep('NA', length(out.raw.scores)),
+    label = rep(input.label, length(out.raw.scores)), start = rep(NA, length(out.raw.scores)),
+    end = rep(NA, length(out.raw.scores)), nrSupportGuides = c(rep(avg.overlap,
+      (length(out.raw.scores)-1)), length(temp.rows)), stringsAsFactors = F)
+
+  return(out.df)
+}
+
 # save te final scores used for plotting, AUC etc.
 # input: list with scores per method, input specifications
 # output: .csv for each methods scores
