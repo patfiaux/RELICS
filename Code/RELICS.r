@@ -1289,7 +1289,7 @@ save_all_scores <- function(input.score.list, input.specs){
           start = temp.score.df$start, end = temp.score.df$end, label = temp.score.df$label,
           log2_FC = temp.score.df$log2_rate_ratio, stringsAsFactors = F)
       }
-      write.csv(out.csv, file = paste(input.specs$dataName, method.identifier, method.type[2], '.csv', sep = '_'), row.names = FALSE)
+      write.csv(out.csv, file = paste0(input.specs$dataName,  '_', method.identifier,  '_', method.type[2], '.csv'), row.names = FALSE)
     }
   }
 }
@@ -1318,7 +1318,7 @@ create_bedgraphs <- function(input.score.list, input.specs){
     df.temp.score <- as.data.frame(temp.score.gr)
     df.temp.score.final <- df.temp.score[,c(1,2,3,6)]
 
-    tmp.file <- paste0(input.specs$dataName, temp.score.name, ".bedgraph")
+    tmp.file <- paste0(input.specs$dataName, '_',temp.score.name, ".bedgraph")
     cat(temp.header1, file = tmp.file)
     cat(temp.header2, file = tmp.file, append = TRUE)
 
