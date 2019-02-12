@@ -13,5 +13,12 @@ pROC # install.packages('pROC')
 
 glmmTMB # install.packages('glmmTMB')
 
-# Bioconductor packages
+## Bioconductor packages
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+    
+BiocManager::install("IRanges", version = "3.8")
+
+BiocManager::install("GenomicRanges", version = "3.8")
+
 
