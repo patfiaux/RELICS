@@ -17,8 +17,8 @@ glmmTMB # install.packages('glmmTMB')
 if (!requireNamespace("BiocManager", quietly = TRUE))
     install.packages("BiocManager")
     
-BiocManager::install("IRanges", version = "3.8")
+IRanges # BiocManager::install("IRanges", version = "3.8")
 
-BiocManager::install("GenomicRanges", version = "3.8")
+GenomicRanges # BiocManager::install("GenomicRanges", version = "3.8")
 
 
