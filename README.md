@@ -14,6 +14,7 @@ Download source code to your desired location: https://github.com/patfiaux/RELIC
 ## Install requirements
 To run RELCIS you need the following packages (if you don't install them using the command after the '#'):
 ## R packages
+```
 dplyr # install.packages('dplyr')
 
 ggplot2 # install.packages('ggplot2')
@@ -21,8 +22,9 @@ ggplot2 # install.packages('ggplot2')
 pROC # install.packages('pROC')
 
 glmmTMB # install.packages('glmmTMB')
-
+```
 ## Bioconductor packages
+```
 if (!requireNamespace("BiocManager", quietly = TRUE))
 
     install.packages("BiocManager")
@@ -30,5 +32,5 @@ if (!requireNamespace("BiocManager", quietly = TRUE))
 IRanges # BiocManager::install("IRanges", version = "3.8")
 
 GenomicRanges # BiocManager::install("GenomicRanges", version = "3.8")
-
+```
 
