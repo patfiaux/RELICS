@@ -15,6 +15,7 @@ glmmTMB # install.packages('glmmTMB')
 
 ## Bioconductor packages
 if (!requireNamespace("BiocManager", quietly = TRUE))
+
     install.packages("BiocManager")
     
 IRanges # BiocManager::install("IRanges", version = "3.8")
