@@ -1,5 +1,7 @@
 # RELICS
-Regulatory Element Location Identification  in CRISPR screens
+RELICS: Regulatory Element Location Identification  in CRISPR screens
+
+The `RELICS` package use a generalized linear mixed model (GLMM) to analyze CRISPR regulatory screens. Given a set of training guides (usually positive and negative controls) `RELICS' identifies regions which are more similar to the positive controls (enhancer like) and regions which are more similar to negative controls (non-regulatory like).
 
 
 # Install requirements
