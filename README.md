@@ -5,9 +5,14 @@ RELICS: Regulatory Element Location Identification  in CRISPR screens
 
 This work is still in progress. Please ask questions for support or [post issues](https://github.com/patfiaux/RELICS/issues).
 
+# Installation:
+RELICS uses [R](https://cran.r-project.org/bin/windows/base/). Please make sure you have R version 3.5.1 or higher
 
-# Install requirements
-To run RELCIS you need R and have the following packages:
+## Obtain source code
+Download source code to your desired location: https://github.com/patfiaux/RELICS.git
+
+## Install requirements
+To run RELCIS you need the following packages (if you don't install them using the command after the '#'):
 ## R packages
 dplyr # install.packages('dplyr')
 
