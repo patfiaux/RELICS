@@ -38,7 +38,7 @@ GenomicRanges # BiocManager::install("GenomicRanges", version = "3.8")
 RELICS reqires two different files as input. One contains only the counts for each guide for each experiment. The other contains all remaining info about the guides such as targeting position and type of guide (positive control, negative control etc.)
 
 Example count file:
-sim5_repl1_input	sim5_repl1_high	sim5_repl1_med	sim5_repl1_low	sim5_repl2_input	sim5_repl2_high	sim5_repl2_med	sim5_repl2_low
+repl1_input|repl1_high|repl1_med|repl1_low|repl2_input|repl2_high|repl2_med|repl2_low
 11	9	12	11	152	119	189	102
 68	81	39	67	360	339	280	821
 96	89	109	17	3	4	5	0
