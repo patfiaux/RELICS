@@ -55,7 +55,7 @@ The second file contains all remaining info about the guides such as targeting p
 | NA | NA | NA | neg |
 | chr8 | 128704482 | 128704502 | exon |
 
-Row 1 in the count file should correspond to the guide in row 1 in the infor file.
+Row 1 in the count file should correspond to the guide in row 1 in the info file.
 
 ## Quickstart with example data
 ### 1. source the script
@@ -64,9 +64,9 @@ source('/path/to/script/RELICS.r')
 ```
 
 ### 2. Setting up the analysis specification file. 
-### Option 1: Modify the given template (Type_3_analysis_specs.txt)
-### Option 2: Set the flags within `R` and then write them to the specs file prior to analysis
-Below is an example on how to sep up the flags for the example file
+### Option 1: Modify the given template in the 'Example_data' folder (Type_3_analysis_specs.txt)
+### Option 2: Set the flags within `R` and then write them to the specification file prior to analysis
+Below is an example on how to sep up the flags for the example file along with their meaning.
 
 Flags are set up in a list format
 
@@ -77,17 +77,17 @@ analysis.specs <- list()
 Set the output name of the analysis
 
 ```
-analysis.specs <- 'Type_3_exampleSim'
+analysis.specs$dataName <- 'Type_3_exampleSim'
 ```
 
-Give location of count and info files (easies if in same directory as the analysis is done but can also give a path to files)
+Give location of count and info files (easiest if in working directory but can also give a path to files)
 
 ```
 analysis.specs$CountFileLoc <- 'Type_3_simulated_counts.csv'
 analysis.specs$sgRNAInfoFileLoc <- 'Type_3_simulated_info.csv'
 ```
 
-Specify the label hierarchy. This is used when labeling regions after combining overlapping guide effects. Rightmost label has highest prioirty. As an example; if a region has overlapping guides labelled as both exon overlapping ('exon') as well as targeting guides with unknown effect ('chr') then the region will be assigned the higher label from the hierarch, namely 'exon'.
+Specify the label hierarchy. This is used when labeling regions after combining overlapping guide effects. Rightmost label has highest priority. As an example; if a region has overlapping guides labeled as both exon overlapping ('exon') as well as targeting guides with unknown effect ('chr') then the region will be assigned the higher label from the hierarch, namely 'exon'.
 
 This example data set was part of the simulations used to assess method performance and in addition to the usual 'exon' and 'neg' labels it also contains 'pos', labelling guides overlapping simulated enhancer regions. Below we will train on exon overlapping guides and negative controls to then identify the simulated positive regions ('pos').
 
@@ -99,7 +99,7 @@ RELICS uses a GLMM and jointly analyzes all pools from each replicate. The repli
 
 Example: '1,2,3,4;5,6,7,8' has 2 replicates. The first four columns of the count file make up replicate 1 and column 5, 6, 7 and 8 make up replicate 2.
 
-Note 1: Becasue of the separation by semicolon the input here is a string, not numeric!
+Note 1: Because of the separation by semicolon the input here is a string, not numeric!
 
 Note 2: Analysis across multiple replicates has not been implemented yet so jointly analyzing all pools ('1,2,3,4,5,6,7,8') is not advised!
 
@@ -115,27 +115,29 @@ analysis.specs$glmm_negativeTraining <- 'neg'
 # alternatively use: analysis.specs$glmm_negativeTraining <- c('chr', 'neg') to include everything except positives as negatives
 ```
 
-Sepcify the method to use as RELICS
+Specify the method to use as RELICS
 ```
 analysis.specs$Method <- 'RELICS-search'
 ```
 
-Depending on the CRISPR system used the range of effect is different. We recommned setting the range to 20bp for `CRISPRcas9`, 1000bp for `CRISPRi` and `CRISPRa`. In case of a `dualCRISPR` system an arbitrary `crisprEffectRange` can be specified as RELICS will automatically use the deletion range between guide 1 and guide 2 as effect range.
+Depending on the CRISPR system used the range of effect is different. We recommend setting the range to 20bp for `CRISPRcas9`, 1000bp for `CRISPRi` and `CRISPRa`. Note that the effect range is added to the positions specified in the info file. If the effect range is already included in the positions of the info file then it should be set to 0 here. 
+
+In case of a `dualCRISPR` system an arbitrary `crisprEffectRange` can be specified as RELICS will automatically use the deletion range between guide 1 and guide 2 as effect range.
 ```
 analysis.specs$crisprSystem <- 'CRISPRi' # other potions: CRISPRcas9, CRISPRa, dualCRISPR
 analysis.specs$crisprEffectRange <- 1000
 ```
 
-Once you have your flags set, create a specification file using the `write_specs_file()` function. The two arguments it takes are the list with flags you just set and the name of the file
+Once you have your flags set, create a specification file using the `write_specs_file()` function. The two arguments it takes are the list with flags you just set and the name of the file (.txt will be added automatically so don' include that)
 ```
-write_specs_file(analysis.specs, 'Type_3_analysis_specs.txt')
+write_specs_file(analysis.specs, 'Type_3_exampleSim_specs')
 ```
 
 
 ### 3. Run RELICS
 Once you have your specification file set up simply use the `analyze_data()` function to start the RELICS analysis:
 ```
-analyze_data('Type_3_analysis_specs.txt')
+analyze_data('Type_3_exampleSim_specs.txt') # or whatever you named your spec. file
 ```
 
 ### 3. Ouput files
