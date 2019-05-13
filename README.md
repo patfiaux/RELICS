@@ -35,9 +35,9 @@ GenomicRanges # BiocManager::install("GenomicRanges", version = "3.8")
 ```
 
 ## Input data format
-RELICS reqires two different files as input. One contains only the counts for each guide for each experiment. The other contains all remaining info about the guides such as targeting position and type of guide (positive control, negative control etc.)
+RELICS reqires two different files as input. One contains only the counts for each guide for each experiment. Column names are necessary but the names do not matter as the user will refer to the columns by number, not by name.
 
-Example count file:
+Example count file: 2 replicates from a FACS experiment. Input pools was sorted into high, medium and low expression
 
 | repl1_input | repl1_high | repl1_med | repl1_low | repl2_input | repl2_high | repl2_med | repl2_low |
 |----------|----------|-------|------- |------|------|------|------|
@@ -46,16 +46,13 @@ Example count file:
 | 96 | 89 | 109 | 17 | 3 | 4 | 5 | 0 |
 | 104 | 97 | 116 | 38 | 190 | 198 | 194 | 23 |
 
-
-| repl1_input | repl1_high | repl1_med | repl1_low | repl2_input | repl2_high | repl2_med | repl2_low |
-| --- | --- | --- | --- | --- | --- |
-| 11 | 9 | 12 | 11 | 152 | 119 | 189 | 102 |
-
-
-68	81	39	67	360	339	280	821
-96	89	109	17	3	4	5	0
-104	97	116	38	190	198	194	23
-
+The second file contains all remaining info about the guides such as targeting position and type of guide (positive control, negative control, exon targeting etc.). The columns specifying chromosome, guide target start, guide target end and label (chrom, start, end label) are mandatory.
+| chrom | start | end | label |
+|----------|----------|-------|------- |
+| chr8 | 128704468 | 128704488 | chr |
+| chr8 | 128704469 | 128704489 | chr | 
+| NA | NA | NA | neg | 
+| chr8 | 128704482 | 128704502 | exon |
 
 
 ## Quickstart with example data
