@@ -50,8 +50,8 @@ The second file contains all remaining info about the guides such as targeting p
 | chrom | start | end | label |
 |----------|----------|-------|------- |
 | chr8 | 128704468 | 128704488 | chr |
-| chr8 | 128704469 | 128704489 | chr | 
-| NA | NA | NA | neg | 
+| chr8 | 128704469 | 128704489 | chr |
+| NA | NA | NA | neg |
 | chr8 | 128704482 | 128704502 | exon |
 
 
