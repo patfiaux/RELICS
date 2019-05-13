@@ -150,7 +150,7 @@ RELICS will return several files:
 
 > nrSupportGuides: number of guide effect ranges which overlap this particular region
 
-*_RELICS_guideScores.*: Contains the per-guide RELICS scores which are combined aross regions of overlapping effects. Minimum number of columns: 8
+*_RELICS_guideScores.csv*: Contains the per-guide RELICS scores which are combined aross regions of overlapping effects. Minimum number of columns: 8
 
 > raw_scores, guide_scores: contain identical values. `raw_scores` was kept for backward compatibility. Use `guide_scores` when working with this file
 
@@ -162,3 +162,6 @@ RELICS will return several files:
 
 > replX_bf: RELICS score (Bayes Factor) for replicate `X`. Scores are reported for each replicate.
 
+*_RELICS_parSummary.csv*: Contains RELICS parameter estimates for all replicates, for each pool, for regulatory and background model. 
+
+*_RELICS_replX_parEst.csv*: Contains RELICS parameter estimates from the positve and negative controls for replicate `X`. For each replicate, the first pool is used as intercept, all subsequent ones defined as deviance from intercept. 
