@@ -734,7 +734,7 @@ RELICS_search <- function(input.counts, input.info, input.specs){
 
     # nr betas is equivalen to number of pools - 1 due to intercept
     par.list[[i]] <- RELICS_extract_median_pars(repl.pars[c(2:11),], (length(input.specs$repl_groups[[i]]) - 1))
-    write.csv(repl.pars, file = paste0(input.specs$dataName, 'RELICS_repl', i, '_foldParEst.csv'), row.names = F)
+    write.csv(repl.pars, file = paste0(input.specs$dataName, 'RELICS_repl', i, '_parEst.csv'), row.names = F)
   }
 
   guide.sample.bayes.factor <- RELICS_likelihood_calculation(glmm.counts, par.list, input.specs)  #total.guide.pos.ll - total.guide.neg.ll
