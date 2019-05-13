@@ -42,8 +42,9 @@ Example count file:
 | repl1_input | repl1_high | repl1_med | repl1_low | repl2_input | repl2_high | repl2_med | repl2_low |
 |----------|----------|-------|------- |------|------|------|------|
 | 11 | 9 | 12 | 11 | 152 | 119 | 189 | 102 |
-| 1 | 01/08/2019 | **Module 1: Unix, TSCC, RNA-seq** | Patrick Fiaux | [Module 1](https://github.com/biom262/biom262-2019/tree/master/Module_1) | [RNA-seq Homework](https://github.com/biom262/biom262-2019/tree/master/Module_1/RNA_seq_Homework) |
-| 2 | 01/15/2019 | **Module 2: Intro to R** | Patrick Fiaux | TBA | None |
+| 68 | 81 | 39 | 67 | 360 | 339 | 280 | 821 |
+| 96 | 89 | 109 | 17 | 3 | 4 | 5 | 0 |
+| 104 | 97 | 116 | 38 | 190 | 198 | 194 | 23 |
 
 
 | repl1_input | repl1_high | repl1_med | repl1_low | repl2_input | repl2_high | repl2_med | repl2_low |
