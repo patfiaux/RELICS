@@ -55,16 +55,25 @@ The second file contains all remaining info about the guides such as targeting p
 | NA | NA | NA | neg |
 | chr8 | 128704482 | 128704502 | exon |
 
-
-| repl1_input | repl1_high | repl1_med | repl1_low | repl2_input | repl2_high | repl2_med | repl2_low |
-|----------|----------|-------|------- |------|------|------|------|
-| 11 | 9 | 12 | 11 | 152 | 119 | 189 | 102 |
-| 68 | 81 | 39 | 67 | 360 | 339 | 280 | 821 |
-| 96 | 89 | 109 | 17 | 3 | 4 | 5 | 0 |
-| 104 | 97 | 116 | 38 | 190 | 198 | 194 | 23 |
-
 ## Quickstart with example data
-1. source the script
+# 1. source the script
 `source('/path/to/script/RELICS.r')`
 
-2. 
+# 2. Setting up the analysis specification file. 
+# Option 1: Modify the given template (Type_3_analysis_specs.txt)
+# Option 2: Set the flags within `R` and then write them to the specs file prior to analysis
+Below is an example on how to sep up the flags for the example file
+`
+# flags are ste pu in a list format
+analysis.specs <- list()
+
+# set the ouput name of the analysis
+analysis.specs <- 'Type_3_exampleSim'
+
+# give location of count and info files (easies if in same directory as the analysis is done but can also give a path to files)
+analysis.specs$CountFileLoc <- 'Type_3_simulated_counts.csv'
+analysis.specs$sgRNAInfoFileLoc <- 'Type_3_simulated_info.csv'
+
+# specify the label hierarchy. This is used when labeling regions after combining overlapping guide effects. Rightmost label has highest prioirty. As an example; if a region has overlapping guides labelled as both positives ('pos') as well as targeting guides with unknown effect ('chr') then the region will be assigned the highest label from the hierarch, namely 'pos'
+analysis.specs$labelHierarchy <- c('chr', 'neg', 'pos')
+`
