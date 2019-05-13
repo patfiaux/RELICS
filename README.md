@@ -39,7 +39,7 @@ RELICS reqires two different files as input. One contains only the counts for ea
 
 Example count file:
 
-| Week | Date | Topic | Lecturer | Links | Homework |
+| repl1_input | repl1_high | repl1_med | repl1_low | repl2_input | repl2_high |
 |----------|----------|-------|------- |------|------|
 |0 | Before 01/04/2019 | **Module 0: Pre-Class Setup**| You |  | [Generate SSH Keys](https://github.com/biom262/biom262-2019/tree/master/Module_0) |
 | 1 | 01/08/2019 | **Module 1: Unix, TSCC, RNA-seq** | Patrick Fiaux | [Module 1](https://github.com/biom262/biom262-2019/tree/master/Module_1) | [RNA-seq Homework](https://github.com/biom262/biom262-2019/tree/master/Module_1/RNA_seq_Homework) |
