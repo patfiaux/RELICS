@@ -66,11 +66,11 @@ Below is an example on how to sep up the flags for the example file
 
 Flags are set up in a list format
 
-`analysis.specs <- list()`
+```analysis.specs <- list()```
 
 Set the output name of the analysis
 
-`analysis.specs <- 'Type_3_exampleSim'`
+```analysis.specs <- 'Type_3_exampleSim'```
 
 Give location of count and info files (easies if in same directory as the analysis is done but can also give a path to files)
 
@@ -81,7 +81,7 @@ analysis.specs$sgRNAInfoFileLoc <- 'Type_3_simulated_info.csv'
 
 Specify the label hierarchy. This is used when labeling regions after combining overlapping guide effects. Rightmost label has highest prioirty. As an example; if a region has overlapping guides labelled as both positives ('pos') as well as targeting guides with unknown effect ('chr') then the region will be assigned the highest label from the hierarch, namely 'pos'
 
-`analysis.specs$labelHierarchy <- c('chr', 'neg', 'pos')`
+```analysis.specs$labelHierarchy <- c('chr', 'neg', 'pos')```
 
 RELICS uses a GLMM and jointly analyzes all pools from each replicate. The replicates are separated by a semicolon (';') and each pool from the count file is referred to by number. 
 
@@ -91,5 +91,22 @@ Note 1: Becasue of the separation by semicolon the input here is a string, not n
 
 Note 2: Analysis across multiple replicates has not been implemented yet so jointly analyzing all pools ('1,2,3,4,5,6,7,8') is not advised!
 
-`analysis.specs$repl_groups <- '1,2,3,4;5,6,7,8'`
+```analysis.specs$repl_groups <- '1,2,3,4;5,6,7,8'```
 
+RELICS empirically estimates the GLMM parameters from the data. A set of positive and negative controls should be provided. Positive controls are usually promoter or exon targeting guides. Negative controls could be non-targeting guides. Another option is to specify everything that's not a positive control as negative control. While this increases the runtime we have observed that this reduces the noise seen in the data.
+
+```
+analysis.specs$glmm_positiveTraining <- 'pos'
+analysis.specs$glmm_negativeTraining <- 'neg' # alternatively use: <- c('chr', 'neg') to include everything except positives as negatives
+```
+
+Sepcify the method to use as RELICS
+```
+analysis.specs$Method <- 'RELICS-search'
+```
+
+Depending on the CRISPR system used the range of effect is different. We recommned setting the range to 20bp for `CRISPRcas9`, 1000bp for `CRISPRi` and `CRISPRa`. In case of a `dualCRISPR` system an arbitrary `crisprEffectRange` can be specified as RELICS will automatically use the deletion range between guide 1 and guide 2 as effect range.
+```
+analysis.specs$crisprSystem <- 'CRISPRi' # other potions: CRISPRcas9, CRISPRa, dualCRISPR
+analysis.specs$crisprEffectRange <- 1000
+```
