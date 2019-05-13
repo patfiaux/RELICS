@@ -47,6 +47,7 @@ Example count file: 2 replicates from a FACS experiment. Input pools was sorted 
 | 104 | 97 | 116 | 38 | 190 | 198 | 194 | 23 |
 
 The second file contains all remaining info about the guides such as targeting position and type of guide (positive control, negative control, exon targeting etc.). The columns specifying chromosome, guide target start, guide target end and label (chrom, start, end label) are mandatory.
+
 | chrom | start | end | label |
 |----------|----------|----------|----------|
 | chr8 | 128704468 | 128704488 | chr |
