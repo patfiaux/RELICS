@@ -85,10 +85,12 @@ analysis.specs$CountFileLoc <- 'Type_3_simulated_counts.csv'
 analysis.specs$sgRNAInfoFileLoc <- 'Type_3_simulated_info.csv'
 ```
 
-Specify the label hierarchy. This is used when labeling regions after combining overlapping guide effects. Rightmost label has highest prioirty. As an example; if a region has overlapping guides labelled as both positives ('pos') as well as targeting guides with unknown effect ('chr') then the region will be assigned the highest label from the hierarch, namely 'pos'
+Specify the label hierarchy. This is used when labeling regions after combining overlapping guide effects. Rightmost label has highest prioirty. As an example; if a region has overlapping guides labelled as both exon overlapping ('exon') as well as targeting guides with unknown effect ('chr') then the region will be assigned the higher label from the hierarch, namely 'exon'.
+
+This example data set was part of the simulations used to assess method performance and in addition to the usual 'exon' and 'neg' labels it also contains 'pos', labelling guides overlapping simulated enhancer regions. Below we will train on exon overlapping guides and negative controls to then identify the simulated positive regions ('pos').
 
 ```
-analysis.specs$labelHierarchy <- c('chr', 'neg', 'pos')
+analysis.specs$labelHierarchy <- c('chr', 'neg', 'exon', 'pos')
 ```
 
 RELICS uses a GLMM and jointly analyzes all pools from each replicate. The replicates are separated by a semicolon (';') and each pool from the count file is referred to by number. 
@@ -106,8 +108,9 @@ analysis.specs$repl_groups <- '1,2,3,4;5,6,7,8'
 RELICS empirically estimates the GLMM parameters from the data. A set of positive and negative controls should be provided. Positive controls are usually promoter or exon targeting guides. Negative controls could be non-targeting guides. Another option is to specify everything that's not a positive control as negative control. While this increases the runtime we have observed that this reduces the noise seen in the data.
 
 ```
-analysis.specs$glmm_positiveTraining <- 'pos'
-analysis.specs$glmm_negativeTraining <- 'neg' # alternatively use: <- c('chr', 'neg') to include everything except positives as negatives
+analysis.specs$glmm_positiveTraining <- 'exon'
+analysis.specs$glmm_negativeTraining <- 'neg' 
+# alternatively use: analysis.specs$glmm_negativeTraining <- c('chr', 'neg') to include everything except positives as negatives
 ```
 
 Sepcify the method to use as RELICS
@@ -127,5 +130,16 @@ write_specs_file(analysis.specs, 'Type_3_analysis_specs.txt')
 ```
 
 
+### 3. Run RELICS
+Once you have your specification file set up simply use the `analyze_data()` function to start the RELICS analysis:
+```
+analyze_data('Type_3_analysis_specs.txt')
+```
 
-### 3. 
+### 3. Ouput files
+RELICS will return several files:
+
+*_RELICS_genomeScores.*: Two files will have this extension. One is a .csv and the other is a .bedgraph. The latter contains the genome scores set up in bedgraph format. The former has 7 columns. 
+> genomeScore: combined per-guide RELICS score for this region
+> chrom, start, end: position of the region
+> label: 
