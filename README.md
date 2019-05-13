@@ -65,28 +65,31 @@ The second file contains all remaining info about the guides such as targeting p
 Below is an example on how to sep up the flags for the example file
 
 Flags are set up in a list format
+
 `analysis.specs <- list()`
 
 Set the output name of the analysis
+
 `analysis.specs <- 'Type_3_exampleSim'`
 
 Give location of count and info files (easies if in same directory as the analysis is done but can also give a path to files)
+
 ```
 analysis.specs$CountFileLoc <- 'Type_3_simulated_counts.csv'
 analysis.specs$sgRNAInfoFileLoc <- 'Type_3_simulated_info.csv'
 ```
 
-# specify the label hierarchy. This is used when labeling regions after combining overlapping guide effects. 
-# Rightmost label has highest prioirty. As an example; if a region has overlapping guides labelled as both positives ('pos') 
-# as well as targeting guides with unknown effect ('chr') then the region will be assigned the highest label 
-# from the hierarch, namely 'pos'
-analysis.specs$labelHierarchy <- c('chr', 'neg', 'pos')
+Specify the label hierarchy. This is used when labeling regions after combining overlapping guide effects. Rightmost label has highest prioirty. As an example; if a region has overlapping guides labelled as both positives ('pos') as well as targeting guides with unknown effect ('chr') then the region will be assigned the highest label from the hierarch, namely 'pos'
 
-# RELICS uses a GLMM and jointly analyzes all pools from each replicate
-# The replicates are separated by a semicolon (';') and each pool from the count file is referred to by number.
-# Example: '1,2,3,4;5,6,7,8' has 2 replicates. The first four columns of the count file make up replicate 1 
-# and column 5, 6, 7 and 8 make up replicate 2.
-# Note 1: Becasue of the separation by semicolon the input here is a string, not numeric!
-# Note 2: Analysis across multiple replicates has not been implemented yet so jointly analyzing all pools ('1,2,3,4,5,6,7,8') is not advised!
-analysis.specs$repl_groups <- '1,2,3,4;5,6,7,8'
+`analysis.specs$labelHierarchy <- c('chr', 'neg', 'pos')`
+
+RELICS uses a GLMM and jointly analyzes all pools from each replicate. The replicates are separated by a semicolon (';') and each pool from the count file is referred to by number. 
+
+Example: '1,2,3,4;5,6,7,8' has 2 replicates. The first four columns of the count file make up replicate 1 and column 5, 6, 7 and 8 make up replicate 2.
+
+Note 1: Becasue of the separation by semicolon the input here is a string, not numeric!
+
+Note 2: Analysis across multiple replicates has not been implemented yet so jointly analyzing all pools ('1,2,3,4,5,6,7,8') is not advised!
+
+`analysis.specs$repl_groups <- '1,2,3,4;5,6,7,8'`
 
