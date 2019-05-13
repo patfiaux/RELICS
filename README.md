@@ -141,5 +141,24 @@ RELICS will return several files:
 
 *_RELICS_genomeScores.*: Two files will have this extension. One is a .csv and the other is a .bedgraph. The latter contains the genome scores set up in bedgraph format. The former has 7 columns. 
 > genomeScore: combined per-guide RELICS score for this region
+
 > chrom, start, end: position of the region
-> label: 
+
+> label: highest overlapping label according to the label hierarchy
+
+> log2_FC: does not apply to RELICS but kept for backward compatibility
+
+> nrSupportGuides: number of guide effect ranges which overlap this particular region
+
+*_RELICS_guideScores.*: Contains the per-guide RELICS scores which are combined aross regions of overlapping effects. Minimum number of columns: 8
+
+> raw_scores, guide_scores: contain identical values. `raw_scores` was kept for backward compatibility. Use `guide_scores` when working with this file
+
+> chrom, start, end: position of the region
+
+> label: same as specified in the information file
+
+> log2_FC: does not apply to RELICS but kept for backward compatibility
+
+> replX_bf: RELICS score (Bayes Factor) for replicate `X`. Scores are reported for each replicate.
+
