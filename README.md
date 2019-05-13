@@ -55,6 +55,8 @@ The second file contains all remaining info about the guides such as targeting p
 | NA | NA | NA | neg |
 | chr8 | 128704482 | 128704502 | exon |
 
+Row 1 in the count file should correspond to the guide in row 1 in the infor file.
+
 ## Quickstart with example data
 ### 1. source the script
 ```
