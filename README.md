@@ -63,16 +63,18 @@ The second file contains all remaining info about the guides such as targeting p
 ### Option 1: Modify the given template (Type_3_analysis_specs.txt)
 ### Option 2: Set the flags within `R` and then write them to the specs file prior to analysis
 Below is an example on how to sep up the flags for the example file
+
+Flags are set up in a list format
+`analysis.specs <- list()`
+
+Set the output name of the analysis
+`analysis.specs <- 'Type_3_exampleSim'`
+
+Give location of count and info files (easies if in same directory as the analysis is done but can also give a path to files)
 ```
-# flags are ste pu in a list format
-analysis.specs <- list()
-
-# set the ouput name of the analysis
-analysis.specs <- 'Type_3_exampleSim'
-
-# give location of count and info files (easies if in same directory as the analysis is done but can also give a path to files)
 analysis.specs$CountFileLoc <- 'Type_3_simulated_counts.csv'
 analysis.specs$sgRNAInfoFileLoc <- 'Type_3_simulated_info.csv'
+```
 
 # specify the label hierarchy. This is used when labeling regions after combining overlapping guide effects. 
 # Rightmost label has highest prioirty. As an example; if a region has overlapping guides labelled as both positives ('pos') 
@@ -87,4 +89,4 @@ analysis.specs$labelHierarchy <- c('chr', 'neg', 'pos')
 # Note 1: Becasue of the separation by semicolon the input here is a string, not numeric!
 # Note 2: Analysis across multiple replicates has not been implemented yet so jointly analyzing all pools ('1,2,3,4,5,6,7,8') is not advised!
 analysis.specs$repl_groups <- '1,2,3,4;5,6,7,8'
-```
+
