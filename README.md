@@ -64,8 +64,8 @@ source('/path/to/script/RELICS.r')
 ```
 
 ### 2. Setting up the analysis specification file. 
-### Option 1: Modify the given template in the 'Example_data' folder (Type_3_analysis_specs.txt)
-### Option 2: Set the flags within `R` and then write them to the specification file prior to analysis
+#### Option 1: Modify the given template in the 'Example_data' folder (Type_3_analysis_specs.txt)
+#### Option 2: Set the flags within `R` and then write them to the specification file prior to analysis
 Below is an example on how to sep up the flags for the example file along with their meaning.
 
 Flags are set up in a list format
@@ -85,14 +85,6 @@ Give location of count and info files (easiest if in working directory but can a
 ```
 analysis.specs$CountFileLoc <- 'Type_3_simulated_counts.csv'
 analysis.specs$sgRNAInfoFileLoc <- 'Type_3_simulated_info.csv'
-```
-
-Specify the label hierarchy. This is used when labeling regions after combining overlapping guide effects. Rightmost label has highest priority. As an example; if a region has overlapping guides labeled as both exon overlapping ('exon') as well as targeting guides with unknown effect ('chr') then the region will be assigned the higher label from the hierarch, namely 'exon'.
-
-This example data set was part of the simulations used to assess method performance and in addition to the usual 'exon' and 'neg' labels it also contains 'pos', labelling guides overlapping simulated enhancer regions. Below we will train on exon overlapping guides and negative controls to then identify the simulated positive regions ('pos').
-
-```
-analysis.specs$labelHierarchy <- c('chr', 'neg', 'exon', 'pos')
 ```
 
 RELICS uses a GLMM and jointly analyzes all pools from each replicate. The replicates are separated by a semicolon (';') and each pool from the count file is referred to by number. 
@@ -169,3 +161,14 @@ RELICS will return several files:
 *_RELICS_parSummary.csv*: Contains RELICS parameter estimates for all replicates, for each pool, for regulatory and background model. 
 
 *_RELICS_replX_parEst.csv*: Contains RELICS parameter estimates from the positve and negative controls for replicate `X`. For each replicate, the first pool is used as intercept, all subsequent ones defined as deviance from intercept. 
+
+# Advanced flags for experienced RELICS users
+
+RELICS combines information of guides which overlap with their guide effect. This can lead to scenarios where guides with different labels overlap. By default the label with fewer occurances in the data set is chosen. However, it is also possible for the user to specify the tie breaking by explicitly setting the labelHierarchy flag.
+Rightmost label has highest priority. As an example; if a region has overlapping guides labeled as both exon overlapping ('exon') as well as targeting guides with unknown effect ('chr') then the region will be assigned the higher label from the hierarch, namely 'exon'.
+
+This example data set was part of the simulations used to assess method performance and in addition to the usual 'exon' and 'neg' labels it also contains 'pos', labelling guides overlapping simulated enhancer regions. Below we will train on exon overlapping guides and negative controls to then identify the simulated positive regions ('pos').
+
+```
+analysis.specs$labelHierarchy <- c('chr', 'neg', 'exon', 'pos')
+```
