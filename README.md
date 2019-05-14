@@ -164,9 +164,9 @@ RELICS will return several files. They all start with the dataName you specified
 
 > replX_bf: RELICS score (Bayes Factor) for replicate `X`. Scores are reported for each replicate.
 
-*_RELICS_parSummary.csv*: Contains RELICS parameter estimates for all replicates, for each pool, for regulatory and background model. 
+\*_RELICS_parSummary.csv: Contains RELICS parameter estimates for all replicates, for each pool, for regulatory and background model. 
 
-*_RELICS_replX_parEst.csv*: Contains RELICS parameter estimates from the positve and negative controls for replicate `X`. For each replicate, the first pool is used as intercept, all subsequent ones defined as deviance from intercept. 
+\*_RELICS_replX_parEst.csv: Contains RELICS parameter estimates from the positve and negative controls for replicate `X`. For each replicate, the first pool is used as intercept, all subsequent ones defined as deviance from intercept. 
 
 # Advanced flags for experienced RELICS users
 
