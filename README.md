@@ -64,9 +64,13 @@ source('/path/to/script/RELICS.r')
 ```
 
 ### 2. Setting up the analysis specification file. 
+There are several different parameters which have to be specified by the users before running RELICS. These parameters are set within the specification file. This has the advantage that a user can go back to an analysis at any time and see under what conditions a data set was analyzed. Below is the outline on how to set the most important flags to get the analysis going.
+
 #### Option 1: Modify the given template in the 'Example_data' folder (Type_3_analysis_specs.txt)
+There is a template specification file already set up for the example data. It contains the main flags required for successfully running RELICS. The meaning of the different flags are discussed in 'Option 2' below. 
+
 #### Option 2: Set the flags within `R` and then write them to the specification file prior to analysis
-Below is an example on how to sep up the flags for the example file along with their meaning.
+In case of the absence of a specification file it is also possible to create it. Below is an example on how to sep up the flags for the example specification file along with their meaning. At the end of this you will be able to run RELICS on the example data
 
 Flags are set up in a list format
 
@@ -127,15 +131,17 @@ write_specs_file(analysis.specs, 'Type_3_exampleSim_specs')
 
 
 ### 3. Run RELICS
-Once you have your specification file set up simply use the `analyze_data()` function to start the RELICS analysis:
+Once you have your specification file set up simply use the `analyze_data()` function to start the RELICS analysis. For the example given it will take about 5 min, depending on your operating system.
 ```
 analyze_data('Type_3_exampleSim_specs.txt') # or whatever you named your spec. file
 ```
 
 ### 3. Ouput files
-RELICS will return several files:
+RELICS will return several files. They all start with the dataName you specified above:
 
-*_RELICS_genomeScores.*: Two files will have this extension. One is a .csv and the other is a .bedgraph. The latter contains the genome scores set up in bedgraph format. The former has 7 columns. 
+\* _RELICS_genomeScores.bedgraph: Contains the RELICS scores in bedgraph format and allows you to visualize your results in your preferred Genome browser.
+
+\*_RELICS_genomeScores.csv : Contains the genome scores set up in bedgraph format. This file has 7 columns. 
 > genomeScore: combined per-guide RELICS score for this region
 
 > chrom, start, end: position of the region
@@ -146,7 +152,7 @@ RELICS will return several files:
 
 > nrSupportGuides: number of guide effect ranges which overlap this particular region
 
-*_RELICS_guideScores.csv*: Contains the per-guide RELICS scores which are combined aross regions of overlapping effects. Minimum number of columns: 8
+\*_RELICS_guideScores.csv*: Contains the per-guide RELICS scores which are combined aross regions of overlapping effects. Minimum number of columns: 8
 
 > raw_scores, guide_scores: contain identical values. `raw_scores` was kept for backward compatibility. Use `guide_scores` when working with this file
 
