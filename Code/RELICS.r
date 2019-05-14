@@ -438,6 +438,25 @@ calculate_scores <- function(analysis.specs, label.file = NULL){
   # if specified; counts, info and rows removed will be saved for reproducability
   save_analysisData(filtered.data.counts, filtered.data.info, filtered.data.specs)
 
+  # add label hierarchy if not provided by users
+  if(! 'labelHierarchy' %in% names(filtered.data.specs)){
+    filtered.data.specs$labelHierarchy <- c()
+    counted.lables <- table(filtered.data.info$label)
+
+    while(length(counted.lables) > 1){
+      max.lab.pos <- which(counted.lables == max(counted.lables)[1])[1]
+      max.lab.name <- names(counted.lables)[max.lab.pos]
+
+      filtered.data.specs$labelHierarchy <- c(filtered.data.specs$labelHierarchy, max.lab.name)
+
+      counted.lables <- counted.lables[-max.lab.pos]
+    }
+
+    # then last part
+    filtered.data.specs$labelHierarchy <- c(filtered.data.specs$labelHierarchy, names(counted.lables))
+
+  }
+
   #output scores from specified methods
   method.score.list <- score_calculation(filtered.data.counts, filtered.data.info, filtered.data.specs)
 
