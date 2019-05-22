@@ -686,7 +686,7 @@ save_analysisData <- function(input.counts, input.info, input.specs){
 #     chromosome, labels, sgRNA targets (can be 1 or 2 columns) (all values from the info file, can be altered in methods like CREST analysis)
 score_calculation <- function(input.counts, input.info, input.specs){
   out.list <- list()
-  if('RELICS-search' %in% input.specs$Method){
+  if('RELICS-search' %in% input.specs$Method | 'RELICS' %in% input.specs$Method){
     print('#####################################')
     print('Running RELICS-search')
     out.list$RELICS <- RELICS_search(input.counts, input.info, input.specs)
@@ -1087,7 +1087,7 @@ RELICS_genomeScoring <- function(input.df, input.specs, analysis.name){
     for(i in 1:length(all.chroms)){
       targeting.chrom <- targeting.df[(which(targeting.df$chrom == all.chroms[i])),]
       sorted.targeting.chrom <- targeting.chrom[order(targeting.chrom$start),]
-      targeting.window.scores <- score_regions(sorted.targeting.chrom,
+      temp.targeting.window.scores <- score_regions(sorted.targeting.chrom,
         input.specs$labelHierarchy, scoring.type)
       # avg.overlaps <- c(avg.overlaps, temp.score.list$avg_overlaps)
       targeting.window.scores <- rbind(targeting.window.scores, temp.targeting.window.scores)
