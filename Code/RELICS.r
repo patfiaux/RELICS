@@ -397,7 +397,7 @@ calculate_scores <- function(analysis.specs, label.file = NULL){
   data.info <- read.csv(analysis.specs$sgRNAInfoFileLoc,as.is = TRUE, stringsAsFactors = FALSE)
 
   #convert NA in chromosome column to string 'NA'
-  if(length(which(is.na(data.info$chrom)))) > 0){
+  if(length(which(is.na(data.info$chrom))) > 0){
     data.info$chrom[which(is.na(data.info$chrom))] <- 'NA'
   }
   #if a label file is supplied, add corresponding note to the specification file
