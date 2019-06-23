@@ -78,7 +78,7 @@ Flags are set up in a list format
 analysis.specs <- list()
 ```
 
-Set the output name of the analysis
+Set the output name of the analysis (and chose a different name from the existing file so you can compare and check that you got the same flags.
 
 ```
 analysis.specs$dataName <- 'Type_3_exampleSim'
