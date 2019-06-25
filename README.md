@@ -9,7 +9,7 @@ This work is continously being improved. Please ask questions for support or [po
 RELICS uses [R](https://cran.r-project.org/bin/windows/base/). Please make sure you have R version 3.5.1 or higher
 
 ## Obtain source code
-Download source code to your desired location: `git clone https://github.com/patfiaux/RELICS.git`
+Clone source code to your desired location: `git clone https://github.com/patfiaux/RELICS.git`. Or download the repository.
 
 ## Install requirements
 To run RELCIS you need the packages below. If you don't have them, install them using the command after the '#'). Installations will take ~5min on a standard laptop.
@@ -18,7 +18,6 @@ To run RELCIS you need the packages below. If you don't have them, install them 
 ```r
 install.packages('dplyr')
 ```
-
 * ggplot2
 ```r
 install.packages('ggplot2')
