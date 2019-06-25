@@ -12,7 +12,7 @@ RELICS uses [R](https://cran.r-project.org/bin/windows/base/). Please make sure 
 Download source code to your desired location: `git clone https://github.com/patfiaux/RELICS.git`
 
 ## Install requirements
-To run RELCIS you need the packages below. If you don't have them, install them using the command after the '#'):
+To run RELCIS you need the packages below. If you don't have them, install them using the command after the '#'). Installations will take ~5min on a standard laptop.
 ## R packages
 ```
 dplyr # install.packages('dplyr')
