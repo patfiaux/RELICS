@@ -14,24 +14,38 @@ Download source code to your desired location: `git clone https://github.com/pat
 ## Install requirements
 To run RELCIS you need the packages below. If you don't have them, install them using the command after the '#'). Installations will take ~5min on a standard laptop.
 ## R packages
+* dplyr
+```r
+install.packages('dplyr')
 ```
-dplyr # install.packages('dplyr')
 
-ggplot2 # install.packages('ggplot2')
-
-pROC # install.packages('pROC')
-
-glmmTMB # install.packages('glmmTMB')
+* ggplot2
+```r
+install.packages('ggplot2')
+```
+* pROC
+```r
+install.packages('pROC')
+```
+* glmmTMB
+```r
+install.packages('glmmTMB')
 ```
 ## Bioconductor packages
-```
+```r
 if (!requireNamespace("BiocManager", quietly = TRUE))
 
     install.packages("BiocManager")
-    
-IRanges # BiocManager::install("IRanges", version = "3.8")
+``` 
 
-GenomicRanges # BiocManager::install("GenomicRanges", version = "3.8")
+* IRanges
+```r
+BiocManager::install("IRanges", version = "3.8")
+```
+
+* GenomicRanges
+```r
+BiocManager::install("GenomicRanges", version = "3.8")
 ```
 
 ## Input data format
@@ -58,6 +72,8 @@ The second file contains all remaining info about the guides such as targeting p
 Row 1 in the count file should correspond to the guide in row 1 in the info file.
 
 ## Quickstart with example data
+In the interactive shell of `R`:
+
 ### 1. source the script
 ```r
 source('/path/to/script/RELICS.r')
