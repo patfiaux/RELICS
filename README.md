@@ -64,7 +64,7 @@ Example count file: 2 replicates from a FACS experiment. Input pools was sorted 
 | 96 | 89 | 109 | 17 | 3 | 4 | 5 | 0 |
 | 104 | 97 | 116 | 38 | 190 | 198 | 194 | 23 |
 
-The guide information file contains all remaining info about the guides such as targeting position and type of guide (positive control, negative control, exon targeting etc.). Non-targeting controls should be specified by setting `chrom`, `start`, and `end` to NA. The columns specifying chromosome, guide target start, guide target end and label (chrom, start, end label) are mandatory.
+The guide information file contains all remaining info about the guides such as targeting position and type of guide (positive control, negative control, exon targeting etc.). Non-targeting controls should be specified by setting `chrom`, `start`, and `end` to NA. The columns specifying chromosome, guide target start, guide target end and label are mandatory and must be labelled `chrom`, `start`, `end`, and `label` respectively.
 
 | chrom | start | end | label |
 |----------|----------|----------|----------|
@@ -92,26 +92,26 @@ There is a template specification file already set up for the example data. It c
 #### Option 2: Set the flags within `R` and then write them to the specification file prior to analysis
 It is also possible to create a specification file from scratch by setting parameters within R. The following example shows how to set up parameters for the example specification file along with their meaning. At the end of this you will be able to run RELICS on the example data
 
-Flags are set up in a list format
+1. Flags are set up in a list format
 
 ```r
 analysis.specs <- list()
 ```
 
-Set the output name of the analysis (and chose a different name from the existing file so you can compare and check that you got the same flags.
+2. Set the output name of the analysis (and chose a different name from the existing file so you can compare and check that you got the same flags.
 
 ```r
 analysis.specs$dataName <- 'Type_3_exampleSim'
 ```
 
-Give location of count and info files (easiest if in working directory but can also give a path to files)
+3. Give location of count and info files (easiest if in working directory but can also give a path to files)
 
 ```r
 analysis.specs$CountFileLoc <- 'Type_3_simulated_counts.csv'
 analysis.specs$sgRNAInfoFileLoc <- 'Type_3_simulated_info.csv'
 ```
 
-RELICS uses a GLMM and jointly analyzes all pools from each replicate. The replicates are separated by a semicolon (';') and each pool from the count file is referred to by number. 
+4. RELICS uses a GLMM and jointly analyzes all pools from each replicate. The replicates are separated by a semicolon (';') and each pool from the count file is referred to by number. 
 
 Example: '1,2,3,4;5,6,7,8' has 2 replicates. The first four columns of the count file make up replicate 1 and column 5, 6, 7 and 8 make up replicate 2.
 
@@ -123,7 +123,7 @@ Note 2: Analysis across multiple replicates has not been implemented yet so join
 analysis.specs$repl_groups <- '1,2,3,4;5,6,7,8'
 ```
 
-RELICS empirically estimates the GLMM parameters from the data. A set of positive and negative controls should be provided. Positive controls are usually promoter- or exon-targeting guides. Negative controls can be non-targeting guides or can be everything that is not a positive control. While the latter option increases the runtime we have observed that it typically reduces the noise in the results.
+5. RELICS empirically estimates the GLMM parameters from the data. A set of positive and negative controls should be provided. Positive controls are usually promoter- or exon-targeting guides. Negative controls can be non-targeting guides or can be everything that is not a positive control. While the latter option increases the runtime we have observed that it typically reduces the noise in the results.
 
 ```r
 analysis.specs$glmm_positiveTraining <- 'exon'
@@ -131,12 +131,12 @@ analysis.specs$glmm_negativeTraining <- 'neg'
 # alternatively use: analysis.specs$glmm_negativeTraining <- c('chr', 'neg') to include everything except positives as negatives
 ```
 
-Specify the method to use as RELICS
+6. Specify the method to use as RELICS
 ```r
 analysis.specs$Method <- 'RELICS-search'
 ```
 
-Depending on the CRISPR system used the range of effect is different. We recommend setting the range to 20bp for `CRISPRcas9`, 1000bp for `CRISPRi` and `CRISPRa`. Note that the effect range is added to the positions specified in the info file. If the effect range is already included in the positions of the info file then it should be set to 0 here. 
+7. Depending on the CRISPR system used the range of effect is different. We recommend setting the range to 20bp for `CRISPRcas9`, 1000bp for `CRISPRi` and `CRISPRa`. Note that the effect range is added to the positions specified in the info file. If the effect range is already included in the positions of the info file then it should be set to 0 here. 
 
 In case of a `dualCRISPR` system an arbitrary `crisprEffectRange` can be specified as RELICS will automatically use the deletion range between guide 1 and guide 2 as effect range.
 ```r
@@ -144,7 +144,7 @@ analysis.specs$crisprSystem <- 'CRISPRi' # other potions: CRISPRcas9, CRISPRa, d
 analysis.specs$crisprEffectRange <- 1000
 ```
 
-Once you have your flags set, create a specification file using the `write_specs_file()` function. The two arguments it takes are the list with flags you just set and the name of the file (.txt will be added automatically so don't include that)
+8. Once you have your flags set, create a specification file using the `write_specs_file()` function. The two arguments it takes are the list with flags you just set and the name of the file (.txt will be added automatically so don't include that)
 ```r
 write_specs_file(analysis.specs, 'Type_3_exampleSim_specs')
 ```
