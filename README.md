@@ -12,7 +12,7 @@ RELICS uses [R](https://cran.r-project.org/bin/windows/base/). Please make sure 
 Clone source code to your desired location: `git clone https://github.com/patfiaux/RELICS.git`. Or download the repository.
 
 ## Install requirements
-To run RELCIS you need the packages below. If you don't have them, install them using the command after the '#'). Installations will take ~5min on a standard laptop.
+To run RELICS you need the packages below. If you don't have them, install them using the command after the '#'). Installations will take ~5min on a standard laptop.
 ## R packages
 * dplyr
 ```r
@@ -79,13 +79,13 @@ source('/path/to/script/RELICS.r')
 ```
 
 ### 2. Setting up the analysis specification file. 
-There are several different parameters which have to be specified by the users before running RELICS. These parameters are set within the specification file. This has the advantage that a user can go back to an analysis at any time and see under what conditions a data set was analyzed. Below is the outline on how to set the most important flags to get the analysis going.
+Several parameters have to be specified by the user before running RELICS. These parameters are set within the specification file. This has the advantage that a user can refer back to the specification file to see the conditions that were used to analyze a dataset. The options below  describe the most important parameters that are required to get the analysis going.
 
 #### Option 1: Modify the given template in the 'Example_data' folder (Type_3_analysis_specs.txt)
-There is a template specification file already set up for the example data. It contains the main flags required for successfully running RELICS. The meaning of the different flags are discussed in 'Option 2' below. 
+There is a template specification file already set up for the example data. It contains the main flags required to run RELICS. The meaning of the different flags are discussed in 'Option 2' below. 
 
 #### Option 2: Set the flags within `R` and then write them to the specification file prior to analysis
-In case of the absence of a specification file it is also possible to create it. Below is an example on how to sep up the flags for the example specification file along with their meaning. At the end of this you will be able to run RELICS on the example data
+It is also possible to create a specification file from scratch by setting parameters within R. The following example shows how to set up parameters for the example specification file along with their meaning. At the end of this you will be able to run RELICS on the example data
 
 Flags are set up in a list format
 
@@ -118,7 +118,7 @@ Note 2: Analysis across multiple replicates has not been implemented yet so join
 analysis.specs$repl_groups <- '1,2,3,4;5,6,7,8'
 ```
 
-RELICS empirically estimates the GLMM parameters from the data. A set of positive and negative controls should be provided. Positive controls are usually promoter or exon targeting guides. Negative controls could be non-targeting guides. Another option is to specify everything that's not a positive control as negative control. While this increases the runtime we have observed that this reduces the noise seen in the data.
+RELICS empirically estimates the GLMM parameters from the data. A set of positive and negative controls should be provided. Positive controls are usually promoter- or exon-targeting guides. Negative controls can be non-targeting guides or can be everything that is not a positive control. While the latter option increases the runtime we have observed that it typically reduces the noise in the results.
 
 ```r
 analysis.specs$glmm_positiveTraining <- 'exon'
@@ -139,14 +139,14 @@ analysis.specs$crisprSystem <- 'CRISPRi' # other potions: CRISPRcas9, CRISPRa, d
 analysis.specs$crisprEffectRange <- 1000
 ```
 
-Once you have your flags set, create a specification file using the `write_specs_file()` function. The two arguments it takes are the list with flags you just set and the name of the file (.txt will be added automatically so don' include that)
+Once you have your flags set, create a specification file using the `write_specs_file()` function. The two arguments it takes are the list with flags you just set and the name of the file (.txt will be added automatically so don't include that)
 ```r
 write_specs_file(analysis.specs, 'Type_3_exampleSim_specs')
 ```
 
 
 ### 3. Run RELICS
-Once you have your specification file set up simply use the `analyze_data()` function to start the RELICS analysis. For the example given it will take about 5 min, depending on your operating system.
+Once your specification file is setup simply use the `analyze_data()` function to start the RELICS analysis. For the example given it will take about 5 min on a typical desktop computer.
 ```r
 analyze_data('Type_3_exampleSim_specs.txt') # or whatever you named your spec. file
 ```
@@ -186,9 +186,9 @@ RELICS will return several files. They all start with the dataName you specified
 # Advanced flags for experienced RELICS users
 
 RELICS combines information of guides which overlap with their guide effect. This can lead to scenarios where guides with different labels overlap. By default the label with fewer occurances in the data set is chosen. However, it is also possible for the user to specify the tie breaking by explicitly setting the labelHierarchy flag.
-Rightmost label has highest priority. As an example; if a region has overlapping guides labeled as both exon overlapping ('exon') as well as targeting guides with unknown effect ('chr') then the region will be assigned the higher label from the hierarch, namely 'exon'.
+Rightmost label has highest priority. As an example; if a region has overlapping guides labeled as both exon overlapping ('exon') as well as targeting guides with unknown effect ('chr') then the region will be assigned the higher label from the hierarchy, namely 'exon'.
 
-This example data set was part of the simulations used to assess method performance and in addition to the usual 'exon' and 'neg' labels it also contains 'pos', labelling guides overlapping simulated enhancer regions. Below we will train on exon overlapping guides and negative controls to then identify the simulated positive regions ('pos').
+This example data set was part of the simulations used to assess method performance and in addition to the usual 'exon' and 'neg' labels it also contains a 'pos' label for guides overlapping simulated enhancer regions. Below we will train on exon overlapping guides and negative controls to then identify the simulated positive regions ('pos').
 
 ```r
 analysis.specs$labelHierarchy <- c('chr', 'neg', 'exon', 'pos')
