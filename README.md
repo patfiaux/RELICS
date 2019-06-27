@@ -157,7 +157,7 @@ analyze_data('Type_3_exampleSim_specs.txt') # or whatever you named your spec. f
 ```
 
 ### 3. Ouput files
-RELICS will return several files. They all start with the dataName you specified above:
+RELICS will return several files. They all start with the `$dataName` you specified above:
 
 \* _RELICS_genomeScores.bedgraph: Contains the RELICS scores in bedgraph format and allows you to visualize your results in your preferred Genome browser.
 
