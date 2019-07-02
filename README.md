@@ -1,17 +1,17 @@
 # RELICS :sparkles:: Regulatory Element Location Identification  in CRISPR screens
 
-`RELICS` uses a generalized linear mixed model (GLMM) to analyze CRISPR regulatory screens. Given a set of training guides `RELICS` identifies regions which are more similar to the positive controls (enhancer like) and regions which are more similar to negative controls (non-regulatory like).
+RELICS uses a generalized linear mixed model (GLMM) to analyze CRISPR regulatory screens. Given a set of guides to train on, RELICS identifies regions with high similarity to the positive controls (enhancer-like) and regions which are more similar to negative controls (non-regulatory-like).
 
-This work is continously being improved. Please ask questions for support or [post issues](https://github.com/patfiaux/RELICS/issues).
+This work is continously being improved. Please ask questions or [post issues](https://github.com/patfiaux/RELICS/issues).
 
 # Installation
-RELICS uses [R](https://cran.r-project.org/bin/windows/base/). Please make sure you have R version 3.5.1 or higher
+RELICS runs on [R](https://cran.r-project.org/bin/windows/base/). Please make sure you have R version 3.5.1 or higher
 
-## Obtain source
+## Obtain source code
 Clone source code to your desired location with the following command: ```git clone https://github.com/patfiaux/RELICS.git```. Alternatively, download the repository.
 
 ## Install requirements
-To run RELICS you will need the following packages. If you don't have them, install them using the following commands. Installations will take ~5min on a standard laptop.
+You will need the following packages to run RELICS. If you don't have them, install them using the following commands. Installations will take about 5 minutes on a standard laptop.
 ## R packages
 dplyr
 ```r
@@ -35,7 +35,6 @@ if (!requireNamespace("BiocManager", quietly = TRUE))
 
     install.packages("BiocManager")
 ``` 
-
 IRanges
 ```r
 BiocManager::install("IRanges", version = "3.8")
