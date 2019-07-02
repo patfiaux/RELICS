@@ -158,6 +158,8 @@ RELICS will return several output files. They all start with the `dataName` spec
 
 * `{dataName}_RELICS_genomeScores.csv`: This file contains the genome scores in bedGraph format. This file has 7 columns: 
 
+|Column name | Column description |
+|----------|----------|
 | genomeScore | combined per-guide RELICS score for this region | 
 | chrom | chromosome of the region |
 | start | region start |
@@ -165,6 +167,7 @@ RELICS will return several output files. They all start with the `dataName` spec
 | label | highest overlapping label according to the label hierarchy |
 | log2_FC | does not apply to RELICS but kept for backward compatibility |
 | nrSupportGuides | number of guide effect ranges which overlap this particular region |
+
 
 > genomeScore: combined per-guide RELICS score for this region
 
@@ -178,6 +181,8 @@ RELICS will return several output files. They all start with the `dataName` spec
 
 * `{dataName}_RELICS_guideScores.csv`: This file contains the per-guide RELICS scores, which are combined aross regions of overlapping effects. Minimum number of columns: 8
 
+|Column name | Column description |
+|----------|----------|
 | guide_score | RELICS score per guide | 
 | raw_scores | identical to `guide_score`, kept for backward compatibility | 
 | chrom | chromosome of the region |
@@ -186,6 +191,7 @@ RELICS will return several output files. They all start with the `dataName` spec
 | label | highest overlapping label according to the label hierarchy |
 | log2_FC | does not apply to RELICS but kept for backward compatibility |
 | replX_bf | RELICS score for replicate `X`. Scores are reported for each replicate. |
+
 
 > raw_scores, guide_scores: contain identical values. `raw_scores` was kept for backward compatibility. Use `guide_scores` when working with this file
 
