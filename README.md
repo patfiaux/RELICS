@@ -2,7 +2,7 @@
 
 RELICS uses a generalized linear mixed model (GLMM) to analyze CRISPR regulatory screens. Given a set of guides to train on, RELICS identifies regions with high similarity to the regulatory (enhancer-like) guides and regions which are more similar to non-regulatory (negative controls) guides.
 
-This work is continously being improved. Please ask questions or [post issues](https://github.com/patfiaux/RELICS/issues).
+This work is continuously being improved. Please ask questions or [post issues](https://github.com/patfiaux/RELICS/issues).
 
 # Installation
 RELICS runs on [R](https://cran.r-project.org/bin/windows/base/). Please make sure you have R version 3.5.1 or higher
@@ -46,7 +46,7 @@ BiocManager::install("GenomicRanges", version = "3.8")
 ```
 
 ## Input data format
-RELICS reqires two different files as input: 
+RELICS requires two different files as input: 
 1. A **guide information file**, containing information about all the simulated guides (chromosome, start, end, label).
 2. A **counts file**, containing the counts for each guide in each pool.
 
@@ -168,7 +168,7 @@ RELICS will return several output files. They all start with the `dataName` spec
 | log2_FC | does not apply to RELICS but kept for backward compatibility |
 | nrSupportGuides | number of guide effect ranges which overlap this particular region |
 
-* `{dataName}_RELICS_guideScores.csv`: This file contains the per-guide RELICS scores, which are combined aross regions of overlapping effects. Minimum number of columns: 8
+* `{dataName}_RELICS_guideScores.csv`: This file contains the per-guide RELICS scores, which are combined across regions of overlapping effects. Minimum number of columns: 8
 
 |Column name | Column description |
 |----------|----------|
@@ -183,15 +183,15 @@ RELICS will return several output files. They all start with the `dataName` spec
 
 * `{dataName}_RELICS_parSummary.csv`: This file contains RELICS parameter estimates for all replicates, for each pool, for regulatory and background model. 
 
-* `{dataName}_RELICS_replX_parEst.csv`: This file contains RELICS parameter estimates from the positve and negative controls for replicate `X`. For each replicate, the first pool is used as intercept, and all subsequent ones defined as deviance from intercept. 
+* `{dataName}_RELICS_replX_parEst.csv`: This file contains RELICS parameter estimates from the positive and negative controls for replicate `X`. For each replicate, the first pool is used as intercept, and all subsequent ones defined as deviance from intercept. 
 
 # Advanced flags
 
-RELICS combines information of guides which overlap with their guide effect. This can lead to scenarios where guides with different labels overlap. By default the label with fewer occurances in the data set is chosen. However, it is also possible for the user to specify the hierarchy by explicitly setting the `labelHierarchy` flag.
+RELICS combines information of guides which overlap with their guide effect. This can lead to scenarios where guides with different labels overlap. By default the label with fewer occurrences in the data set is chosen. However, it is also possible for the user to specify the hierarchy by explicitly setting the `labelHierarchy` flag.
 
 The rightmost label has highest priority. Using the example below: if a region has overlapping guides labeled as both exon overlapping (`exon`) as well as targeting guides with unknown effect (`chr`), then the region will be assigned the label with higher priority in the hierarchy - in this case being `exon`.
 
-This example dataset was part of the simulations used to assess method performance. In addition to the usual `exon` and `neg` labels, it also contains a `pos` label for guides overlapping simulated enhancer regions. If specifying the `labelHierarchy`, all labels should be provided. Guides with labels that were not included will not be properly used the the analysis.
+This example dataset was part of the simulations used to assess method performance. In addition to the usual `exon` and `neg` labels, it also contains a `pos` label for guides overlapping simulated enhancer regions. If specifying the `labelHierarchy`, all labels should be provided. Guides with labels that were not included will not be properly used the analysis.
 
 ```r
 analysis.specs$labelHierarchy <- c('chr', 'neg', 'exon', 'pos')
