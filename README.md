@@ -120,7 +120,7 @@ Note 2: Analysis across multiple replicates has not been implemented yet, so joi
 analysis.specs$repl_groups <- '1,2,3,4;5,6,7,8'
 ```
 
-5. The information file has a `label` column, such that each guide has a label assigned to it. Specify which guides are to be used to train the GLMM regulatory and non-regulatory parameters. Both `glmm_positiveTraining` and `glmm_negativeTraining` take either a string or a vector of strings. Regulatory guides are usually promoter- or exon-targeting guides. Non-regulatory guides can be non-targeting guides or can be all guides not used as regulatory guides. Although the latter option increases the runtime, we have observed that it typically reduces the noise in the results.
+5. The information file has a `label` column, such that each guide has a label assigned to it. Specify which guides are to be used to train the GLMM regulatory and non-regulatory parameters. Both `glmm_positiveTraining` and `glmm_negativeTraining` take either a string or a vector of strings. Regulatory guides are usually promoter- or exon-targeting guides. Non-regulatory guides can be non-targeting guides or all guides not used as regulatory guides. Although the latter option increases the runtime, we have observed that it typically reduces the noise in the results.
 
 ```r
 analysis.specs$glmm_positiveTraining <- 'exon' # use all guides that overlap an exon to train the regulatory parameters
@@ -133,8 +133,7 @@ analysis.specs$glmm_negativeTraining <- 'neg' # use all negative control guides 
 analysis.specs$Method <- 'RELICS-search'
 ```
 
-7. Specify the CRISPR system used and the range of perturbation effect. Depending on the CRISPR system used, the range of effect is different. We recommend setting the range to 20bp for `CRISPRcas9`, 1000bp for `CRISPRi` and `CRISPRa`. In the example provided, the effect range is added to the guide positions specified in the [guide information file](https://github.com/zrcjessica/RELICS#input-data-format). When this is the case, the effect range should be set to `0` in this step. 
-
+7. Specify the CRISPR system used and the range of the perturbation effect. Depending on the CRISPR system used, the range of effect is different. We recommend setting the range to 20bp for `CRISPRcas9`, 1000bp for `CRISPRi` and `CRISPRa`. The `crisprEffectRange` is automatically added during the analysis so there is no need to manually extend the `start` and `end` position of the guide. However, if the range has already been accounted for in the information file, set the `crisprEffectRange` to zero.
 In case of a `dualCRISPR` system, an arbitrary `crisprEffectRange` can be specified, as RELICS will automatically use the deletion range between guide 1 and guide 2 as effect range.
 ```r
 analysis.specs$crisprSystem <- 'CRISPRi' # other options: CRISPRcas9, CRISPRa, dualCRISPR
