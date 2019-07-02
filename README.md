@@ -80,7 +80,7 @@ In an interactive R session:
 source('/path/to/script/RELICS.r')
 ```
 
-### 2. Set up the analysis specification file. 
+### 2. Set up the analysis specification file
 Several parameters must be specified by the user before running RELICS. These parameters are set within the specification file. This allows a user to refer back to the specification file for the parameters that were used for a particular analysis. The options below  describe the most important parameters required to get the analysis going.
 
 #### Option 1: Modify the given template in the `Example_data` folder (`Type_3_analysis_specs.txt`)
@@ -155,7 +155,7 @@ analyze_data('Type_3_exampleSim_specs.txt') # or whatever you named your spec. f
 ### 3. Output files
 RELICS will return several output files. They all start with the `dataName` specified in step 2 above:
 
-* `{dataName} _RELICS_genomeScores.bedgraph`: This file contains the RELICS scores in bedGraph format and allows you to visualize your results in your preferred genome browser.
+* `{dataName}_RELICS_genomeScores.bedgraph`: This file contains the RELICS scores in bedGraph format and allows you to visualize your results in your preferred genome browser.
 
 * `{dataName}_RELICS_genomeScores.csv`: This file contains the genome scores in bedGraph format. This file has 7 columns: 
 
