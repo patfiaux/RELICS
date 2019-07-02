@@ -80,7 +80,7 @@ In an interactive R session:
 source('/path/to/script/RELICS.r')
 ```
 
-### 2. Set up the analysis specification file. 
+### 2. Set up the analysis specification file
 Several parameters must be specified by the user before running RELICS. These parameters are set within the specification file. This allows a user to refer back to the specification file for the parameters that were used for a particular analysis. The options below  describe the most important parameters required to get the analysis going.
 
 #### Option 1: Modify the given template in the `Example_data` folder (`Type_3_analysis_specs.txt`)
