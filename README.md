@@ -1,32 +1,31 @@
-# RELICS
-RELICS: Regulatory Element Location Identification  in CRISPR screens
+# RELICS :sparkles:: Regulatory Element Location Identification  in CRISPR screens
 
 `RELICS` uses a generalized linear mixed model (GLMM) to analyze CRISPR regulatory screens. Given a set of training guides `RELICS` identifies regions which are more similar to the positive controls (enhancer like) and regions which are more similar to negative controls (non-regulatory like).
 
 This work is continously being improved. Please ask questions for support or [post issues](https://github.com/patfiaux/RELICS/issues).
 
-# Installation:
+# Installation
 RELICS uses [R](https://cran.r-project.org/bin/windows/base/). Please make sure you have R version 3.5.1 or higher
 
-## Obtain source code
-Clone source code to your desired location: `git clone https://github.com/patfiaux/RELICS.git`. Or download the repository.
+## Obtain source
+Clone source code to your desired location with the following command: ```git clone https://github.com/patfiaux/RELICS.git```. Alternatively, download the repository.
 
 ## Install requirements
-To run RELICS you need the packages below. If you don't have them, install them using the command after the '#'). Installations will take ~5min on a standard laptop.
+To run RELICS you will need the following packages. If you don't have them, install them using the following commands. Installations will take ~5min on a standard laptop.
 ## R packages
-* dplyr
+dplyr
 ```r
 install.packages('dplyr')
 ```
-* ggplot2
+ggplot2
 ```r
 install.packages('ggplot2')
 ```
-* pROC
+pROC
 ```r
 install.packages('pROC')
 ```
-* glmmTMB
+glmmTMB
 ```r
 install.packages('glmmTMB')
 ```
@@ -37,23 +36,22 @@ if (!requireNamespace("BiocManager", quietly = TRUE))
     install.packages("BiocManager")
 ``` 
 
-* IRanges
+IRanges
 ```r
 BiocManager::install("IRanges", version = "3.8")
 ```
 
-* GenomicRanges
+GenomicRanges
 ```r
 BiocManager::install("GenomicRanges", version = "3.8")
 ```
 
 ## Input data format
-RELICS reqires two different files as input. 
-
+RELICS reqires two different files as input: 
 1. A **guide information file**, containing information about all the simulated guides (chromosome, start, end, label).
 2. A **counts file**, containing the counts for each guide in each pool.
 
-The counts file contains only the counts for each guide for each experiment. Column names are necessary but the names do not matter as the user will refer to the columns by number, not by name.
+The counts file contains only the counts for each guide for each experiment. Column names are necessary but the names do not matter as the user will index the columns by number, not by name.
 
 Example count file: 2 replicates from a FACS experiment. Input pools was sorted into high, medium and low expression
 
@@ -76,54 +74,54 @@ The guide information file contains all remaining info about the guides such as 
 Row 1 in the count file should correspond to the guide in row 1 in the info file.
 
 ## Quickstart with example data
-In the interactive shell of `R`:
+In an interactive R session:
 
-### 1. source the script
+### 1. Source the script
 ```r
 source('/path/to/script/RELICS.r')
 ```
 
-### 2. Setting up the analysis specification file. 
-Several parameters have to be specified by the user before running RELICS. These parameters are set within the specification file. This has the advantage that a user can refer back to the specification file to see the conditions that were used to analyze a dataset. The options below  describe the most important parameters that are required to get the analysis going.
+### 2. Set up the analysis specification file. 
+Several parameters must be specified by the user before running RELICS. These parameters are set within the specification file. This allows a user to refer back to the specification file for the parameters that were used for a particular analysis. The options below  describe the most important parameters required to get the analysis going.
 
-#### Option 1: Modify the given template in the 'Example_data' folder (Type_3_analysis_specs.txt)
-There is a template specification file already set up for the example data. It contains the main flags required to run RELICS. The meaning of the different flags are discussed in 'Option 2' below. 
+#### Option 1: Modify the given template in the `Example_data` folder (`Type_3_analysis_specs.txt`)
+There is a template specification file already set up for the example data. It contains the main flags required to run RELICS. The meaning of the different flags are discussed in the next section. 
 
-#### Option 2: Set the flags within `R` and then write them to the specification file prior to analysis
-It is also possible to create a specification file from scratch by setting parameters within R. The following example shows how to set up parameters for the example specification file along with their meaning. At the end of this you will be able to run RELICS on the example data
+#### Option 2: Set the flags within `R` and save them to the specification file prior to analysis
+It is also possible to create a specification file from scratch by setting parameters within R. The following steps demonstrate how to set up parameters for the example specification file. At the end of this section, you will be able to run RELICS on the example data.
 
-1. Flags are set up in a list format
+1. Flags are set up in a list object
 
 ```r
 analysis.specs <- list()
 ```
 
-2. Set the output name of the analysis (and chose a different name from the existing file so you can compare and check that you got the same flags.
+2. Set the output name of the analysis (`dataName`). Be sure to choose a different name from the existing file so that you don't overwrite the example, and you can compare and check that you got the same flags.
 
 ```r
 analysis.specs$dataName <- 'Type_3_exampleSim'
 ```
 
-3. Give location of count and info files (easiest if in working directory but can also give a path to files)
+3. Specify the path to the count and info files.
 
 ```r
-analysis.specs$CountFileLoc <- 'Type_3_simulated_counts.csv'
-analysis.specs$sgRNAInfoFileLoc <- 'Type_3_simulated_info.csv'
+analysis.specs$CountFileLoc <- './Type_3_simulated_counts.csv'
+analysis.specs$sgRNAInfoFileLoc <- './Type_3_simulated_info.csv'
 ```
 
-4. RELICS uses a GLMM and jointly analyzes all pools from each replicate. The replicates are separated by a semicolon (';') and each pool from the count file is referred to by number. 
+4. RELICS uses a GLMM and jointly analyzes all pools from each replicate. The replicates are separated by a semicolon (`;`) and each pool from the count file is referred to by number. 
 
-Example: '1,2,3,4;5,6,7,8' has 2 replicates. The first four columns of the count file make up replicate 1 and column 5, 6, 7 and 8 make up replicate 2.
+Example: `1,2,3,4;5,6,7,8` represents two replicates. The first four columns of the count file comprise replicate 1 and the next four columns comprise replicate 2.
 
-Note 1: Because of the separation by semicolon the input here is a string, not numeric!
+Note 1: The input type is a string, such as the example shown above.
 
-Note 2: Analysis across multiple replicates has not been implemented yet so jointly analyzing all pools ('1,2,3,4,5,6,7,8') is not advised!
+Note 2: Analysis across multiple replicates has not been implemented yet, so jointly analyzing all pools (`1,2,3,4,5,6,7,8`) is not advised!
 
 ```r
 analysis.specs$repl_groups <- '1,2,3,4;5,6,7,8'
 ```
 
-5. RELICS empirically estimates the GLMM parameters from the data. A set of positive and negative controls should be provided. Positive controls are usually promoter- or exon-targeting guides. Negative controls can be non-targeting guides or can be everything that is not a positive control. While the latter option increases the runtime we have observed that it typically reduces the noise in the results.
+5. RELICS empirically estimates the GLMM parameters from the data. A set of positive and negative controls should be provided. Positive controls are usually promoter- or exon-targeting guides. Negative controls can be non-targeting guides or can be everything that is not a positive control. Although the latter option increases the runtime, we have observed that it typically reduces the noise in the results.
 
 ```r
 analysis.specs$glmm_positiveTraining <- 'exon'
@@ -136,32 +134,32 @@ analysis.specs$glmm_negativeTraining <- 'neg'
 analysis.specs$Method <- 'RELICS-search'
 ```
 
-7. Depending on the CRISPR system used the range of effect is different. We recommend setting the range to 20bp for `CRISPRcas9`, 1000bp for `CRISPRi` and `CRISPRa`. Note that the effect range is added to the positions specified in the info file. If the effect range is already included in the positions of the info file then it should be set to 0 here. 
+7. Specify the CRISPR system used and the range of perturbation effect. Depending on the CRISPR system used, the range of effect is different. We recommend setting the range to 20bp for `CRISPRcas9`, 1000bp for `CRISPRi` and `CRISPRa`. In the example provided, the effect range is added to the guide positions specified in the [guide information file](https://github.com/zrcjessica/RELICS#input-data-format). When this is the case, the effect range should be set to `0` in this step. 
 
-In case of a `dualCRISPR` system an arbitrary `crisprEffectRange` can be specified as RELICS will automatically use the deletion range between guide 1 and guide 2 as effect range.
+In case of a `dualCRISPR` system, an arbitrary `crisprEffectRange` can be specified, as RELICS will automatically use the deletion range between guide 1 and guide 2 as effect range.
 ```r
-analysis.specs$crisprSystem <- 'CRISPRi' # other potions: CRISPRcas9, CRISPRa, dualCRISPR
+analysis.specs$crisprSystem <- 'CRISPRi' # other options: CRISPRcas9, CRISPRa, dualCRISPR
 analysis.specs$crisprEffectRange <- 1000
 ```
 
-8. Once you have your flags set, create a specification file using the `write_specs_file()` function. The two arguments it takes are the list with flags you just set and the name of the file (.txt will be added automatically so don't include that)
+8. Once you set your flags, create a specification file using the `write_specs_file()` function. It takes two arguments: the list of flags that you have just set (`analysis.specs`) and the name of the file to write to (`.txt` will be automatically appended as the file extension):
 ```r
 write_specs_file(analysis.specs, 'Type_3_exampleSim_specs')
 ```
 
-
 ### 3. Run RELICS
-Once your specification file is setup simply use the `analyze_data()` function to start the RELICS analysis. For the example given it will take about 5 min on a typical desktop computer.
+Once your specification file has been set up, simply use the `analyze_data()` function and pass it the name of the specification file (sans the `.txt` file extension) to begin the RELICS analysis. The example provided should take about 5 minutes to run on a typical desktop computer.
 ```r
 analyze_data('Type_3_exampleSim_specs.txt') # or whatever you named your spec. file
 ```
 
-### 3. Ouput files
-RELICS will return several files. They all start with the `$dataName` you specified above:
+### 3. Output files
+RELICS will return several output files. They all start with the `dataName` specified in step 2 above:
 
-\* _RELICS_genomeScores.bedgraph: Contains the RELICS scores in bedgraph format and allows you to visualize your results in your preferred Genome browser.
+* `{dataName} _RELICS_genomeScores.bedgraph`: This file contains the RELICS scores in bedGraph format and allows you to visualize your results in your preferred genome browser.
 
-\*_RELICS_genomeScores.csv : Contains the genome scores set up in bedgraph format. This file has 7 columns. 
+* `{dataName}_RELICS_genomeScores.csv`: This file contains the genome scores in bedGraph format. This file has 7 columns: 
+
 > genomeScore: combined per-guide RELICS score for this region
 
 > chrom, start, end: position of the region
@@ -172,7 +170,7 @@ RELICS will return several files. They all start with the `$dataName` you specif
 
 > nrSupportGuides: number of guide effect ranges which overlap this particular region
 
-\*_RELICS_guideScores.csv*: Contains the per-guide RELICS scores which are combined aross regions of overlapping effects. Minimum number of columns: 8
+* `{dataName}_RELICS_guideScores.csv`: This file contains the per-guide RELICS scores, which are combined aross regions of overlapping effects. Minimum number of columns: 8
 
 > raw_scores, guide_scores: contain identical values. `raw_scores` was kept for backward compatibility. Use `guide_scores` when working with this file
 
@@ -184,16 +182,17 @@ RELICS will return several files. They all start with the `$dataName` you specif
 
 > replX_bf: RELICS score (Bayes Factor) for replicate `X`. Scores are reported for each replicate.
 
-\*_RELICS_parSummary.csv: Contains RELICS parameter estimates for all replicates, for each pool, for regulatory and background model. 
+* `{dataName}_RELICS_parSummary.csv`: This file contains RELICS parameter estimates for all replicates, for each pool, for regulatory and background model. 
 
-\*_RELICS_replX_parEst.csv: Contains RELICS parameter estimates from the positve and negative controls for replicate `X`. For each replicate, the first pool is used as intercept, all subsequent ones defined as deviance from intercept. 
+* `{dataName}_RELICS_replX_parEst.csv`: This file contains RELICS parameter estimates from the positve and negative controls for replicate `X`. For each replicate, the first pool is used as intercept, and all subsequent ones defined as deviance from intercept. 
 
 # Advanced flags for experienced RELICS users
 
-RELICS combines information of guides which overlap with their guide effect. This can lead to scenarios where guides with different labels overlap. By default the label with fewer occurances in the data set is chosen. However, it is also possible for the user to specify the tie breaking by explicitly setting the labelHierarchy flag.
-Rightmost label has highest priority. As an example; if a region has overlapping guides labeled as both exon overlapping ('exon') as well as targeting guides with unknown effect ('chr') then the region will be assigned the higher label from the hierarchy, namely 'exon'.
+RELICS combines information of guides which overlap with their guide effect. This can lead to scenarios where guides with different labels overlap. By default the label with fewer occurances in the data set is chosen. However, it is also possible for the user to specify the tie breaking by explicitly setting the `labelHierarchy` flag.
 
-This example data set was part of the simulations used to assess method performance and in addition to the usual 'exon' and 'neg' labels it also contains a 'pos' label for guides overlapping simulated enhancer regions. Below we will train on exon overlapping guides and negative controls to then identify the simulated positive regions ('pos').
+The rightmost label has highest priority. For example: if a region has overlapping guides labeled as both exon overlapping (`exon`) as well as targeting guides with unknown effect (`chr`), then the region will be assigned the label with higher priority in the hierarchy - in this case being `exon`.
+
+This example dataset was part of the simulations used to assess method performance. In addition to the usual `exon` and `neg` labels, it also contains a `pos` label for guides overlapping simulated enhancer regions. Below, we will train on exon overlapping guides and negative controls to identify the simulated positive regions (`pos`).
 
 ```r
 analysis.specs$labelHierarchy <- c('chr', 'neg', 'exon', 'pos')
