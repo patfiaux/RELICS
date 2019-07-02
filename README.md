@@ -185,7 +185,7 @@ RELICS will return several output files. They all start with the `dataName` spec
 
 * `{dataName}_RELICS_replX_parEst.csv`: This file contains RELICS parameter estimates from the positve and negative controls for replicate `X`. For each replicate, the first pool is used as intercept, and all subsequent ones defined as deviance from intercept. 
 
-# Advanced flags for experienced RELICS users
+# Advanced flags
 
 RELICS combines information of guides which overlap with their guide effect. This can lead to scenarios where guides with different labels overlap. By default the label with fewer occurances in the data set is chosen. However, it is also possible for the user to specify the tie breaking by explicitly setting the `labelHierarchy` flag.
 
