@@ -1,6 +1,6 @@
 # RELICS :sparkles:: Regulatory Element Location Identification  in CRISPR screens
 
-RELICS uses a generalized linear mixed model (GLMM) to analyze CRISPR regulatory screens. Given a set of guides to train on, RELICS identifies regions with high similarity to the positive controls (enhancer-like) and regions which are more similar to negative controls (non-regulatory-like).
+RELICS uses a generalized linear mixed model (GLMM) to analyze CRISPR regulatory screens. Given a set of guides to train on, RELICS identifies regions with high similarity to the regulatory (enhancer-like) guides and regions which are more similar to non-regulatory (negative controls) guides.
 
 This work is continously being improved. Please ask questions or [post issues](https://github.com/patfiaux/RELICS/issues).
 
@@ -120,11 +120,11 @@ Note 2: Analysis across multiple replicates has not been implemented yet, so joi
 analysis.specs$repl_groups <- '1,2,3,4;5,6,7,8'
 ```
 
-5. RELICS empirically estimates the GLMM parameters from the data. A set of positive and negative controls should be provided. Positive controls are usually promoter- or exon-targeting guides. Negative controls can be non-targeting guides or can be everything that is not a positive control. Although the latter option increases the runtime, we have observed that it typically reduces the noise in the results.
+5. The information file has a `label` column, such that each guide has a label assigned to it. Specify which guides are to be used to train the GLMM regulatory and non-regulatory parameters. Both `glmm_positiveTraining` and `glmm_negativeTraining` take either a string or a vector of strings. Regulatory guides are usually promoter- or exon-targeting guides. Non-regulatory guides can be non-targeting guides or can be all guides not used as regulatory guides. Although the latter option increases the runtime, we have observed that it typically reduces the noise in the results.
 
 ```r
-analysis.specs$glmm_positiveTraining <- 'exon'
-analysis.specs$glmm_negativeTraining <- 'neg' 
+analysis.specs$glmm_positiveTraining <- 'exon' # use all guides that overlap an exon to train the regulatory parameters
+analysis.specs$glmm_negativeTraining <- 'neg' # use all negative control guides to train non-regulatory parameters
 # alternatively use: analysis.specs$glmm_negativeTraining <- c('chr', 'neg') to include everything except positives as negatives
 ```
 
