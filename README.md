@@ -155,7 +155,7 @@ analyze_data('Type_3_exampleSim_specs.txt') # or whatever you named your spec. f
 ### 3. Output files
 RELICS will return several output files. They all start with the `dataName` specified in step 2 above:
 
-* `{dataName} _RELICS_genomeScores.bedgraph`: This file contains the RELICS scores in bedGraph format and allows you to visualize your results in your preferred genome browser.
+* `{dataName}_RELICS_genomeScores.bedgraph`: This file contains the RELICS scores in bedGraph format and allows you to visualize your results in your preferred genome browser.
 
 * `{dataName}_RELICS_genomeScores.csv`: This file contains the genome scores in bedGraph format. This file has 7 columns: 
 
