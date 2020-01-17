@@ -1,0 +1,7 @@
+dataName:CD69_example_analysis
+DataInputFileLoc:Example_data/CD69_data_example.csv
+repl_groups:5,7,9,11,13;6,8,10,12,14
+min_FS_nr:8
+FS0_label:CD69_promoter
+crisprSystem:CRISPRa
+out_dir:CD69_example_analysis/

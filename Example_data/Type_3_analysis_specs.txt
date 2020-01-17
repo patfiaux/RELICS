@@ -1,9 +1,0 @@
-dataName:Type_3_exampleSim
-CountFileLoc:Type_3_simulated_counts.csv
-sgRNAInfoFileLoc:Type_3_simulated_info.csv
-repl_groups:1,2,3,4;5,6,7,8
-glmm_positiveTraining:exon
-glmm_negativeTraining:neg
-Method:RELICS-search
-crisprSystem:CRISPRi
-crisprEffectRange:1000
