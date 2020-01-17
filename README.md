@@ -55,9 +55,9 @@ The required columns must have the following information: chromosome, sgRNA targ
 
 The columns specifying chromosome, guide target start, guide target end and label are mandatory and must be labelled `chrom`, `start`, `end`, and `label` respectively.
 
-Example count file: 2 replicates from a FACS experiment. Input pools was sorted into high, medium and low expression
-
 For the columns containing sgRNA counts, names are necessary but the names do not matter as the user will index the columns by number, not by name.
+
+Example count file: 2 replicates from a FACS experiment. Input pools was sorted into high, medium and low expression
 
 | chrom | start | end | label | repl1_input | repl1_high | repl1_med | repl1_low | repl2_input | repl2_high | repl2_med | repl2_low |
 |----------|----------|----------|----------|----------|----------|-------|------- |------|------|------|------|
@@ -71,13 +71,13 @@ In an interactive R session:
 
 ### 1. Source the script
 ```r
-source('/path/to/script/RELICS.r')
+source('/path/to/script/RELICS.v2.r')
 ```
 
 ### 2. Set up the analysis specification file
-Several parameters must be specified by the user before running RELICS. These parameters are set within the specification file. This allows a user to refer back to the specification file for the parameters that were used for a particular analysis. The options below  describe the most important parameters required to get the analysis going.
+Several parameters must be specified by the user before running RELICS. Tutorial walkthrough below describes the most important parameters required to get the analysis going. In the process you will analyze a subset of the CD69 CRISPRa screen from (Simeonov et al.)[https://www.nature.com/articles/nature23875].
 
-#### Option 1: Modify the given template in the `Example_data` folder (`Type_3_analysis_specs.txt`)
+#### Option 1: Modify the given template in the `RELICS_tutorial` folder (`Example_analysis_specifications.txt`)
 There is a template specification file already set up for the example data. It contains the main flags required to run RELICS. The meaning of the different flags are discussed in the next section. 
 
 #### Option 2: Set the flags within `R` and save them to the specification file prior to analysis
@@ -86,38 +86,41 @@ It is also possible to create a specification file from scratch by setting param
 1. Flags are set up in a list object
 
 ```r
-analysis.specs <- list()
+relics.parameters <- list()
 ```
 
 2. Set the output name of the analysis (`dataName`). Be sure to choose a different name from the existing file so that you don't overwrite the example, and you can compare and check that you got the same flags.
 
 ```r
-analysis.specs$dataName <- 'Type_3_exampleSim'
+relics.parameters$dataName <- 'CD69_example_analysis'
 ```
 
-3. Specify the path to the count and info files.
+3. Specify the data file.
 
 ```r
-analysis.specs$CountFileLoc <- './Type_3_simulated_counts.csv'
-analysis.specs$sgRNAInfoFileLoc <- './Type_3_simulated_info.csv'
+relics.parameters$DataInputFileLoc <- './Example_data/CD69_data_example.csv'
 ```
 
-4. RELICS uses a GLMM and jointly analyzes all pools from each replicate. The replicates are separated by a semicolon (`;`) and each pool from the count file is referred to by number. 
+4. RELICS uses a Dirichlet-Multinomial and jointly analyzes all pools from each replicate. In the specification file the replicates are separated by a semicolon (`;`) and referred to by column position in the data file. Within R, the replicates are each an element within a `list()`
 
-Example: `1,2,3,4;5,6,7,8` represents two replicates. The first four columns of the count file comprise replicate 1 and the next four columns comprise replicate 2.
+Example: `5,7,9,11,13;6,8,10,12,14` represents two replicates. In this example, the pools of each replicate are altering.
 
 Note 1: The input type is a string, such as the example shown above.
 
-Note 2: Analysis across multiple replicates has not been implemented yet, so jointly analyzing all pools (`1,2,3,4,5,6,7,8`) is not advised!
+Note 2: Analysis across multiple replicates has not been implemented yet, so jointly analyzing all pools (`5,7,9,11,13,6,8,10,12,14`) is not advised!
 
 ```r
-analysis.specs$repl_groups <- '1,2,3,4;5,6,7,8'
+repl.pools <- list()
+repl.pools[[1]] <- c(5, 7, 9, 11, 13)
+repl.pools[[2]] <- c(6, 8, 10, 12, 14)
+
+relics.parameters$repl_groups <- repl.pools
 ```
 
 5. The information file has a `label` column, such that each guide has a label assigned to it. Specify which guides are to be used to train the GLMM regulatory and non-regulatory parameters. Both `glmm_positiveTraining` and `glmm_negativeTraining` take either a string or a vector of strings. Regulatory guides are usually promoter- or exon-targeting guides. Non-regulatory guides can be non-targeting guides or all guides not used as regulatory guides. Although the latter option increases the runtime, we have observed that it typically reduces the noise in the results.
 
 ```r
-analysis.specs$glmm_positiveTraining <- 'exon' # use all guides that overlap an exon to train the regulatory parameters
+relics.parameters$FS0_label <- 'CD69_promoter' # use all guides that overlap an exon to train the regulatory parameters
 analysis.specs$glmm_negativeTraining <- 'neg' # use all negative control guides to train non-regulatory parameters
 # alternatively use: analysis.specs$glmm_negativeTraining <- c('chr', 'neg') to include everything except positives as negatives
 ```
