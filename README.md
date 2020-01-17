@@ -1,6 +1,6 @@
 # RELICS :sparkles:: Regulatory Element Location Identification  in CRISPR screens
 
-RELICS uses a generalized linear mixed model (GLMM) to analyze CRISPR regulatory screens. Given a set of guides to train on, RELICS identifies regions with high similarity to the regulatory (enhancer-like) guides and regions which are more similar to non-regulatory (negative controls) guides.
+RELICS is a method of analyzing tiling CRISPR screens for detecting functional sequences. The current version (v.2.0) of RELICS uses a Bayesian hierarchical model and considers the overlapping effects of multiple guides, can jointly analyze multiple pools per replicate and estimates the number of functional sequences supported by the data.
 
 This work is continuously being improved. Please ask questions or [post issues](https://github.com/patfiaux/RELICS/issues).
 
@@ -13,21 +13,25 @@ Clone source code to your desired location with the following command: ```git cl
 ## Install requirements
 You will need the following packages to run RELICS. If you don't have them, install them using the following commands. Installations will take about 5 minutes on a standard laptop.
 ## R packages
-dplyr
-```r
-install.packages('dplyr')
-```
-ggplot2
+ggplot2 (for plotting)
 ```r
 install.packages('ggplot2')
 ```
-pROC
+gridExtra (for combining multiple plots in one figure)
 ```r
-install.packages('pROC')
+install.packages('gridExtra')
 ```
-glmmTMB
+poibin (for calculating the Poisson-Binomial)
 ```r
-install.packages('glmmTMB')
+install.packages('poibin')
+```
+extraDistr (for calculating the Dirichlet-Multinomial)
+```r
+install.packages('extraDistr')
+```
+gtools (for calculating combinations)
+```r
+install.packages('gtools')
 ```
 ## Bioconductor packages
 ```r
@@ -35,12 +39,12 @@ if (!requireNamespace("BiocManager", quietly = TRUE))
 
     install.packages("BiocManager")
 ``` 
-IRanges
+IRanges (for handling genomic coordinates)
 ```r
 BiocManager::install("IRanges", version = "3.8")
 ```
 
-GenomicRanges
+GenomicRanges (for handling genomic coordinates)
 ```r
 BiocManager::install("GenomicRanges", version = "3.8")
 ```
