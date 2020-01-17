@@ -50,31 +50,21 @@ BiocManager::install("GenomicRanges", version = "3.8")
 ```
 
 ## Input data format
-RELICS requires two different files as input: 
-1. A **guide information file**, containing information about all the simulated guides (chromosome, start, end, label).
-2. A **counts file**, containing the counts for each guide in each pool.
+RELICS requires an input file conatining the sgRNA targets and the corresponding counts in the different pools. 
+The required columns must have the following information: chromosome, sgRNA target start, sgRNA target end, sgRNA label, ...(sgRNA counts in different pools)...
 
-The counts file contains only the counts for each guide for each experiment. Column names are necessary but the names do not matter as the user will index the columns by number, not by name.
+The columns specifying chromosome, guide target start, guide target end and label are mandatory and must be labelled `chrom`, `start`, `end`, and `label` respectively.
 
 Example count file: 2 replicates from a FACS experiment. Input pools was sorted into high, medium and low expression
 
-| repl1_input | repl1_high | repl1_med | repl1_low | repl2_input | repl2_high | repl2_med | repl2_low |
-|----------|----------|-------|------- |------|------|------|------|
-| 11 | 9 | 12 | 11 | 152 | 119 | 189 | 102 |
-| 68 | 81 | 39 | 67 | 360 | 339 | 280 | 821 |
-| 96 | 89 | 109 | 17 | 3 | 4 | 5 | 0 |
-| 104 | 97 | 116 | 38 | 190 | 198 | 194 | 23 |
+For the columns containing sgRNA counts, names are necessary but the names do not matter as the user will index the columns by number, not by name.
 
-The guide information file contains all remaining info about the guides such as targeting position and type of guide (positive control, negative control, exon targeting etc.). Non-targeting controls should be specified by setting `chrom`, `start`, and `end` to NA. The columns specifying chromosome, guide target start, guide target end and label are mandatory and must be labelled `chrom`, `start`, `end`, and `label` respectively.
-
-| chrom | start | end | label |
-|----------|----------|----------|----------|
-| chr8 | 128704468 | 128704488 | chr |
-| chr8 | 128704469 | 128704489 | chr |
-| NA | NA | NA | neg |
-| chr8 | 128704482 | 128704502 | exon |
-
-Row 1 in the count file should correspond to the guide in row 1 in the info file.
+| chrom | start | end | label | repl1_input | repl1_high | repl1_med | repl1_low | repl2_input | repl2_high | repl2_med | repl2_low |
+|----------|----------|----------|----------|----------|----------|-------|------- |------|------|------|------|
+| chr8 | 128704468 | 128704488 | chr | 11 | 9 | 12 | 11 | 152 | 119 | 189 | 102 |
+| chr8 | 128704469 | 128704489 | chr | 68 | 81 | 39 | 67 | 360 | 339 | 280 | 821 |
+| NA | NA | NA | neg | 96 | 89 | 109 | 17 | 3 | 4 | 5 | 0 |
+| chr8 | 128704482 | 128704502 | exon | 104 | 97 | 116 | 38 | 190 | 198 | 194 | 23 |
 
 ## Quickstart with example data
 In an interactive R session:
@@ -200,3 +190,30 @@ This example dataset was part of the simulations used to assess method performan
 ```r
 analysis.specs$labelHierarchy <- c('chr', 'neg', 'exon', 'pos')
 ```
+
+## Input data format contd. (for backward compatibility)
+Instead of providing one joint file containing both coordinates and counts it is also possible to supply them separately. In this case the format is the following:
+1. A **guide information file**, containing information about all the simulated guides (chromosome, start, end, label).
+2. A **counts file**, containing the counts for each guide in each pool.
+
+The counts file contains only the counts for each guide for each experiment. Column names are necessary but the names do not matter as the user will index the columns by number, not by name.
+
+Example count file: 2 replicates from a FACS experiment. Input pools was sorted into high, medium and low expression
+
+| repl1_input | repl1_high | repl1_med | repl1_low | repl2_input | repl2_high | repl2_med | repl2_low |
+|----------|----------|-------|------- |------|------|------|------|
+| 11 | 9 | 12 | 11 | 152 | 119 | 189 | 102 |
+| 68 | 81 | 39 | 67 | 360 | 339 | 280 | 821 |
+| 96 | 89 | 109 | 17 | 3 | 4 | 5 | 0 |
+| 104 | 97 | 116 | 38 | 190 | 198 | 194 | 23 |
+
+The guide information file contains all remaining info about the guides such as targeting position and type of guide (positive control, negative control, exon targeting etc.). Non-targeting controls should be specified by setting `chrom`, `start`, and `end` to NA. The columns specifying chromosome, guide target start, guide target end and label are mandatory and must be labelled `chrom`, `start`, `end`, and `label` respectively.
+
+| chrom | start | end | label |
+|----------|----------|----------|----------|
+| chr8 | 128704468 | 128704488 | chr |
+| chr8 | 128704469 | 128704489 | chr |
+| NA | NA | NA | neg |
+| chr8 | 128704482 | 128704502 | exon |
+
+Row 1 in the count file should correspond to the guide in row 1 in the info file.
