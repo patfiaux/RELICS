@@ -52,7 +52,7 @@ BiocManager::install("GenomicRanges", version = "3.8")
 ```
 
 ## Input data format
-RELICS requires an input file conatining the sgRNA targets and the corresponding counts in the different pools. 
+RELICS requires an input file containing the sgRNA targets and the corresponding counts in the different pools. 
 The required columns must have the following information: chromosome, sgRNA target start, sgRNA target end, sgRNA label, ...(sgRNA counts in different pools)...
 
 The columns specifying chromosome, guide target start, guide target end and label are mandatory and must be labelled `chrom`, `start`, `end`, and `label` respectively.
@@ -61,12 +61,12 @@ For the columns containing sgRNA counts, names are necessary but the names do no
 
 Example count file: 2 replicates from a FACS experiment. Input pools was sorted into high, medium and low expression
 
-| chrom | start | end | label | repl1_input | repl1_high | repl1_med | repl1_low | repl2_input | repl2_high | repl2_med | repl2_low |
-|----------|----------|----------|----------|----------|----------|-------|------- |------|------|------|------|
-| chr8 | 128704468 | 128704488 | chr | 11 | 9 | 12 | 11 | 152 | 119 | 189 | 102 |
-| chr8 | 128704469 | 128704489 | chr | 68 | 81 | 39 | 67 | 360 | 339 | 280 | 821 |
-| NA | NA | NA | neg | 96 | 89 | 109 | 17 | 3 | 4 | 5 | 0 |
-| chr8 | 128704482 | 128704502 | exon | 104 | 97 | 116 | 38 | 190 | 198 | 194 | 23 |
+| chrom | label | start | end | CD69back_1 | CD69back_2 | CD69baseline_1 | CD69baseline_2 | CD69low_1 | CD69low_2 | CD69medium_1 | CD69medium_2 | CD69high_1 | CD69high_2 |
+|----------|----------|----------|----------|----------|----------|-------|------- |------|------|------|------|------|------|
+| chr12 | chr | 9913351 | 9913371 | 788 | 926 | 3492 | 968 | 2349 | 1087 | 355 | 923 | 110 | 1023 |
+| chr12 | chr | 9913413 | 9913433 | 2656 | 3361 | 4779 | 1579 | 8695 | 3036 | 3177 | 7693 | 730 | 9960 |
+| chr12 | chr | 9913414 | 9913434 | 1099 | 1089 | 2102 | 565 | 3705 | 1172 | 1054 | 2669 | 265 | 4727 |
+| chr12 | CD69_promoter | 9913429 | 9913449 | 504 | 412 | 2185 | 238 | 580 | 445 | 103 | 570 | 49 | 342 |
 
 ## Quickstart with example data
 In an interactive R session:
