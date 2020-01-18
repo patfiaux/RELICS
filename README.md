@@ -1,8 +1,8 @@
 # RELICS :sparkles:: Regulatory Element Location Identification  in CRISPR screens
 
-RELICS is a method of analyzing tiling CRISPR screens for detecting functional sequences. The current version (v.2.0) of RELICS uses a Bayesian hierarchical model and considers the overlapping effects of multiple guides, can jointly analyze multiple pools per replicate and estimates the number of functional sequences supported by the data.
+RELICS is a method for analyzing tiling CRISPR screens to detect functional sequences. The current version (v.2.0) of RELICS uses a Bayesian hierarchical model and considers the overlapping effects of multiple guides, can jointly analyze multiple pools per replicate and estimates the number of functional sequences supported by the data.
 
-Briefly; RELICS splits the region of interest into segments. It then iteratively places one functional sequence at a time, while considering all previously placed functional sequences. RELICS is a semi-supervised method and requires a set of positive control sgRNAs. Note that RELICS currently does not work with non-targeting sgRNAs and currently only analyzes one chromosome at a time. We are working on several extensions and if you have any requests, please feel free to reach out to us!
+Briefly; RELICS splits the region of interest into segments. It then iteratively places one functional sequence at a time, while considering all previously placed functional sequences. RELICS is a semi-supervised method and requires a set of positive control sgRNAs to start. Note that RELICS currently does not work with non-targeting sgRNAs and at the moment only analyzes one chromosome at a time. We are working on several extensions and if you have any requests, please feel free to reach out to us!
 
 This work is continuously being improved. Please ask questions or [post issues](https://github.com/patfiaux/RELICS/issues).
 
@@ -59,7 +59,7 @@ The columns specifying chromosome, guide target start, guide target end and labe
 
 For the columns containing sgRNA counts, names are necessary but the names do not matter as the user will index the columns by number, not by name.
 
-Here part of the example file in the `RELICS_tutorial` folder. It's is a subset from the CD69 CRSIPRa screen by (Simeonov et al.)[https://www.nature.com/articles/nature23875]. It contains 2 replicates from a FACS experiment. Input pools (`back`) were sorted into no CD69 expression (`baseline`), low, medium and high expression.
+Below is part of the example file in the `RELICS_tutorial` folder. It's a subset from the CD69 CRSIPRa screen by (Simeonov et al.)[https://www.nature.com/articles/nature23875]. It contains 2 replicates from a FACS experiment. Input pools (`back`) were sorted into no CD69 expression (`baseline`), low, medium and high expression.
 
 | chrom | label | start | end | CD69back_1 | CD69back_2 | CD69baseline_1 | CD69baseline_2 | CD69low_1 | CD69low_2 | CD69medium_1 | CD69medium_2 | CD69high_1 | CD69high_2 |
 |----------|----------|----------|----------|----------|----------|-------|------- |------|------|------|------|------|------|
@@ -77,13 +77,13 @@ source('/path/to/script/RELICS.v2.r')
 ```
 
 ### 2. Set up the analysis specification file
-Several parameters must be specified by the user before running RELICS. Tutorial walkthrough below describes the most important parameters required to get the analysis going. In the process you will analyze a subset of the CD69 CRISPRa screen from (Simeonov et al.)[https://www.nature.com/articles/nature23875].
+Several parameters must be specified by the user before running RELICS. The tutorial walkthrough below describes the most important parameters required to get the analysis going. In the process you will analyze a subset of the CD69 CRISPRa screen from (Simeonov et al.)[https://www.nature.com/articles/nature23875].
 
 #### Option 1: Modify the given template in the `RELICS_tutorial` folder (`Example_analysis_specifications.txt`)
 There is a template specification file already set up for the example data. It contains the main flags required to run RELICS. The meaning of the different flags are discussed in the next section. 
 
-#### Option 2: Set the flags within `R` and save them to the specification file prior to analysis
-It is also possible to create a specification file from scratch by setting parameters within R. The following steps demonstrate how to set up parameters for the example specification file. At the end of this section, you will be able to run RELICS on the example data.
+#### Option 2: Set the flags within `R`
+It is also possible to set the parameters directly within R. The following steps demonstrate how to set up parameters for the example specification file. At the end of this section, you will be able to run RELICS on the example data.
 
 1. Flags are set up in a list object
 
@@ -94,7 +94,7 @@ relics.parameters <- list()
 2. Set the output name of the analysis (`dataName`). Be sure to choose a different name from the existing file so that you don't overwrite the example, and you can compare and check that you got the same flags.
 
 ```r
-relics.parameters$dataName <- 'CD69_example_analysis'
+relics.parameters$dataName <- 'CD69_tutorial_analysis'
 ```
 
 3. Specify the data file.
@@ -179,7 +179,7 @@ In all subsequent file names, the pattern `_kX_` refers to `X` functional sequen
 
 * `{dataName}_final_kX.csv`: This file contains the functional sequence probabilities of all functional sequences detected. Each column corresponds to a genome segment, ordered as in `{dataName}_segmentInfo.csv`. Each row corresponds to the functional sequence probabilities of a particular functional sequence. The first row corresponds to FS0, the second to FS1 etc.
 
-* `{dataName}_final_kX_ll_progression.csv`: This file keeps track of the -log-likelihood model improvement with each additional functional sequence detected. Correctly detecting an additional functional sequence should improve the model fit if this is supported by the data. The initial contributions are usually quite large and then start plateauing as all functional sequences are detected.
+* `{dataName}_final_kX_ll_progression.csv`: This file keeps track of the -log-likelihood model improvement with each additional functional sequence detected. Correctly detecting an additional functional sequence should improve the model fit. The initial contributions are usually quite large and then start plateauing as all functional sequences are detected.
 |Column name | Column description |
 |----------|----------|
 | FS | the functional sequence which is included in the overall model |
@@ -217,7 +217,7 @@ If specifying the `labelHierarchy`, all labels should be provided. Guides with l
 relics.parameters$labelHierarchy <- c('chr', 'exon', 'CD69_promoter')
 ```
 
-Length of functional sequences: By default, RELICS considers functional sequences to be up to 10 genome segments. In the case of 100bp segments that would correspond to 1kb. It is possible to either increase or decrease this functional sequence length by adjusting the `nr_segs` flag. Note, by increasing the number, RELICS' runtime will increase as it will consider all possible functional sequence sizes from 1 up to `nr_segs`.
+By default, RELICS considers functional sequences to be up to 10 genome segments. In the case of 100bp segments that would correspond to 1kb. It is possible to either increase or decrease this functional sequence length by adjusting the `nr_segs` flag. Note, by increasing the number, RELICS' runtime will increase as it will consider all possible functional sequence sizes from 1 up to `nr_segs`.
 ```r
 relics.parameters$nr_segs <- 10 # default is 10
 ```
@@ -237,7 +237,7 @@ By default RELICS considers all genome segments which have a functional sequence
 relics.parameters$min_fs_pp <- 0.1 # default is 0.1
 ```
 
-By default, RELICS only outputs the files once it has discovered all functional sequences. However, it is possible to get the same output for every functional sequence detected. This can be useful when data sets take a long time to run. The intermediate files can already reveal where the first set of functional sequences are located while RELICS still searches for more. To record all intermediate files set the `record.all.fs` to `TRUE` when running RELICS.
+By default, RELICS only outputs files once it has discovered all functional sequences. However, it is possible to get the same output for every functional sequence detected. This can be useful when data sets take a long time to run. The intermediate files can already reveal where the first set of functional sequences are located while RELICS still searches for more. To record all intermediate files set the `record.all.fs` to `TRUE` when running RELICS.
 ```r
 RELICS(input.parameter.list = relics.parameters, record.all.fs = TRUE)
 
