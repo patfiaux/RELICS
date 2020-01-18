@@ -149,7 +149,8 @@ relics.parameters$out_dir <- 'CD69_tutorial_output/'
 ```
 
 ### 3. Run RELICS
-Once your specification file has been set up, simply use the `analyze_data()` function and pass it the name of the specification file (sans the `.txt` file extension) to begin the RELICS analysis. The example provided should take about 5 minutes to run on a typical desktop computer.
+Once you have set up your parameters you can run RELICS by directly giving it the list we set up above, or by first saving it to a `.txt` file. In the latter case, the flags and their values should be separated by a colon (`:`, see `Example_analysis_specifications.txt`)
+The CD69 example provided should take about 10 minutes to run on a typical desktop computer.
 ```r
 RELICS(input.parameter.list = relics.parameters)
 
