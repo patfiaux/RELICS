@@ -1028,16 +1028,16 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
           # record all correlations
           write.layer.corrs.df <- data.frame(FSpair_1 = layer.corr.df$layer_1, FSpair_2 = layer.corr.df$layer_2,
                                           corr = layer.corr.df$corr, nr_FS_compared = layer.corr.df$layer_Iteration, stringsAsFactors = F)
-          write.csv(write.layer.corrs.df, file = paste0(out.dir, '_final_allCorrs_k', i - 1,'.csv'), row.names = F)
+          write.csv(write.layer.corrs.df, file = paste0(out.dir, '_final_allCorrs_k', i,'.csv'), row.names = F)
 
           display_relics_fs_as_tiff(final.layer.posterior[[i]],
                                     input.data$segLabels,
-                                    paste0(out.dir, '_atFinal_k_', i),
+                                    paste0(out.dir, '_atFinal_k', i),
                                     input.min.rs.pp)
 
           display_relics_fs_as_tiff(final.pp.out,
                                     input.data$segLabels,
-                                    paste0(out.dir, '_final_k_', i-1),
+                                    paste0(out.dir, '_final_k', i-1),
                                     input.min.rs.pp)
 
           # # plot the ll progression and mark layers where convergence failed
@@ -1078,16 +1078,16 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
           # record all correlations
           write.layer.corrs.df <- data.frame(FSpair_1 = layer.corr.df$layer_1, FSpair_2 = layer.corr.df$layer_2,
                                              corr = layer.corr.df$corr, nr_FS_compared = layer.corr.df$layer_Iteration, stringsAsFactors = F)
-          write.csv(write.layer.corrs.df, file = paste0(out.dir, '_recommendedFinal_allCorrs_k', i - 1,'.csv'), row.names = F)
+          write.csv(write.layer.corrs.df, file = paste0(out.dir, '_recommendedFinal_allCorrs_k', i,'.csv'), row.names = F)
 
           display_relics_fs_as_tiff(final.layer.posterior[[i]],
                                     input.data$segLabels,
-                                    paste0(out.dir, '_atRecommendedFinal_k_', i),
+                                    paste0(out.dir, '_atRecommendedFinal_k', i),
                                     input.min.rs.pp)
 
           display_relics_fs_as_tiff(final.pp.out,
                                     input.data$segLabels,
-                                    paste0(out.dir, '_recommendedFinal_k_', i-1),
+                                    paste0(out.dir, '_recommendedFinal_k', i-1),
                                     input.min.rs.pp)
 
           # plot the ll progression and mark layers where convergence failed
@@ -1325,7 +1325,7 @@ plot_fs_stats <- function(input.layer.ll.df, layer.corr.df, out.dir, layer.nr, f
 
   #layer.ll.df.noConv <- input.layer.ll.df[-which(input.layer.ll.df$no_convergence != 1),]
 
-  pdf(paste0(out.dir, '_k_', layer.nr, '_summaryStatPlots.pdf'))
+  pdf(paste0(out.dir, '_k', layer.nr, '_summaryStatPlots.pdf'))
 
   p.ll.prog <- ggplot() + geom_line(data = input.layer.ll.df, aes(x = FS, y = FS_ll)) +
     ggtitle('Log-Likelihood progression') + theme_bw() + labs(x='Number of FSs (K)', y='Log-Likelihood')
