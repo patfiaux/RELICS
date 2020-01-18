@@ -2,6 +2,8 @@
 
 RELICS is a method of analyzing tiling CRISPR screens for detecting functional sequences. The current version (v.2.0) of RELICS uses a Bayesian hierarchical model and considers the overlapping effects of multiple guides, can jointly analyze multiple pools per replicate and estimates the number of functional sequences supported by the data.
 
+Briefly; RELICS splits the region of interest into segments. It then iteratively places one functional sequence at a time, while considering all previously placed functional sequences. RELICS is a semi-supervised method and requires a set of positive control sgRNAs. Note that RELICS currently does not work with non-targeting sgRNAs and currently only analyzes one chromosome at a time. We are working on several extensions and if you have any requests, please feel free to reach out to us!
+
 This work is continuously being improved. Please ask questions or [post issues](https://github.com/patfiaux/RELICS/issues).
 
 # Installation
@@ -247,6 +249,12 @@ When searching for the placement of each functional sequence, RELICS uses the IB
 ```r
 relics.parameters$convergence_tol <- 0.1 # default is 0.1
 ```
+
+By default RELICS segments the data into ~100bp segments. This can be adjusted with the `seg_dist` flag
+```r
+relics.parameters$seg_dist <- 100 # default is 100
+```
+
 
 ## Input data format contd. (for backward compatibility)
 Instead of providing one joint file containing both coordinates and counts it is also possible to supply them separately. In this case the format is the following:
