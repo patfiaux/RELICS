@@ -140,16 +140,17 @@ relics.parameters$min_FS_nr <- 8
 relics.parameters$crisprSystem <- 'CRISPRa' # other options: CRISPRcas9, CRISPRi, dualCRISPR
 
 # optional: specify the area of effect for your CRISPR system
-relics.parameters$crisprEffectRange <- 200
+# relics.parameters$crisprEffectRange <- 200
 ```
 
-8. Once you set your flags, create a specification file using the `write_specs_file()` function. It takes two arguments: the list of flags that you have just set (`analysis.specs`) and the name of the file to write to (`.txt` will be automatically appended as the file extension):
+8. Give the loacation of the output directory by setting the `out_dir` flag. Either reference to full path or the path from the current working directory. In this example we will do the latter and assume you are in the `RELICS_tutorial` folder. We recommend you create a new file in which the results are saved. Nore, RELICS will NOT create non-existent files for you. In this example, first create the `CD69_tutorial_output` folder, then set the flag:
 ```r
-write_specs_file(analysis.specs, 'Type_3_exampleSim_specs')
+relics.parameters$out_dir <- 'CD69_tutorial_output/'
 ```
 
 ### 3. Run RELICS
-Once your specification file has been set up, simply use the `analyze_data()` function and pass it the name of the specification file (sans the `.txt` file extension) to begin the RELICS analysis. The example provided should take about 5 minutes to run on a typical desktop computer.
+Once you have set up your parameters you can run RELICS by directly giving it the list we set up above, or by first saving it to a `.txt` file. In the latter case, the flags and their values should be separated by a colon (`:`, see `Example_analysis_specifications.txt`).
+The CD69 example provided should take about 10 minutes to run on a typical desktop computer.
 ```r
 RELICS(input.parameter.list = relics.parameters)
 
@@ -157,10 +158,43 @@ RELICS(input.parameter.list = relics.parameters)
 # RELICS('Example_analysis_specifications.txt')
 ```
 
-### 3. Output files
-RELICS will return several output files. They all start with the `dataName` specified in step 2 above:
+### 4. Output files
+RELICS will return several output files. They all start with the `dataName` specified in step 2 above. By default, RELICS will give you the genome segments that were used, as well as the files associated with finding the last functional sequence before convergence:
 
-* `{dataName}_RELICS_genomeScores.bedgraph`: This file contains the RELICS scores in bedGraph format and allows you to visualize your results in your preferred genome browser.
+* `{dataName}_segmentInfo.csv`: This file contains the segments used by RELICS. It contians the information of chromosome, start and end location of the segment, as well as the label of the segment.
+|Column name | Column description |
+|----------|----------|
+| chrom | chromosome of the region |
+| start | region start |
+| end | region end |
+| label | highest overlapping label according to the [label hierarchy](https://github.com/patfiaux/RELICS#advanced-flags) |
+
+In all subsequent file names, the pattern `_kX_` refers to `X` functional sequences detected.
+
+* `{dataName}_final_kX_total_pp.bedgraph`: This file contains the sum of posteriors across all functional sequences detected.
+
+* `{dataName}_final_kX_FS_locations.bed`: This file contains all genome segments part of the functional sequences detected.
+
+* `{dataName}_final_kX.csv`: This file contains the functional sequence probabilities of all functional sequences detected. Each column corresponds to a genome segment, ordered as in `{dataName}_segmentInfo.csv`. Each row correponds to the functional sequence probabilities of a particular functional sequence. The first row corresponds to FS0, the second to FS1 etc.
+
+* `{dataName}_final_kX_ll_progression.csv`: This file keeps track of the -log-likelihood model improvement with each additional functioanl sequence detected. Correctly detecting an additional functional sequence should improve the model fit if this is supported by the data. The initial controbutions are usually quite large and then start plateauing as all functional sequences are detected.
+|Column name | Column description |
+|----------|----------|
+| FS | the functional sequence which is included in the overall model |
+| FS_ll | the -log-likelihood of the model by including all FS functional sequences |
+
+* `{dataName}_final_kX_perFS_LLcontributions.csv`: This file contains the per-functional sequence contribution to the model improvement.
+|Column name | Column description |
+|----------|----------|
+| FS | the functional sequence |
+| ll | the number of functional sequences included in the model |
+| nr_fs | the number of genome segments considered to be part of the functional sequence as defined by the functional sequence threshold |
+
+* `{dataName}_final_kX_FS_locations.bed`: This file contains all genome segments part of the functional sequences detected.
+* `{dataName}_final_kX_FS_locations.bed`: This file contains all genome segments part of the functional sequences detected.
+* `{dataName}_final_kX_FS_locations.bed`: This file contains all genome segments part of the functional sequences detected.
+* `{dataName}_final_kX_FS_locations.bed`: This file contains all genome segments part of the functional sequences detected.
+* `{dataName}_final_kX_FS_locations.bed`: This file contains all genome segments part of the functional sequences detected.
 
 * `{dataName}_RELICS_genomeScores.csv`: This file contains the genome scores in bedGraph format. This file has 7 columns: 
 
