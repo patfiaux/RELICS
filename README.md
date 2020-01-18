@@ -77,6 +77,9 @@ setwd('path/to/RELICS/RELICS_tutorial/')
 ### 1. Source the script
 ```r
 source('/path/to/script/RELICS.v2.r')
+
+# if you moved into the RELICS_tutorial folder:
+# source('../Code/RELICS.v2.R')
 ```
 
 ### 2. Set up the analysis specification file
