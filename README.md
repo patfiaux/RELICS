@@ -215,6 +215,14 @@ If specifying the `labelHierarchy`, all labels should be provided. Guides with l
 relics.parameters$labelHierarchy <- c('chr', 'exon', 'CD69_promoter')
 ```
 
+Length of functional sequences: By default, RELICS considers functional sequences to be up to 10 genome segments. In the case of 100bp segments that would correspond to 1kb. It is possible to either increase or decrease this functional sequence length by adjusting the `nr_segs` flag. Note, by increasing the number, RELICS' runtime will increase as it will consider all possible functional sequence sizes from 1 up to `nr_segs`.
+```r
+relics.parameters$nr_segs <- 10 # default is 10
+```
+
+
+
+
 ## Input data format contd. (for backward compatibility)
 Instead of providing one joint file containing both coordinates and counts it is also possible to supply them separately. In this case the format is the following:
 1. A **guide information file**, containing information about all the simulated guides (chromosome, start, end, label).
