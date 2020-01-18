@@ -117,12 +117,17 @@ repl.pools[[2]] <- c(6, 8, 10, 12, 14)
 relics.parameters$repl_groups <- repl.pools
 ```
 
-5. The information file has a `label` column, such that each guide has a label assigned to it. Specify which guides are to be used to train the GLMM regulatory and non-regulatory parameters. Both `glmm_positiveTraining` and `glmm_negativeTraining` take either a string or a vector of strings. Regulatory guides are usually promoter- or exon-targeting guides. Non-regulatory guides can be non-targeting guides or all guides not used as regulatory guides. Although the latter option increases the runtime, we have observed that it typically reduces the noise in the results.
+5. The `label` column assigns each sgRNA to a category. These categories are used in the beginning to specify the training sets. By default a set of sgRNAs overlapping known functional sequences (FSs) have to be provided to the `FS0_label` flag. In this case these are guides overlapping the CD69 promoter. All other sgRNAs are used to train the background parameters. The counts of the sgRNAs overlapping each FS detected are iteratively added to the set of counts used to determine the Dirichlet parameters of the FS.
+
+As an option, it is also possible to specify the sgRNA labels to be used as the background. This is done with the `background_label` flag.
+
+In both cases the flags are given either as string or as vector of strings.
 
 ```r
-relics.parameters$FS0_label <- 'CD69_promoter' # use all guides that overlap an exon to train the regulatory parameters
-analysis.specs$glmm_negativeTraining <- 'neg' # use all negative control guides to train non-regulatory parameters
-# alternatively use: analysis.specs$glmm_negativeTraining <- c('chr', 'neg') to include everything except positives as negatives
+relics.parameters$FS0_label <- 'CD69_promoter' # use all sgRNAs that overlap the CD69 promoter are used to initially train the FS parameters
+
+# option: specify the background parameters
+# relics.parameters$glmm_negativeTraining <- c('chr', 'exon') # specify what sgRNAs to use to initially train the background parameters
 ```
 
 6. Specify the method to use as RELICS
