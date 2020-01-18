@@ -145,7 +145,10 @@ write_specs_file(analysis.specs, 'Type_3_exampleSim_specs')
 ### 3. Run RELICS
 Once your specification file has been set up, simply use the `analyze_data()` function and pass it the name of the specification file (sans the `.txt` file extension) to begin the RELICS analysis. The example provided should take about 5 minutes to run on a typical desktop computer.
 ```r
-analyze_data('Type_3_exampleSim_specs.txt') # or whatever you named your spec. file
+RELICS(input.parameter.list = relics.parameters)
+
+# option: use the parameter file instead
+# RELICS('Example_analysis_specifications.txt')
 ```
 
 ### 3. Output files
