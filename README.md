@@ -59,7 +59,7 @@ The columns specifying chromosome, guide target start, guide target end and labe
 
 For the columns containing sgRNA counts, names are necessary but the names do not matter as the user will index the columns by number, not by name.
 
-Example count file: 2 replicates from a FACS experiment. Input pools was sorted into high, medium and low expression
+Here part of the example file in the `RELICS_tutorial` folder. It's is a subset from the CD69 CRSIPRa screen by (Simeonov et al.)[https://www.nature.com/articles/nature23875]. It contains 2 replicates from a FACS experiment. Input pools (`back`) were sorted into no CD69 expression (`baseline`), low, medium and high expression.
 
 | chrom | label | start | end | CD69back_1 | CD69back_2 | CD69baseline_1 | CD69baseline_2 | CD69low_1 | CD69low_2 | CD69medium_1 | CD69medium_2 | CD69high_1 | CD69high_2 |
 |----------|----------|----------|----------|----------|----------|-------|------- |------|------|------|------|------|------|
@@ -68,7 +68,7 @@ Example count file: 2 replicates from a FACS experiment. Input pools was sorted 
 | chr12 | chr | 9913414 | 9913434 | 1099 | 1089 | 2102 | 565 | 3705 | 1172 | 1054 | 2669 | 265 | 4727 |
 | chr12 | CD69_promoter | 9913429 | 9913449 | 504 | 412 | 2185 | 238 | 580 | 445 | 103 | 570 | 49 | 342 |
 
-## Quickstart with example data
+## Quickstart with example data in `RELICS_tutorial`
 In an interactive R session:
 
 ### 1. Source the script
@@ -145,7 +145,7 @@ relics.parameters$crisprSystem <- 'CRISPRa' # other options: CRISPRcas9, CRISPRi
 # relics.parameters$crisprEffectRange <- 200
 ```
 
-8. Give the loacation of the output directory by setting the `out_dir` flag. Either reference to full path or the path from the current working directory. In this example we will do the latter and assume you are in the `RELICS_tutorial` folder. We recommend you create a new file in which the results are saved. Nore, RELICS will NOT create non-existent files for you. In this example, first create the `CD69_tutorial_output` folder, then set the flag:
+8. Give the location of the output directory by setting the `out_dir` flag. Either reference to full path or the path from the current working directory. In this example we will do the latter and assume you are in the `RELICS_tutorial` folder. We recommend you create a new file in which the results are saved. Nore, RELICS will NOT create non-existent files for you. In this example, first create the `CD69_tutorial_output` folder, then set the flag:
 ```r
 relics.parameters$out_dir <- 'CD69_tutorial_output/'
 ```
@@ -163,7 +163,7 @@ RELICS(input.parameter.list = relics.parameters)
 ### 4. Output files
 RELICS will return several output files. They all start with the `dataName` specified in step 2 above. By default, RELICS will give you the genome segments that were used, as well as the files associated with finding the last functional sequence before convergence:
 
-* `{dataName}_segmentInfo.csv`: This file contains the segments used by RELICS. It contians the information of chromosome, start and end location of the segment, as well as the label of the segment.
+* `{dataName}_segmentInfo.csv`: This file contains the segments used by RELICS. It contains the information of chromosome, start and end location of the segment, as well as the label of the segment.
 |Column name | Column description |
 |----------|----------|
 | chrom | chromosome of the region |
@@ -177,9 +177,9 @@ In all subsequent file names, the pattern `_kX_` refers to `X` functional sequen
 
 * `{dataName}_final_kX_FS_locations.bed`: This file contains all genome segments part of the functional sequences detected.
 
-* `{dataName}_final_kX.csv`: This file contains the functional sequence probabilities of all functional sequences detected. Each column corresponds to a genome segment, ordered as in `{dataName}_segmentInfo.csv`. Each row correponds to the functional sequence probabilities of a particular functional sequence. The first row corresponds to FS0, the second to FS1 etc.
+* `{dataName}_final_kX.csv`: This file contains the functional sequence probabilities of all functional sequences detected. Each column corresponds to a genome segment, ordered as in `{dataName}_segmentInfo.csv`. Each row corresponds to the functional sequence probabilities of a particular functional sequence. The first row corresponds to FS0, the second to FS1 etc.
 
-* `{dataName}_final_kX_ll_progression.csv`: This file keeps track of the -log-likelihood model improvement with each additional functioanl sequence detected. Correctly detecting an additional functional sequence should improve the model fit if this is supported by the data. The initial controbutions are usually quite large and then start plateauing as all functional sequences are detected.
+* `{dataName}_final_kX_ll_progression.csv`: This file keeps track of the -log-likelihood model improvement with each additional functional sequence detected. Correctly detecting an additional functional sequence should improve the model fit if this is supported by the data. The initial contributions are usually quite large and then start plateauing as all functional sequences are detected.
 |Column name | Column description |
 |----------|----------|
 | FS | the functional sequence which is included in the overall model |
@@ -201,7 +201,7 @@ In all subsequent file names, the pattern `_kX_` refers to `X` functional sequen
 * `{dataName}__summaryStatPlots.pdf`: Plot showing the overall model -log-likelihood progression and the correlation of the functional sequence probabilities.
 
 
-* `{dataName}_final_kX.tiff`: This file contains the plots of the individual functional sequence probabilities and notes how many segments are contained within each. Segemnts which are above the functional sequence threshold are labelled in purple. The 'Sum of Poseteriors' shows the sum of all functional sequence probabilities.
+* `{dataName}_final_kX.tiff`: This file contains the plots of the individual functional sequence probabilities and notes how many segments are contained within each. Segments which are above the functional sequence threshold are labelled in purple. The 'Sum of Posteriors' shows the sum of all functional sequence probabilities.
 * `{dataName}_final_kX_FS_locations.bed`: This file contains all genome segments part of the functional sequences detected.
 
 
@@ -211,7 +211,7 @@ RELICS combines information of guides which overlap with their guide effect. Thi
 
 The rightmost label has highest priority. Using the example below: if a region has overlapping guides labeled as both promoter overlapping (`CD69_promoter`) as well as targeting guides with unknown effect (`chr`), then the region will be assigned the label with higher priority in the hierarchy - in this case being `CD69_promoter`.
 
-If specifying the `labelHierarchy`, all labels should be provided. Guides with labels that were not included will not be properly used the analysis. In this case this means also specifying the `exon` label fo rguides overlapping CD69 exons.
+If specifying the `labelHierarchy`, all labels should be provided. Guides with labels that were not included will not be properly used the analysis. In this case this means also specifying the `exon` label for guides overlapping CD69 exons.
 
 ```r
 relics.parameters$labelHierarchy <- c('chr', 'exon', 'CD69_promoter')
@@ -222,7 +222,7 @@ Length of functional sequences: By default, RELICS considers functional sequence
 relics.parameters$nr_segs <- 10 # default is 10
 ```
 
-RELICS uses a truncated geometric distribution for modeling the probability of a functinal sequence of length `x`. By default RELICS uses `p = 0.1`. To adjust that, for either being more or less restrictive for having longer functional sequences, use the `geom_p` flag.
+RELICS uses a truncated geometric distribution for modeling the probability of a functional sequence of length `x`. By default RELICS uses `p = 0.1`. To adjust that, for either being more or less restrictive for having longer functional sequences, use the `geom_p` flag.
 ```r
 relics.parameters$geom_p <- 0.1 # default is 0.1
 ```
