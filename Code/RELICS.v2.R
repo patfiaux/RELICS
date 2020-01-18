@@ -48,7 +48,13 @@ RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.
   if(! 'hyper_pars' %in% names(analysis.parameters)){
 
     #labels for background
-    background.labels <- analysis.parameters$labelHierarchy[-which(analysis.parameters$labelHierarchy == analysis.parameters$FS0_label)]
+    background.labels <- c()
+    if(analysis.parameters$background_label_specified){
+      background.labels <- analysis.parameters$background_label
+    } else {
+      background.labels <- analysis.parameters$labelHierarchy[-which(analysis.parameters$labelHierarchy == analysis.parameters$FS0_label)]
+    }
+
     background.alpha0 <- estimate_hyper_parameters(analysis.parameters,
                                                    data.file.split,
                                                     input.guide.offset = analysis.parameters$crisprEffectRange,
@@ -96,6 +102,8 @@ check_parameter_list <- function(input.parameter.list, data.file.split){
 
   par.given <- names(input.parameter.list)
 
+  # set default to TRUE. But if not background is provided, then switch to false
+  out.parameter.list$background_label_specified <- TRUE
 
   if(! 'out_dir' %in% par.given){
     out.parameter.list$out_dir <- getwd()
@@ -138,6 +146,10 @@ check_parameter_list <- function(input.parameter.list, data.file.split){
   }
   if(! 'save_input_files' %in% par.given){
     out.parameter.list$save_input_files <- FALSE
+  }
+  if(! 'background_label' %in% par.given){
+    out.parameter.list$background_label_specified <- FALSE
+
   }
 
   minimum.parameters <- c()
@@ -299,6 +311,9 @@ read_analysis_parameters <- function(parameter.file.loc){
     }
     if('FS0_label' == parameter.id){
       out.parameter.list$FS0_label <- strsplit(parameter,':')[[1]][2]
+    }
+    if('background_label' == parameter.id){
+      out.parameter.list$background_label <- strsplit(parameter,':')[[1]][2]
     }
     if('alpha0' == parameter.id){
       out.parameter.list$alpha0 <- lapply(strsplit(strsplit(strsplit(parameter,':')[[1]][2],';')[[1]],','), as.numeric)
