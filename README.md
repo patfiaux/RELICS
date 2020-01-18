@@ -235,7 +235,18 @@ By default RELICS considers all genome segments which have a functional sequence
 relics.parameters$min_fs_pp <- 0.1 # default is 0.1
 ```
 
+By default, RELICS only outputs the files once it has discovered all functional sequences. However, it is possible to get the same output for every functional sequence detected. This can be useful when data sets take a long time to run. The intermediate files can already reveal where the first set of functional sequences are located while RELICS still searches for more. To record all intermediate files set the `record.all.fs` to `TRUE` when running RELICS.
+```r
+RELICS(input.parameter.list = relics.parameters, record.all.fs = TRUE)
 
+# option: use the parameter file instead
+# RELICS('Example_analysis_specifications.txt', record.all.fs = TRUE)
+```
+
+When searching for the placement of each functional sequence, RELICS uses the IBSS algorithm to place each functional sequence. After each iteration of IBSS, RELICS compares the new placement of the functional sequence probabilities to the old ones. If the maximum absolute difference `(max(abs(pi' - pi))` is less than a defined threshold the RELICS has converged and looks for the next functional sequence. By default this threshold is set to 0.1. It can be made more or less stringent by setting the `convergence_tol` flag.
+```r
+relics.parameters$convergence_tol <- 0.1 # default is 0.1
+```
 
 ## Input data format contd. (for backward compatibility)
 Instead of providing one joint file containing both coordinates and counts it is also possible to supply them separately. In this case the format is the following:
