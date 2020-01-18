@@ -140,12 +140,12 @@ relics.parameters$min_FS_nr <- 8
 relics.parameters$crisprSystem <- 'CRISPRa' # other options: CRISPRcas9, CRISPRi, dualCRISPR
 
 # optional: specify the area of effect for your CRISPR system
-relics.parameters$crisprEffectRange <- 200
+# relics.parameters$crisprEffectRange <- 200
 ```
 
-8. Once you set your flags, create a specification file using the `write_specs_file()` function. It takes two arguments: the list of flags that you have just set (`analysis.specs`) and the name of the file to write to (`.txt` will be automatically appended as the file extension):
+8. Give the loacation of the output directory by setting the `out_dir` flag. Either reference to full path or the path from the current working directory. In this example we will do the latter and assume you are in the `RELICS_tutorial` folder. We recommend you create a new file in which the results are saved. Nore, RELICS will NOT create non-existent files for you. In this example, first create the `CD69_tutorial_output` folder, then set the flag:
 ```r
-write_specs_file(analysis.specs, 'Type_3_exampleSim_specs')
+relics.parameters$out_dir <- 'CD69_tutorial_output/'
 ```
 
 ### 3. Run RELICS
