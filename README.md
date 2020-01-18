@@ -220,6 +220,20 @@ Length of functional sequences: By default, RELICS considers functional sequence
 relics.parameters$nr_segs <- 10 # default is 10
 ```
 
+RELICS uses a truncated geometric distribution for modeling the probability of a functinal sequence of length `x`. By default RELICS uses `p = 0.1`. To adjust that, for either being more or less restrictive for having longer functional sequences, use the `geom_p` flag.
+```r
+relics.parameters$geom_p <- 0.1 # default is 0.1
+```
+
+RELICS stops looking for more functional sequences when a pairwise functional sequence probability exceeds a correlation threshold. Default is 0.1. To adjust that, use the `fs_correlation_cutoff` flag.
+```r
+relics.parameters$fs_correlation_cutoff <- 0.1 # default is 0.1
+```
+
+By default RELICS considers all genome segments which have a functional sequence probability above 0.1 as part of the functional sequence. This can be adjusted with the `min_fs_pp` flag.
+```r
+relics.parameters$min_fs_pp <- 0.1 # default is 0.1
+```
 
 
 
