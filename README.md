@@ -202,45 +202,17 @@ In all subsequent file names, the pattern `_kX_` refers to `X` functional sequen
 * `{dataName}_final_kX.tiff`: This file contains the plots of the individual functional sequence probabilities and notes how many segments are contained within each. Segemnts which are above the functional sequence threshold are labelled in purple. The 'Sum of Poseteriors' shows the sum of all functional sequence probabilities.
 * `{dataName}_final_kX_FS_locations.bed`: This file contains all genome segments part of the functional sequences detected.
 
-* `{dataName}_RELICS_genomeScores.csv`: This file contains the genome scores in bedGraph format. This file has 7 columns: 
-
-|Column name | Column description |
-|----------|----------|
-| genomeScore | combined per-guide RELICS score for this region | 
-| chrom | chromosome of the region |
-| start | region start |
-| end | region end |
-| label | highest overlapping label according to the [label hierarchy](https://github.com/patfiaux/RELICS#advanced-flags) |
-| log2_FC | does not apply to RELICS but kept for backward compatibility |
-| nrSupportGuides | number of guide effect ranges which overlap this particular region |
-
-* `{dataName}_RELICS_guideScores.csv`: This file contains the per-guide RELICS scores, which are combined across regions of overlapping effects. Minimum number of columns: 8
-
-|Column name | Column description |
-|----------|----------|
-| guide_score | RELICS score per guide | 
-| raw_scores | identical to `guide_score`, kept for backward compatibility | 
-| chrom | chromosome of the region |
-| start | region start |
-| end | region end |
-| label | guide label |
-| log2_FC | does not apply to RELICS but kept for backward compatibility |
-| replX_bf | RELICS score for replicate `X`. Scores are reported for each replicate. |
-
-* `{dataName}_RELICS_parSummary.csv`: This file contains RELICS parameter estimates for all replicates, for each pool, for regulatory and background model. 
-
-* `{dataName}_RELICS_replX_parEst.csv`: This file contains RELICS parameter estimates from the positive and negative controls for replicate `X`. For each replicate, the first pool is used as intercept, and all subsequent ones defined as deviance from intercept. 
 
 # Advanced flags
 
 RELICS combines information of guides which overlap with their guide effect. This can lead to scenarios where guides with different labels overlap. By default the label with fewer occurrences in the data set is chosen. However, it is also possible for the user to specify the hierarchy by explicitly setting the `labelHierarchy` flag.
 
-The rightmost label has highest priority. Using the example below: if a region has overlapping guides labeled as both exon overlapping (`exon`) as well as targeting guides with unknown effect (`chr`), then the region will be assigned the label with higher priority in the hierarchy - in this case being `exon`.
+The rightmost label has highest priority. Using the example below: if a region has overlapping guides labeled as both promoter overlapping (`CD69_promoter`) as well as targeting guides with unknown effect (`chr`), then the region will be assigned the label with higher priority in the hierarchy - in this case being `CD69_promoter`.
 
-This example dataset was part of the simulations used to assess method performance. In addition to the usual `exon` and `neg` labels, it also contains a `pos` label for guides overlapping simulated enhancer regions. If specifying the `labelHierarchy`, all labels should be provided. Guides with labels that were not included will not be properly used the analysis.
+If specifying the `labelHierarchy`, all labels should be provided. Guides with labels that were not included will not be properly used the analysis. In this case this means also specifying the `exon` label fo rguides overlapping CD69 exons.
 
 ```r
-analysis.specs$labelHierarchy <- c('chr', 'neg', 'exon', 'pos')
+relics.parameters$labelHierarchy <- c('chr', 'exon', 'CD69_promoter')
 ```
 
 ## Input data format contd. (for backward compatibility)
