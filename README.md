@@ -69,7 +69,10 @@ Below is part of the example file in the `RELICS_tutorial` folder. It's a subset
 | chr12 | CD69_promoter | 9913429 | 9913449 | 504 | 412 | 2185 | 238 | 580 | 445 | 103 | 570 | 49 | 342 |
 
 ## Quickstart with example data in `RELICS_tutorial`
-In an interactive R session:
+We recommed you navigate to the `RELICS_tutorial` folder. In an interactive R session:
+```r
+setwd('path/to/RELICS/RELICS_tutorial/')
+```
 
 ### 1. Source the script
 ```r
