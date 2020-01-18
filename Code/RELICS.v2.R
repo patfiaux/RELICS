@@ -1,12 +1,12 @@
-library(GenomicRanges)
-library(ggplot2)
-library(gridExtra)
+suppressMessages(library(GenomicRanges))
+suppressMessages(library(ggplot2))
+suppressMessages(library(gridExtra))
 
-library(poibin) # to calculate Poisson-Binomial
+suppressMessages(library(poibin)) # to calculate Poisson-Binomial
 
-library(extraDistr) # Dirichlet-Multinomial distributions
+suppressMessages(library(extraDistr)) # Dirichlet-Multinomial distributions
 
-library(gtools) # for getting all combinations when computing correlations between PPs
+suppressMessages(library(gtools)) # for getting all combinations when computing correlations between PPs
 
 
 #' @title RELICS 2.0 analysis function. Uses IBSS to return a set of functional sequences FS for CRISPR regulatory screens
