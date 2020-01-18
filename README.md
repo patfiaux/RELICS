@@ -130,16 +130,17 @@ relics.parameters$FS0_label <- 'CD69_promoter' # use all sgRNAs that overlap the
 # relics.parameters$glmm_negativeTraining <- c('chr', 'exon') # specify what sgRNAs to use to initially train the background parameters
 ```
 
-6. Specify the method to use as RELICS
+6. Specify the minimum number of functional sequences to look for. It is possible that the data will have more or less FS than you specify. In this example, RELICS will find 4. Because is reaches convergence after 4 FS it will stop. In case RELICS does not converge we recommend you increase the allowed number of FS.
 ```r
-analysis.specs$Method <- 'RELICS-search'
+relics.parameters$min_FS_nr <- 8
 ```
 
-7. Specify the CRISPR system used and the range of the perturbation effect. Depending on the CRISPR system used, the range of effect is different. We recommend setting the range to 20bp for `CRISPRcas9`, 1000bp for `CRISPRi` and `CRISPRa`. The `crisprEffectRange` is automatically added during the analysis so there is no need to manually extend the `start` and `end` position of the guide. However, if the range has already been accounted for in the information file, set the `crisprEffectRange` to zero.
-In case of a `dualCRISPR` system, an arbitrary `crisprEffectRange` can be specified, as RELICS will automatically use the deletion range between guide 1 and guide 2 as effect range.
+7. Specify the CRISPR system used. Depending on the CRISPR system used, the area of effect is different. By default RELICS assumes that it's 20bp for `CRISPRcas9` and 400bp for both `CRISPRi` and `CRISPRa`. In case of a `dualCRISPR` system RELICS will automatically use the deletion range between guide 1 and guide 2 as effect range. It is also possible to manually set the area of effect using the `crisprEffectRange` flag.
 ```r
-analysis.specs$crisprSystem <- 'CRISPRi' # other options: CRISPRcas9, CRISPRa, dualCRISPR
-analysis.specs$crisprEffectRange <- 1000
+relics.parameters$crisprSystem <- 'CRISPRa' # other options: CRISPRcas9, CRISPRi, dualCRISPR
+
+# optional: specify the area of effect for your CRISPR system
+relics.parameters$crisprEffectRange <- 200
 ```
 
 8. Once you set your flags, create a specification file using the `write_specs_file()` function. It takes two arguments: the list of flags that you have just set (`analysis.specs`) and the name of the file to write to (`.txt` will be automatically appended as the file extension):
