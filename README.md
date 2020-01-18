@@ -59,7 +59,7 @@ The columns specifying chromosome, guide target start, guide target end and labe
 
 For the columns containing sgRNA counts, names are necessary but the names do not matter as the user will index the columns by number, not by name.
 
-Below is part of the example file in the `RELICS_tutorial` folder. It's a subset from the CD69 CRSIPRa screen by (Simeonov et al.)[https://www.nature.com/articles/nature23875]. It contains 2 replicates from a FACS experiment. Input pools (`back`) were sorted into no CD69 expression (`baseline`), low, medium and high expression.
+Below is part of the example file in the `RELICS_tutorial` folder. It's a subset from the CD69 CRSIPRa screen by [Simeonov et al.](https://www.nature.com/articles/nature23875). It contains 2 replicates from a FACS experiment. Input pools (`back`) were sorted into no CD69 expression (`baseline`), low, medium and high expression.
 
 | chrom | label | start | end | CD69back_1 | CD69back_2 | CD69baseline_1 | CD69baseline_2 | CD69low_1 | CD69low_2 | CD69medium_1 | CD69medium_2 | CD69high_1 | CD69high_2 |
 |----------|----------|----------|----------|----------|----------|-------|------- |------|------|------|------|------|------|
@@ -69,15 +69,21 @@ Below is part of the example file in the `RELICS_tutorial` folder. It's a subset
 | chr12 | CD69_promoter | 9913429 | 9913449 | 504 | 412 | 2185 | 238 | 580 | 445 | 103 | 570 | 49 | 342 |
 
 ## Quickstart with example data in `RELICS_tutorial`
-In an interactive R session:
+We recommed you navigate to the `RELICS_tutorial` folder. In an interactive R session:
+```r
+setwd('path/to/RELICS/RELICS_tutorial/')
+```
 
 ### 1. Source the script
 ```r
 source('/path/to/script/RELICS.v2.r')
+
+# if you moved into the RELICS_tutorial folder:
+# source('../Code/RELICS.v2.R')
 ```
 
 ### 2. Set up the analysis specification file
-Several parameters must be specified by the user before running RELICS. The tutorial walkthrough below describes the most important parameters required to get the analysis going. In the process you will analyze a subset of the CD69 CRISPRa screen from (Simeonov et al.)[https://www.nature.com/articles/nature23875].
+Several parameters must be specified by the user before running RELICS. The tutorial walkthrough below describes the most important parameters required to get the analysis going. In the process you will analyze a subset of the CD69 CRISPRa screen from [Simeonov et al.](https://www.nature.com/articles/nature23875).
 
 #### Option 1: Modify the given template in the `RELICS_tutorial` folder (`Example_analysis_specifications.txt`)
 There is a template specification file already set up for the example data. It contains the main flags required to run RELICS. The meaning of the different flags are discussed in the next section. 
