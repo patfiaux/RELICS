@@ -190,10 +190,16 @@ In all subsequent file names, the pattern `_kX_` refers to `X` functional sequen
 | ll | the number of functional sequences included in the model |
 | nr_fs | the number of genome segments considered to be part of the functional sequence as defined by the functional sequence threshold |
 
-* `{dataName}_final_kX_FS_locations.bed`: This file contains all genome segments part of the functional sequences detected.
-* `{dataName}_final_kX_FS_locations.bed`: This file contains all genome segments part of the functional sequences detected.
-* `{dataName}_final_kX_FS_locations.bed`: This file contains all genome segments part of the functional sequences detected.
-* `{dataName}_final_kX_FS_locations.bed`: This file contains all genome segments part of the functional sequences detected.
+* `{dataName}_final_k4_alphas.csv`: This file contains the dirichlet sorting parameters for the background (`alpha0`) and for functional sequences (`alpha1`) for all replicates.
+
+
+* `{dataName}_final_allCorrs_k(X+1).csv`: This file contains all pairwise correlation between the functional sequence probabilities up to and including the functional sequence which resulted in a correlation above the convergence threshold and leading to RELICS to stop.
+
+
+* `{dataName}__summaryStatPlots.pdf`: Plot showing the overall model -log-likelihood progression and the correlation of the functional sequence probabilities.
+
+
+* `{dataName}_final_kX.tiff`: This file contains the plots of the individual functional sequence probabilities and notes how many segments are contained within each. Segemnts which are above the functional sequence threshold are labelled in purple. The 'Sum of Poseteriors' shows the sum of all functional sequence probabilities.
 * `{dataName}_final_kX_FS_locations.bed`: This file contains all genome segments part of the functional sequences detected.
 
 * `{dataName}_RELICS_genomeScores.csv`: This file contains the genome scores in bedGraph format. This file has 7 columns: 
