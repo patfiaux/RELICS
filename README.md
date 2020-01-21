@@ -1,13 +1,13 @@
 # RELICS :sparkles:: Regulatory Element Location Identification  in CRISPR screens
 
-RELICS is a method for analyzing tiling CRISPR screens to detect functional sequences. The current version (v.2.0) of RELICS uses a Bayesian hierarchical model and considers the overlapping effects of multiple guides, can jointly analyze multiple pools per replicate and estimates the number of functional sequences supported by the data.
+RELICS is an analysis method for discovering functional sequences from tiling CRISPR screens. The current version (v.2.0) of RELICS uses a Bayesian hierarchical model and considers the overlapping effects of multiple guides, can jointly analyze multiple pools per replicate, and estimates the number of functional sequences supported by the data.
 
-Briefly; RELICS splits the region of interest into segments. It then iteratively places one functional sequence at a time, while considering all previously placed functional sequences. RELICS is a semi-supervised method and requires a set of positive control sgRNAs to start. Note that RELICS currently does not work with non-targeting sgRNAs and at the moment only analyzes one chromosome at a time. We are working on several extensions and if you have any requests, please feel free to reach out to us!
+Briefly; RELICS splits the region of interest into segments. It then iteratively places one functional sequence at a time, while considering all previously placed functional sequences. RELICS is a semi-supervised method and takes a set of positive control sgRNAs as input. Note that RELICS currently does not use non-targeting sgRNAs and only analyzes one chromosome at a time. We are working on several extensions and if you have any requests, please feel free to reach out to us!
 
 This work is continuously being improved. Please ask questions or [post issues](https://github.com/patfiaux/RELICS/issues).
 
 # Installation
-RELICS runs on [R](https://cran.r-project.org/bin/windows/base/). Please make sure you have R version 3.5.1 or higher
+RELICS requires R version 3.5.1 or higher
 
 ## Obtain source code
 Clone source code to your desired location with the following command: ```git clone https://github.com/patfiaux/RELICS.git```. Alternatively, download the repository.
