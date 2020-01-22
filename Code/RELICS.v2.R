@@ -180,11 +180,6 @@ check_parameter_list <- function(input.parameter.list, data.file.split){
         test.info <- read.csv(input.parameter.list$DataInputFileLoc, stringsAsFactors = F)
       }
 
-      if(length(unique(test.info$chrom)) > 1){
-        print(paste0("Currently RELICS only processes one chromosome per analysis. Multi-chromosome analysis is in active development and will hopefully be deployed soon."))
-        missing.parameters <- TRUE
-      }
-
       # for the info file, check if the label hierarch is given, else establish it from the info file
       if(!'labelHierarchy' %in% par.given){
         temp.info <- test.info #read.csv(input.parameter.list$sgRNAInfoFileLoc, stringsAsFactors = F)
@@ -399,6 +394,11 @@ set_up_RELICS_data <- function(input.parameter.list, data.file.split, guide.offs
   # adjust the target positions according to CRISPRi
   sim.info$start <- sim.info$start - guide.offset
   sim.info$end <- sim.info$end + guide.offset
+  
+  if(length(unique(sim.info$chrom)) > 1){
+    print(paste0("Currently RELICS only processes one chromosome per analysis. Multi-chromosome analysis is in active development and will hopefully be deployed soon."))
+    missing.parameters <- TRUE
+  }
 
   if(is.unsorted(sim.info$start)){
     print('Guide targets are unsorted. Adjusting them!')
