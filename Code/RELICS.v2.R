@@ -1135,13 +1135,17 @@ extract_fs_locations <- function(input.fs.pp, input.seg.info, fs.threshold){
     fs.label <- paste0('FS', i-1)
 
     fs.idx <- which(input.fs.pp[i,] > fs.threshold)
-    fs.scores <- input.fs.pp[i, which(input.fs.pp[i,] > fs.threshold)]
-
-    temp.fs.position <- input.seg.info[fs.idx,]
-    temp.fs.position$label <- fs.label
-    temp.fs.position$score <- fs.scores
-
-    fs.df <- rbind(fs.df, temp.fs.position)
+    
+    if(length(fs.idx) > 0){
+      fs.scores <- input.fs.pp[i, which(input.fs.pp[i,] > fs.threshold)]
+      
+      temp.fs.position <- input.seg.info[fs.idx,]
+      temp.fs.position$label <- fs.label
+      temp.fs.position$score <- fs.scores
+      
+      fs.df <- rbind(fs.df, temp.fs.position)
+    }
+  
   }
 
   out.fs.df <- fs.df[,c('chrom', 'start', 'end', 'label', 'score')]
