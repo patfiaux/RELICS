@@ -1149,6 +1149,10 @@ extract_fs_locations <- function(input.fs.pp, input.seg.info, fs.threshold){
   }
 
   out.fs.df <- fs.df[,c('chrom', 'start', 'end', 'label', 'score')]
+  
+  # zero-index the output
+  out.fs.df$start <- out.fs.df$start - 1
+  out.fs.df$end <- out.fs.df$end - 1
 
   return(out.fs.df)
 }
@@ -1465,6 +1469,10 @@ create_bedgraphs <- function(input.score.list, bg.name){
     temp.score.gr <- sort(temp.score.gr)
     df.temp.score <- as.data.frame(temp.score.gr)
     df.temp.score.final <- df.temp.score[,c(1,2,3,6)]
+    
+    # zero-index the files
+    df.temp.score.final[,2] <- df.temp.score.final[,2] - 1
+    df.temp.score.final[,3] <- df.temp.score.final[,3] - 1
 
     tmp.file <- paste0(bg.name, '_',temp.score.name, ".bedgraph")
     cat(temp.header1, file = tmp.file)
