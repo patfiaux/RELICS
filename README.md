@@ -167,7 +167,7 @@ RELICS(input.parameter.list = relics.parameters)
 ```
 
 ### 4. Output files
-RELICS will return several output files. They all start with the `dataName` specified in step 2 above. By default, RELICS will give you the genome segments that were used, as well as the files associated with finding the last functional sequence before convergence:
+RELICS will return several output files. They all start with the `dataName` specified in step 2 above. All output files are one-indexed except for the `.bedgraph` and `.bed` files which are zero-indexed. By default, RELICS will give you the genome segments that were used, as well as the files associated with finding the last functional sequence before convergence:
 
 * `{dataName}_segmentInfo.csv`: This file contains the segments used by RELICS. It contains the information of chromosome, start and end location of the segment, as well as the label of the segment.
 |Column name | Column description |
