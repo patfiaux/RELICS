@@ -52,7 +52,7 @@ RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.
     if(analysis.parameters$background_label_specified){
       background.labels <- analysis.parameters$background_label
     } else {
-      background.labels <- analysis.parameters$labelHierarchy[-which(analysis.parameters$labelHierarchy == analysis.parameters$FS0_label)]
+      background.labels <- analysis.parameters$labelHierarchy[-which(analysis.parameters$labelHierarchy %in% analysis.parameters$FS0_label)]
     }
 
     background.alpha0 <- estimate_hyper_parameters(analysis.parameters,
