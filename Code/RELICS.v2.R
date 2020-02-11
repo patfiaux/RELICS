@@ -1359,6 +1359,9 @@ plot_fs_stats <- function(input.layer.ll.df, layer.corr.df, out.dir, layer.nr, f
   #   ggtitle('PP correlations (Boxplots)') + theme_bw() + geom_hline(yintercept = fs.correlation.cutoff, linetype="dashed", color = "black") +
   #   labs(x='# FS detected', y='PP Correlation', col="FS", shape=paste0("FS = ",fs.correlation.cutoff) )
   #
+  
+  # attempt to arrange the factors
+  layer.corr.df.mod$layer_Iteration <- factor(layer.corr.df.mod$layer_Iteration, levels = c(1:max(as.numeric(layer.corr.df.mod$layer_Iteration))))
 
   layer.corr.df.mod.iterSplit <- split(layer.corr.df.mod, layer.corr.df.mod$layer_Iteration)
   layer.corr.df.mod.max.corrs <- do.call(rbind, lapply(layer.corr.df.mod.iterSplit, function(x){
