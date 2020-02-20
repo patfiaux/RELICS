@@ -54,6 +54,15 @@ RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.
     } else {
       background.labels <- analysis.parameters$labelHierarchy[-which(analysis.parameters$labelHierarchy %in% analysis.parameters$FS0_label)]
     }
+    
+    # if guide efficiency scores are provided, include them in the model
+    if(! is.null(analysis.parameters$guide_efficiency)){
+      if(analysis.parameters$fix_guideEfficiency & ! analysis.parameters$estimate_ge_alphaDiffScale){
+        analysis.parameters$alpha_diff_scaling <- analysis.parameters$guide_efficiency
+      } else {
+        print('non-fixed guide efficiency or reestimation of alpha diff scale is not yet implemented')
+      }
+    }
 
     background.alpha0 <- estimate_hyper_parameters(analysis.parameters,
                                                    data.file.split,
@@ -150,6 +159,39 @@ check_parameter_list <- function(input.parameter.list, data.file.split){
   if(! 'background_label' %in% par.given){
     out.parameter.list$background_label_specified <- FALSE
 
+  }
+  
+  # guide efficiency related parameters
+  if('guide_efficiency_loc' %in% par.given){
+    temp.ge.file <- read.csv(input.parameter.list$guide_efficiency_loc, stringsAsFactors = F)
+    if(! 'guide_efficiency_cols' %in% par.given){
+      print(paste0("Error: Guide efficiency file provided but no column index given. Please provide a numeric input for 'guide_efficiency_cols'."))
+      missing.parameters <- TRUE
+    } else {
+      out.parameter.list$guide_efficiency <- temp.ge.file[,par.given$guide_efficiency_cols]
+    }
+    
+    # check if fixed
+    if(! 'fix_guideEfficiency' %in% par.given){
+      out.parameter.list$fix_guideEfficiency <- TRUE
+      # check if betas are provided, else give default
+      if(! 'ge_betas' %in% par.given){
+        print('Default guide efficiency betas are not yet implemented')
+      } else {
+        out.parameter.list$ge_betas <- input.parameter.list$ge_betas
+      }
+    } else {
+      out.parameter.list$fix_guideEfficiency <- input.parameter.list$fix_guideEfficiency
+      
+      #if the GE is fixed but there are multiple metics, then the alpha diff scaling has to be reestimated
+      if(out.parameter.list$fix_guideEfficiency & ncol(out.parameter.list$guide_efficiency) < 2){
+        out.parameter.list$estimate_ge_alphaDiffScale <- FALSE
+      } else {
+        out.parameter.list$estimate_ge_alphaDiffScale <- TRUE
+      }
+    }
+  } else {
+    out.parameter.list$guide_efficiency <- NULL
   }
 
   minimum.parameters <- c()
@@ -328,6 +370,22 @@ read_analysis_parameters <- function(parameter.file.loc){
   if('alpha0' %in% names(out.parameter.list) & 'alpha1' %in% names(out.parameter.list)){
     out.parameter.list$hyper_pars <- list(alpha0 = out.parameter.list$alpha0, alpha1 = out.parameter.list$alpha1, L = 1)
   }
+  
+  ##############################################
+  # guide efficiency related parameters
+  # location of file (can be same as info, or total combines, or separate)
+  if('guide_efficiency_loc' == parameter.id){
+    out.parameter.list$guide_efficiency_loc <- strsplit(parameter,':')[[1]][2]
+  }
+  # cloumns to use for GE
+  if('guide_efficiency_cols' == parameter.id){
+    out.parameter.list$guide_efficiency_cols <- as.numeric(strsplit(parameter,':')[[1]][2])
+  }
+  # boolean whether to simply use given guide efficiencies or trying to estimate a scaling
+  if('fix_guideEfficiency' == parameter.id){
+    out.parameter.list$fix_guideEfficiency <- as.logical(strsplit(parameter,':')[[1]][2])
+  }
+  # to do: ge_betas, ge_beta_scaling
 
   return(out.parameter.list)
 }
@@ -694,7 +752,7 @@ prior_dirichlet_ll <- function(hyper.param, data, region.ll.list, alpha0.idx, al
   hyper <- list(alpha0 = alpha0s,
                 alpha1 = alpha1s)
 
-  -sum(estimate_relics_sgrna_log_like(hyper, data, region.ll.list))
+  -sum(estimate_relics_sgrna_log_like(hyper, data, region.ll.list))  # add guide efficiency var
 }
 
 
@@ -712,6 +770,8 @@ estimate_relics_sgrna_log_like <- function(hyper, data, region.ll.list, guide.ef
 
   sgrna.null.log.like <- ddirmnom(data[,pool.cols], size = data[,ncol(data)], alpha = hyper$alpha0, log = T)
   sgrna.alt.log.like <- ddirmnom(data[,pool.cols], size = data[,ncol(data)], alpha = hyper$alpha1, log = T)
+  
+  # if statement about whether the guide.efficiencies vector is present to creat the alpha 1 matrix
 
   out.comb <- vector('numeric', length = length(sgrna.null.log.like))
 
@@ -827,7 +887,8 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
                      auto.stop = TRUE,
                      record.all.fs,
                      input.convergence.tol = 0.01,
-                     adjust.tol = TRUE){
+                     adjust.tol = TRUE,
+                     guide.efficiency = 'ToDo'){
 
   final.layer.posterior <- list()
   final.layer.alpha0 <- list()
@@ -1629,7 +1690,7 @@ order_pps <- function(input.pp, input.total.ll, input.data, input.alpha0, input.
       temp.hypers <- list(alpha0 = input.alpha0[[r]], alpha1 = input.alpha1[[r]])
       temp.dirichlet.ll <- sum(estimate_relics_sgrna_log_like(temp.hypers,
                                                                 input.data$data[[r]],
-                                                                temp.guide.ll))
+                                                                temp.guide.ll)) # add guide efficiency var
       temp.ll <- temp.ll + temp.dirichlet.ll
     }
 
@@ -1769,7 +1830,7 @@ relics_compute_FS_k <- function(input.param,
       temp.hypers <- list(alpha0 = dirichlet.hyper$alpha0[[i]], alpha1 = dirichlet.hyper$alpha1[[i]])
       temp.dirichlet.ll <- sum(estimate_relics_sgrna_log_like(temp.hypers,
                                                                 input.data.list$data[[i]],
-                                                                dirichlet.guide.ll))
+                                                                dirichlet.guide.ll)) # add guide efficiency var
       dirichlet.ll <- dirichlet.ll + temp.dirichlet.ll
     }
 
@@ -1906,7 +1967,7 @@ relics_estimate_pp <- function(param, hyper, data, known.reg,
       data.mat.list[[repl]] <- temp.data.counts
       data.total.list[[repl]] <- temp.data.totals
 
-      temp.sgrna.log.like <- estimate_relics_sgrna_log_like(temp.hypers, temp.data, layer.guide.ll)
+      temp.sgrna.log.like <- estimate_relics_sgrna_log_like(temp.hypers, temp.data, layer.guide.ll)  # add guide efficiency var
       sgrna.log.like.list[[repl]] <- temp.sgrna.log.like
 
     }
