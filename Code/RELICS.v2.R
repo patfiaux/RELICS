@@ -702,10 +702,11 @@ prior_dirichlet_ll <- function(hyper.param, data, region.ll.list, alpha0.idx, al
 #' @param hyper: hyperparameters, $alpha0, alpha1
 #' @param data: data, consists of: pool1, pool2... and $n
 #' @param region.ll.list: list containing the ll and the indexes of the null alternative and both
+#' @param guide.efficiencies: data.frame of guide efficiences. Each guide efficiency has a unique score
 #' @return total log likelihood of each guide
 #' @export estimate_relics_sgrna_log_like()
 
-estimate_relics_sgrna_log_like <- function(hyper, data, region.ll.list) {
+estimate_relics_sgrna_log_like <- function(hyper, data, region.ll.list, guide.efficiencies = NULL) {
 
   pool.cols <- c(1:(ncol(data) - 1))
 
