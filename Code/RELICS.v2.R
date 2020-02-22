@@ -43,6 +43,23 @@ RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.
                                    file.save.dir = paste0(analysis.parameters$out_dir, '/', analysis.parameters$dataName),
                                    save.files = analysis.parameters$save_input_files,
                                    min.seg.dist = analysis.parameters$seg_dist)
+  
+  # if guide efficiency scores are provided, calculate guide efficiency and include in the model
+  if(! is.null(data.setup$guide_efficiency_scores)){
+    data.setup$fix_guideEfficiency <- analysis.parameters$fix_guideEfficiency
+    data.setup$estimate_ge_alphaDiffScale <- analysis.parameters$estimate_ge_alphaDiffScale
+    data.setup$ge_beta_estimation <- analysis.parameters$ge_beta_estimation
+
+    # unde the conditions below, it is assumed that the data.setup$guide_efficiency_scores matrix is only one column
+    # therefore convert to: 
+    if(analysis.parameters$fix_guideEfficiency & ! analysis.parameters$estimate_ge_alphaDiffScale){
+      data.setup$guide_efficiency <- data.setup$guide_efficiency_scores[,1]
+    } else {
+      print('non-fixed guide efficiency or reestimation of alpha diff scale is not yet implemented')
+      # immediate prining of the betas
+      # also, might want to see if 'ge_beta_estimation' is required here
+    }
+  }
 
   # check if hyper parameters are provided, otherwise estimate from data
   if(! 'hyper_pars' %in% names(analysis.parameters)){
@@ -54,15 +71,6 @@ RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.
     } else {
       background.labels <- analysis.parameters$labelHierarchy[-which(analysis.parameters$labelHierarchy %in% analysis.parameters$FS0_label)]
     }
-    
-    # if guide efficiency scores are provided, include them in the model
-    if(! is.null(analysis.parameters$guide_efficiency)){
-      if(analysis.parameters$fix_guideEfficiency & ! analysis.parameters$estimate_ge_alphaDiffScale){
-        analysis.parameters$alpha_diff_scaling <- analysis.parameters$guide_efficiency
-      } else {
-        print('non-fixed guide efficiency or reestimation of alpha diff scale is not yet implemented')
-      }
-    }
 
     background.alpha0 <- estimate_hyper_parameters(analysis.parameters,
                                                    data.file.split,
@@ -70,8 +78,7 @@ RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.
                                                     input.repl.pools = analysis.parameters$repl_groups,
                                                     input.labelHierarchy = background.labels,
                                                    fs0.label = background.labels,
-                                                    min.seg.dist = analysis.parameters$seg_dist,
-                                                   guide.efficiency = analysis.parameters$guide_efficiency)
+                                                    min.seg.dist = analysis.parameters$seg_dist)
 
     fs0.alpha1 <- estimate_hyper_parameters(analysis.parameters,
                                             data.file.split,
@@ -79,8 +86,7 @@ RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.
                                             input.repl.pools = analysis.parameters$repl_groups,
                                             input.labelHierarchy = analysis.parameters$FS0_label,
                                             fs0.label = analysis.parameters$FS0_label,
-                                            min.seg.dist = analysis.parameters$seg_dist,
-                                            guide.efficiency = analysis.parameters$guide_efficiency)
+                                            min.seg.dist = analysis.parameters$seg_dist)
 
     analysis.parameters$hyper_pars <- list(alpha0 = background.alpha0, alpha1 = fs0.alpha1, L = 1)
   }
@@ -96,8 +102,7 @@ RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.
                auto.stop = analysis.parameters$auto_stop,
                record.all.fs = record.all.fs,
                input.convergence.tol = analysis.parameters$convergence_tol,
-               adjust.tol = analysis.parameters$adjust_tol,
-               guide.efficiency = 'ToDo')
+               adjust.tol = analysis.parameters$adjust_tol)
 
 
 }
@@ -171,28 +176,41 @@ check_parameter_list <- function(input.parameter.list, data.file.split){
       print(paste0("Error: Guide efficiency file provided but no column index given. Please provide a numeric input for 'guide_efficiency_cols'."))
       missing.parameters <- TRUE
     } else {
-      out.parameter.list$guide_efficiency_scores <- temp.ge.file[,par.given$guide_efficiency_cols]
+      out.parameter.list$guide_efficiency_scores <- temp.ge.file[,input.parameter.list$guide_efficiency_cols, drop = FALSE]
     }
     
     # check if fixed
     if(! 'fix_guideEfficiency' %in% par.given){
       out.parameter.list$fix_guideEfficiency <- TRUE
       # check if betas are provided, else give default
-      if(! 'ge_betas' %in% par.given){
-        print('Default guide efficiency betas are not yet implemented')
-      } else {
-        out.parameter.list$ge_betas <- input.parameter.list$ge_betas
-      }
     } else {
       out.parameter.list$fix_guideEfficiency <- input.parameter.list$fix_guideEfficiency
-      
-      #if the GE is fixed but there are multiple metics, then the alpha diff scaling has to be reestimated
-      if(out.parameter.list$fix_guideEfficiency & ncol(out.parameter.list$guide_efficiency_scores) < 2){
-        out.parameter.list$estimate_ge_alphaDiffScale <- FALSE
-      } else { # if there are multiple scores the guide efficiency has to be roughly estimated from the 2+ scoring schemes
-        out.parameter.list$estimate_ge_alphaDiffScale <- TRUE
-      }
     }
+    
+    if(! 'ge_betas' %in% par.given){
+      print('Default guide efficiency betas are not yet implemented')
+    } else {
+      out.parameter.list$ge_betas <- input.parameter.list$ge_betas
+    }
+    
+    if(! 'ge_beta_estimation' %in% par.given){
+      out.parameter.list$ge_beta_estimation <- FALSE
+    } else {
+      out.parameter.list$ge_beta_estimation <- input.parameter.list$ge_beta_estimation
+    }
+    
+    #if the GE is fixed but there are multiple metics, then the alpha diff scaling has to be reestimated
+    # this flag is used for first time estimation only
+    if(out.parameter.list$fix_guideEfficiency & ncol(out.parameter.list$guide_efficiency_scores) < 2){
+      out.parameter.list$estimate_ge_alphaDiffScale <- FALSE
+    } else { # if there are multiple scores the guide efficiency has to be roughly estimated from the 2+ scoring schemes
+      out.parameter.list$estimate_ge_alphaDiffScale <- TRUE
+    }
+    
+    
+    # ge_beta_estimation (wether the scales have to be re-estimated)
+    # ToDo
+    
   } else {
     out.parameter.list$guide_efficiency_scores <- NULL
   }
@@ -388,7 +406,7 @@ read_analysis_parameters <- function(parameter.file.loc){
   if('fix_guideEfficiency' == parameter.id){
     out.parameter.list$fix_guideEfficiency <- as.logical(strsplit(parameter,':')[[1]][2])
   }
-  # to do: ge_betas, ge_beta_scaling
+  # to do: ge_betas, ge_beta_estimation (this serves for estimation of the scaling factors, logical)
 
   return(out.parameter.list)
 }
@@ -410,7 +428,7 @@ read_analysis_parameters <- function(parameter.file.loc){
 set_up_RELICS_data <- function(input.parameter.list, data.file.split, guide.offset = 500,
                                repl_pools, labelHierarchy = c("chr", "neg", "pos", "exon"),
                                fs0.label = 'exon', file.save.dir, save.files = FALSE, 
-                               min.seg.dist = 100, guide.efficiency){
+                               min.seg.dist = 100){
 
   sim.counts <- c()
   sim.info <- c()
@@ -476,8 +494,10 @@ set_up_RELICS_data <- function(input.parameter.list, data.file.split, guide.offs
   
   # if GE scores exist, extract them from the info file
   filtered.ges <- NULL
-  #if()
-  # TODO
+  if(! is.null(input.parameter.list$guide_efficiency_scores)){
+    processed.ge.scores <- sim.info[, ges.cols, drop = F]
+    filtered.ges <- processed.ge.scores
+  }
 
   # generate the guide-segment matrix and the per-segment labels
   # seg_info, guide_to_seg_lst, seg_to_guide_lst, counts
@@ -710,13 +730,11 @@ generate_next_guide_list <- function(input.seg.to.guide.list){
 #' @param file.save.dir: directory in which to save the used counts, info and segment info files
 #' @param save.files: logical, by default, do not save the files used for analysis. However, if a filtering step is introduced, file saving is switched on
 #' @param min.seg.dist: minimum distance of a segment. Default = 100
-#' @param guide.efficiency: either a vector of guide efficiency or NULL
 #' @return list: hyper parameter estimates for each replicate per list element
 #' @export estimate_hyper_parameters()
 
 estimate_hyper_parameters <- function(analysis.parameters, data.file.split, input.guide.offset,
-                                     input.repl.pools, input.labelHierarchy, fs0.label, min.seg.dist = 100,
-                                      guide.efficiency){
+                                     input.repl.pools, input.labelHierarchy, fs0.label, min.seg.dist = 100){
 
   data.par.list <- set_up_RELICS_data(analysis.parameters,
                                       data.file.split,
@@ -724,8 +742,22 @@ estimate_hyper_parameters <- function(analysis.parameters, data.file.split, inpu
                                       input.repl.pools,
                                       input.labelHierarchy,
                                       fs0.label,
-                                      min.seg.dist,
-                                      guide.efficiency)
+                                      min.seg.dist)
+  
+  # if guide efficiency scores are provided, calculate guide efficiency and include in the model
+  if(! is.null(analysis.parameters$guide_efficiency_scores)){
+    
+    # estimate_ge_alphaDiffScale should work for one-time calculation
+    # same as in 'RELICS', assumption is that data.par.list$guide_efficiency_scores is n x 1
+    if(analysis.parameters$fix_guideEfficiency & ! analysis.parameters$estimate_ge_alphaDiffScale){ 
+      data.par.list$guide_efficiency <- data.par.list$guide_efficiency_scores[,1]
+    } else {
+      # ge_beta_estimation
+      print('non-fixed guide efficiency or reestimation of alpha diff scale is not yet implemented')
+      
+      # if scaling is calculated, then immediately print it!
+    }
+  }
 
   # make sure all guides are considered to be the same category
   dirichlet.guide.ll <- compute_perGuide_fs_ll(rep(1, nrow(data.par.list$seg_info)), data.par.list$guide_to_seg_lst, hyper.setup = TRUE)
@@ -743,7 +775,7 @@ estimate_hyper_parameters <- function(analysis.parameters, data.file.split, inpu
     temp.res.drch <- optim(temp.hyper.params, prior_dirichlet_ll, method= 'L-BFGS-B', #'BFGS', #"Nelder-Mead",
                            data = data.par.list$data[[i]], region.ll.list = dirichlet.guide.ll,
                            alpha0.idx = temp.alpha0.idx, alpha1.idx = temp.alpha1.idx, 
-                           guide.efficiency = guide.efficiency)
+                           guide.efficiency = data.par.list$guide_efficiency)
 
     final.alpha[[i]] <- round(temp.res.drch$par[temp.alpha1.idx]**2, 3)
   }
@@ -906,7 +938,6 @@ compute_perGuide_fs_ll <- function(cumulative.pp, guide.seg.idx.lst, hyper.setup
 #' @param input.min.rs.pp: minimum posterior required to be part of a regulatory set
 #' @param auto.stop: whether or not computations should be stopped after recomended stopping point
 #' @param record.all.fs: logical, if information of all intermediate FS should be recorded, in addition to the final set of FS
-#' @param guide.efficiency: data.frame of guide efficiences. Either vector of guide efficiency or NULL
 #' @return list of final per-layer posteriors
 #' @export run_RELICS_2()
 
@@ -921,8 +952,7 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
                      auto.stop = TRUE,
                      record.all.fs,
                      input.convergence.tol = 0.01,
-                     adjust.tol = TRUE,
-                     guide.efficiency){
+                     adjust.tol = TRUE){
 
   final.layer.posterior <- list()
   final.layer.alpha0 <- list()
@@ -936,7 +966,6 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
   no.convergence.layer <- c() # during what layers whas there no convergence
   no.convergence.lls <- c() #model ll when convergence was not reached
   no.convergence.bool <- c() # boolean to keep track if convergence was reached
-
 
   layer.times <- vector('numeric', length = final.layer.nr)
 
@@ -976,7 +1005,7 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
                                       input.data.list = input.data,
                                       input.tol = coverg.tol[i],
                                       fix.hypers, iterative.hyper.est, nr.segs, geom.p,
-                                      min.pp = input.min.rs.pp, guide.efficiency)
+                                      min.pp = input.min.rs.pp, input.data$guide_efficiency)
 
     layer.time.final <- proc.time() - layer.time
     layer.times[i] <- layer.time.final[3] / 60
@@ -988,7 +1017,7 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
     # order the layers according to their model contributions
     order.pps.lst <- order_pps(layer.posteriors, layer.data$ll_tract[[layer.size]],
                                input.data, layer.data$alpha0[[layer.size]], layer.data$alpha1[[layer.size]], 
-                               guide.efficiency)
+                               input.data$guide_efficiency)
 
     final.layer.posterior[[i]] <- order.pps.lst$pp_ordered
     final.layer.alpha0[[i]] <- layer.data$alpha0[[layer.size]]
@@ -1066,7 +1095,15 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
       write.layer.corrs <- data.frame(FSpair_1 = layer.corrs$layer_1, FSpair_2 = layer.corrs$layer_2,
                                       corr = layer.corrs$corr, nr_FS_compared = layer.corrs$layer_Iteration, stringsAsFactors = F)
       write.csv(write.layer.corrs, file = paste0(out.dir, '_k',i,'_correlations.csv'), row.names = F)
-
+      
+      # guide efficiency vars:
+      if(! is.null(input.data$guide_efficiency_scores)){
+        # the only thing that actually changes the scores are the 'ge_beta'
+        # for simplicity for now still print out the EG as well as the ge_betas
+        if(input.data$ge_beta_estimation){
+          print('feature not yet implemented')
+        }
+      }
     }
 
     # plot the outputs
@@ -1143,6 +1180,15 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
           #
           # also plot summary at the stopping point so see how the correlation changed
           plot_fs_stats(all.layers.ll, layer.corr.df, paste0(out.dir, '_atCutoff'), i, fs.correlation.cutoff)
+          
+          # guide efficiency vars:
+          if(! is.null(input.data$guide_efficiency_scores)){
+            # the only thing that actually changes the scores are the 'ge_beta'
+            # for simplicity for now still print out the EG as well as the ge_betas
+            if(input.data$estimate_ge_alphaDiffScale){
+              print('feature not yet implemented')
+            }
+          }
 
           break()
         } else {
@@ -1193,6 +1239,16 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
 
           # also plot summary at the stopping point so see how the correlation changed
           plot_fs_stats(all.layers.ll, layer.corr.df, paste0(out.dir, '_atRecommendedCutoff'), i, fs.correlation.cutoff)
+          
+          # guide efficiency vars:
+          if(! is.null(input.data$guide_efficiency_scores)){
+            # the only thing that actually changes the scores are the 'ge_beta'
+            # for simplicity for now still print out the EG as well as the ge_betas
+            if(input.data$estimate_ge_alphaDiffScale){
+              print('feature not yet implemented')
+            }
+          }
+          
         }
 
       }
@@ -1205,7 +1261,19 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
                                                  relics.hyper,
                                                  input.data$data,
                                                  input.data$guide_to_seg_lst,
-                                                 guide.efficiency)
+                                                 input.data$guide_efficiency)
+    }
+    
+    if(! is.null(input.data$guide_efficiency_scores)){
+      
+      #input.data$guide_efficiency
+      
+      if(! input.data$fix_guideEfficiency){
+        print('non-fixed guide efficiency or reestimation of alpha diff scale is not yet implemented')
+        # input.data$estimate_ge_alphaDiffScale
+        #input.data$guide_efficiency
+      }
+
     }
 
   }
