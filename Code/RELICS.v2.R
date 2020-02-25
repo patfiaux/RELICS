@@ -16,7 +16,8 @@ suppressMessages(library(gtools)) # for getting all combinations when computing 
 #' @return list of final per-layer posteriors
 #' @export RELICS()
 
-RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.split = FALSE, record.all.fs = FALSE){
+RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.split = FALSE, 
+                   record.all.fs = FALSE, return.init.hypers = FALSE){
 
   analysis.parameters <- list()
 
@@ -89,6 +90,12 @@ RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.
                                             min.seg.dist = analysis.parameters$seg_dist)
 
     analysis.parameters$hyper_pars <- list(alpha0 = background.alpha0, alpha1 = fs0.alpha1, L = 1)
+  }
+  
+  if(return.init.hypers){
+    # record alphas used for posterior calculation
+    record_alphas(background.alpha0, fs0.alpha1, out.dir, 'init')
+    break()
   }
 
   run_RELICS_2(input.data = data.setup,
