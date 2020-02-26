@@ -94,7 +94,8 @@ RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.
   
   if(return.init.hypers){
     # record alphas used for posterior calculation
-    record_alphas(background.alpha0, fs0.alpha1, out.dir, 'init')
+    alpha.out.dir <- paste0(analysis.parameters$out_dir, '/', analysis.parameters$dataName)
+    record_alphas(background.alpha0, fs0.alpha1, alpha.out.dir, 'init')
     break()
   }
 
