@@ -45,22 +45,27 @@ RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.
                                    save.files = analysis.parameters$save_input_files,
                                    min.seg.dist = analysis.parameters$seg_dist)
   
-  # if guide efficiency scores are provided, calculate guide efficiency and include in the model
-  if(! is.null(data.setup$guide_efficiency_scores)){
-    data.setup$fix_guideEfficiency <- analysis.parameters$fix_guideEfficiency
-    data.setup$estimate_ge_alphaDiffScale <- analysis.parameters$estimate_ge_alphaDiffScale
-    data.setup$ge_beta_estimation <- analysis.parameters$ge_beta_estimation
-
-    # unde the conditions below, it is assumed that the data.setup$guide_efficiency_scores matrix is only one column
-    # therefore convert to: 
-    if(analysis.parameters$fix_guideEfficiency & ! analysis.parameters$estimate_ge_alphaDiffScale){
-      data.setup$guide_efficiency <- data.setup$guide_efficiency_scores[,1]
-    } else {
-      print('non-fixed guide efficiency or reestimation of alpha diff scale is not yet implemented')
-      # immediate prining of the betas
-      # also, might want to see if 'ge_beta_estimation' is required here
-    }
-  }
+  # the whole section below should be redundant
+  # # if guide efficiency scores are provided, calculate guide efficiency and include in the model
+  # if(! is.null(data.setup$guide_efficiency_scores)){
+  #   
+  #   # fixed_ge_coeff
+  #   data.setup$guide_efficiency <- 1 / (1 + exp(-(data.setup$guide_efficiency_scores %*% rep(1, ncol(data.setup$guide_efficiency_scores)))))
+  #         # 
+  #   # data.setup$fix_guideEfficiency <- analysis.parameters$fix_guideEfficiency
+  #   # data.setup$estimate_ge_alphaDiffScale <- analysis.parameters$estimate_ge_alphaDiffScale
+  #   # data.setup$ge_beta_estimation <- analysis.parameters$ge_beta_estimation
+  #   # 
+  #   # # unde the conditions below, it is assumed that the data.setup$guide_efficiency_scores matrix is only one column
+  #   # # therefore convert to: 
+  #   # if(analysis.parameters$fix_guideEfficiency & ! analysis.parameters$estimate_ge_alphaDiffScale){
+  #   #   data.setup$guide_efficiency <- data.setup$guide_efficiency_scores[,1]
+  #   # } else {
+  #   #   print('non-fixed guide efficiency or reestimation of alpha diff scale is not yet implemented')
+  #   #   # immediate prining of the betas
+  #   #   # also, might want to see if 'ge_beta_estimation' is required here
+  #   # }
+  # }
 
   # check if hyper parameters are provided, otherwise estimate from data
   if(! 'hyper_pars' %in% names(analysis.parameters)){
@@ -98,6 +103,39 @@ RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.
     record_alphas(background.alpha0, fs0.alpha1, alpha.out.dir, 'init')
     break()
   }
+  
+  data.setup$fixed_ge_coeff <- analysis.parameters$fixed_ge_coeff
+       
+  # if guide efficiency scores are provided, calculate guide efficiency and include in the model
+  if(! is.null(data.setup$guide_efficiency_scores)){
+    
+    if(! analysis.parameters$fixed_ge_coeff){
+      ge.list <- recompute_ge_coefficients(relics.param,
+                                           relics.hyper,
+                                           input.data$data,
+                                           input.data$guide_to_seg_lst,
+                                           data.setup$guide_efficiency_scores,
+                                           c(0, rep(1, ncol(data.setup$guide_efficiency_scores))), 
+                                           one.dispersion)
+      
+      data.setup$guide_efficiency <- ge.list$guide_efficiency
+      data.setup$ge_coeff <- ge.list$ge_coeff
+    }
+    
+    # data.setup$fix_guideEfficiency <- analysis.parameters$fix_guideEfficiency
+    # data.setup$estimate_ge_alphaDiffScale <- analysis.parameters$estimate_ge_alphaDiffScale
+    # data.setup$ge_beta_estimation <- analysis.parameters$ge_beta_estimation
+    # 
+    # # unde the conditions below, it is assumed that the data.setup$guide_efficiency_scores matrix is only one column
+    # # therefore convert to: 
+    # if(analysis.parameters$fix_guideEfficiency & ! analysis.parameters$estimate_ge_alphaDiffScale){
+    #   data.setup$guide_efficiency <- data.setup$guide_efficiency_scores[,1]
+    # } else {
+    #   print('non-fixed guide efficiency or reestimation of alpha diff scale is not yet implemented')
+    #   # immediate prining of the betas
+    #   # also, might want to see if 'ge_beta_estimation' is required here
+    # }
+  }
 
   run_RELICS_2(input.data = data.setup,
                final.layer.nr = analysis.parameters$min_FS_nr,
@@ -110,7 +148,8 @@ RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.
                auto.stop = analysis.parameters$auto_stop,
                record.all.fs = record.all.fs,
                input.convergence.tol = analysis.parameters$convergence_tol,
-               adjust.tol = analysis.parameters$adjust_tol)
+               adjust.tol = analysis.parameters$adjust_tol,
+               one.dispersion = analysis.parameters$one_dispersion)
 
 
 }
@@ -174,7 +213,9 @@ check_parameter_list <- function(input.parameter.list, data.file.split){
   }
   if(! 'background_label' %in% par.given){
     out.parameter.list$background_label_specified <- FALSE
-
+  }
+  if(! 'one_dispersion' %in% par.given){
+    out.parameter.list$one_dispersion <- TRUE
   }
   
   # guide efficiency related parameters
@@ -188,12 +229,19 @@ check_parameter_list <- function(input.parameter.list, data.file.split){
     }
     
     # check if fixed
-    if(! 'fix_guideEfficiency' %in% par.given){
-      out.parameter.list$fix_guideEfficiency <- TRUE
+    if(! 'fixed_ge_coeff' %in% par.given){
+      out.parameter.list$fixed_ge_coeff <- FALSE
       # check if betas are provided, else give default
     } else {
-      out.parameter.list$fix_guideEfficiency <- input.parameter.list$fix_guideEfficiency
+      out.parameter.list$fixed_ge_coeff <- input.parameter.list$fixed_ge_coeff
     }
+    
+    # if(! 'fix_guideEfficiency' %in% par.given){
+    #   out.parameter.list$fix_guideEfficiency <- TRUE
+    #   # check if betas are provided, else give default
+    # } else {
+    #   out.parameter.list$fix_guideEfficiency <- input.parameter.list$fix_guideEfficiency
+    # }
     
     if(! 'ge_betas' %in% par.given){
       print('Default guide efficiency betas are not yet implemented')
@@ -207,13 +255,13 @@ check_parameter_list <- function(input.parameter.list, data.file.split){
       out.parameter.list$ge_beta_estimation <- input.parameter.list$ge_beta_estimation
     }
     
-    #if the GE is fixed but there are multiple metics, then the alpha diff scaling has to be reestimated
-    # this flag is used for first time estimation only
-    if(out.parameter.list$fix_guideEfficiency & ncol(out.parameter.list$guide_efficiency_scores) < 2){
-      out.parameter.list$estimate_ge_alphaDiffScale <- FALSE
-    } else { # if there are multiple scores the guide efficiency has to be roughly estimated from the 2+ scoring schemes
-      out.parameter.list$estimate_ge_alphaDiffScale <- TRUE
-    }
+    # #if the GE is fixed but there are multiple metics, then the alpha diff scaling has to be reestimated
+    # # this flag is used for first time estimation only
+    # if(out.parameter.list$fix_guideEfficiency & ncol(out.parameter.list$guide_efficiency_scores) < 2){
+    #   out.parameter.list$estimate_ge_alphaDiffScale <- FALSE
+    # } else { # if there are multiple scores the guide efficiency has to be roughly estimated from the 2+ scoring schemes
+    #   out.parameter.list$estimate_ge_alphaDiffScale <- TRUE
+    # }
     
     
     # ge_beta_estimation (wether the scales have to be re-estimated)
@@ -394,12 +442,14 @@ read_analysis_parameters <- function(parameter.file.loc){
     }
 
   }
-
   # aggregate alpha0 and alpha1 if provided
   if('alpha0' %in% names(out.parameter.list) & 'alpha1' %in% names(out.parameter.list)){
     out.parameter.list$hyper_pars <- list(alpha0 = out.parameter.list$alpha0, alpha1 = out.parameter.list$alpha1, L = 1)
   }
-  
+  if('one_dispersion' == parameter.id){
+    out.parameter.list$one_dispersion <- as.logical(strsplit(parameter,':')[[1]][2])
+  }
+
   ##############################################
   # guide efficiency related parameters
   # location of file (can be same as info, or total combines, or separate)
@@ -410,10 +460,18 @@ read_analysis_parameters <- function(parameter.file.loc){
   if('guide_efficiency_cols' == parameter.id){
     out.parameter.list$guide_efficiency_cols <- as.numeric(strsplit(parameter,':')[[1]][2])
   }
-  # boolean whether to simply use given guide efficiencies or trying to estimate a scaling
-  if('fix_guideEfficiency' == parameter.id){
-    out.parameter.list$fix_guideEfficiency <- as.logical(strsplit(parameter,':')[[1]][2])
+  # boolean whether to simply use given guide coefficients or trying to estimate them
+  if('fixed_ge_coeff' == parameter.id){
+    out.parameter.list$fixed_ge_coeff <- as.logical(strsplit(parameter,':')[[1]][2])
   }
+  
+  
+  # # boolean whether to simply use given guide efficiencies or trying to estimate a scaling
+  # if('fix_guideEfficiency' == parameter.id){
+  #   out.parameter.list$fix_guideEfficiency <- as.logical(strsplit(parameter,':')[[1]][2])
+  # }
+  
+  
   # to do: ge_betas, ge_beta_estimation (this serves for estimation of the scaling factors, logical)
 
   return(out.parameter.list)
@@ -752,20 +810,27 @@ estimate_hyper_parameters <- function(analysis.parameters, data.file.split, inpu
                                       fs0.label,
                                       min.seg.dist)
   
-  # if guide efficiency scores are provided, calculate guide efficiency and include in the model
+  # most basic implementation of GE
   if(! is.null(analysis.parameters$guide_efficiency_scores)){
     
-    # estimate_ge_alphaDiffScale should work for one-time calculation
-    # same as in 'RELICS', assumption is that data.par.list$guide_efficiency_scores is n x 1
-    if(analysis.parameters$fix_guideEfficiency & ! analysis.parameters$estimate_ge_alphaDiffScale){ 
-      data.par.list$guide_efficiency <- data.par.list$guide_efficiency_scores[,1]
-    } else {
-      # ge_beta_estimation
-      print('non-fixed guide efficiency or reestimation of alpha diff scale is not yet implemented')
-      
-      # if scaling is calculated, then immediately print it!
-    }
+    data.par.list$guide_efficiency <- 1 / (1 + exp(-(data.par.list$guide_efficiency_scores %*% rep(1, ncol(data.par.list$guide_efficiency_scores)))))
+
   }
+
+  # # if guide efficiency scores are provided, calculate guide efficiency and include in the model
+  # if(! is.null(analysis.parameters$guide_efficiency_scores)){
+  #   
+  #   # estimate_ge_alphaDiffScale should work for one-time calculation
+  #   # same as in 'RELICS', assumption is that data.par.list$guide_efficiency_scores is n x 1
+  #   if(analysis.parameters$fix_guideEfficiency & ! analysis.parameters$estimate_ge_alphaDiffScale){ 
+  #     data.par.list$guide_efficiency <- data.par.list$guide_efficiency_scores[,1]
+  #   } else {
+  #     # ge_beta_estimation
+  #     print('non-fixed guide efficiency or reestimation of alpha diff scale is not yet implemented')
+  #     
+  #     # if scaling is calculated, then immediately print it!
+  #   }
+  # }
 
   # make sure all guides are considered to be the same category
   dirichlet.guide.ll <- compute_perGuide_fs_ll(rep(1, nrow(data.par.list$seg_info)), data.par.list$guide_to_seg_lst, hyper.setup = TRUE)
@@ -779,17 +844,61 @@ estimate_hyper_parameters <- function(analysis.parameters, data.file.split, inpu
     temp.hyper.params <- c(sqrt(temp.drch.hypers$alpha0), sqrt(temp.drch.hypers$alpha1))
     temp.alpha0.idx <- c(1:length(temp.drch.hypers$alpha0))
     temp.alpha1.idx <- c(1:length(temp.drch.hypers$alpha0)) + max(temp.alpha0.idx)
+    
+    temp.res.drch <- c()
+    
+    if(analysis.parameters$one_dispersion){
+      temp.res.drch <- optim(temp.hyper.params, prior_dirichlet_ll_singleDisp, method= 'L-BFGS-B', #'BFGS', #"Nelder-Mead",
+                             data = data.par.list$data[[i]], region.ll.list = dirichlet.guide.ll,
+                             alpha0.idx = temp.alpha0.idx, alpha1.idx = temp.alpha1.idx, 
+                             guide.efficiency = data.par.list$guide_efficiency)
+      
+      temp.alpha0s <- temp.res.drch[alpha0.idx]**2
+      temp.alpha1s <- temp.res.drch[alpha1.idx]**2
+      
+      temp.alpha1s.norm <- temp.alpha1s / sum(temp.alpha1s)
+      temp.alpha1s.adj <- temp.alpha1s.norm * sum(temp.alpha0s)
 
-    temp.res.drch <- optim(temp.hyper.params, prior_dirichlet_ll, method= 'L-BFGS-B', #'BFGS', #"Nelder-Mead",
-                           data = data.par.list$data[[i]], region.ll.list = dirichlet.guide.ll,
-                           alpha0.idx = temp.alpha0.idx, alpha1.idx = temp.alpha1.idx, 
-                           guide.efficiency = data.par.list$guide_efficiency)
+      final.alpha[[i]] <- round(temp.alpha1s.adj, 3)
+    } else {
+      temp.res.drch <- optim(temp.hyper.params, prior_dirichlet_ll, method= 'L-BFGS-B', #'BFGS', #"Nelder-Mead",
+                             data = data.par.list$data[[i]], region.ll.list = dirichlet.guide.ll,
+                             alpha0.idx = temp.alpha0.idx, alpha1.idx = temp.alpha1.idx, 
+                             guide.efficiency = data.par.list$guide_efficiency)
+      
+      final.alpha[[i]] <- round(temp.res.drch$par[temp.alpha1.idx]**2, 3)
+    }
 
-    final.alpha[[i]] <- round(temp.res.drch$par[temp.alpha1.idx]**2, 3)
+
   }
 
   return(final.alpha)
 
+}
+
+#' @title optimize the hyper parameters, only one dispersion across the two distributions
+#' @param hyper.param: hyperparameters
+#' @param data: data, consists of: $pool1, pool2... and $n
+#' @param region.ll.list: list containing the ll and the indexes of the null alternative and both
+#' @param alpha0.idx: positions in the par vector of the null alphas, using this dispersion
+#' @param alpha1.idx: positions in the par vector of the alternative alphas
+#' @param guide.efficiency: data.frame of guide efficiences. Either vector of guide efficiency or NULL
+#' @return sum of the -log likelihood across all guides
+#' @export prior_dirichlet_ll_singleDisp()
+
+prior_dirichlet_ll_singleDisp <- function(hyper.param, data, region.ll.list, alpha0.idx, alpha1.idx, guide.efficiency) {
+  
+  alpha0s <- hyper.param[alpha0.idx]**2
+  alpha1s <- hyper.param[alpha1.idx]**2
+  
+  alpha1s.norm <- alpha1s / sum(alpha1s)
+  alpha1s.adj <- alpha1s.norm * sum(alpha0s)
+  
+  # cat(u0, u1, v0, v1, "\n")
+  hyper <- list(alpha0 = alpha0s,
+                alpha1 = alpha1s.adj)
+  
+  -sum(estimate_relics_sgrna_log_like(hyper, data, region.ll.list, guide.efficiency))
 }
 
 
@@ -946,6 +1055,7 @@ compute_perGuide_fs_ll <- function(cumulative.pp, guide.seg.idx.lst, hyper.setup
 #' @param input.min.rs.pp: minimum posterior required to be part of a regulatory set
 #' @param auto.stop: whether or not computations should be stopped after recomended stopping point
 #' @param record.all.fs: logical, if information of all intermediate FS should be recorded, in addition to the final set of FS
+#' @param one.dispersion: whether there should be one or 2 dispersions estimated for the 2 hyper parameters
 #' @return list of final per-layer posteriors
 #' @export run_RELICS_2()
 
@@ -960,7 +1070,8 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
                      auto.stop = TRUE,
                      record.all.fs,
                      input.convergence.tol = 0.01,
-                     adjust.tol = TRUE){
+                     adjust.tol = TRUE,
+                     one.dispersion =TRUE){
 
   final.layer.posterior <- list()
   final.layer.alpha0 <- list()
@@ -970,6 +1081,8 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
   layer.corr.df <- c()
   layer.corr.df.list <- list()
   final.all.layers.ll <- list() # record the overal model ll progression
+  ge.coeff.list <- list()
+  ge.coeff.list[[1]] <- input.data$ge_coeff
 
   no.convergence.layer <- c() # during what layers whas there no convergence
   no.convergence.lls <- c() #model ll when convergence was not reached
@@ -1013,7 +1126,7 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
                                       input.data.list = input.data,
                                       input.tol = coverg.tol[i],
                                       fix.hypers, iterative.hyper.est, nr.segs, geom.p,
-                                      min.pp = input.min.rs.pp, input.data$guide_efficiency)
+                                      min.pp = input.min.rs.pp, input.data$guide_efficiency) # adding dispersion
 
     layer.time.final <- proc.time() - layer.time
     layer.times[i] <- layer.time.final[3] / 60
@@ -1105,13 +1218,18 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
       write.csv(write.layer.corrs, file = paste0(out.dir, '_k',i,'_correlations.csv'), row.names = F)
       
       # guide efficiency vars:
-      if(! is.null(input.data$guide_efficiency_scores)){
-        # the only thing that actually changes the scores are the 'ge_beta'
-        # for simplicity for now still print out the EG as well as the ge_betas
-        if(input.data$ge_beta_estimation){
-          print('feature not yet implemented')
-        }
+      if(! input.data$fixed_ge_coeff){
+        ge.coff.df <- data.frame(ge_coeff = c('beta0', paste0('beta', 1:ncol(input.data$guide_efficiency_scores))), 
+                                 ge_coeff_scores = input.data$ge_coeff)
+        write.csv(ge.coff.df, file = paste0(out.dir, '_k',i,'_ge_coeff.csv'), row.names = F)
       }
+      # if(! is.null(input.data$guide_efficiency_scores)){
+      #   # the only thing that actually changes the scores are the 'ge_beta'
+      #   # for simplicity for now still print out the EG as well as the ge_betas
+      #   if(input.data$ge_beta_estimation){
+      #     print('feature not yet implemented')
+      #   }
+      # }
     }
 
     # plot the outputs
@@ -1190,13 +1308,18 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
           plot_fs_stats(all.layers.ll, layer.corr.df, paste0(out.dir, '_atCutoff'), i, fs.correlation.cutoff)
           
           # guide efficiency vars:
-          if(! is.null(input.data$guide_efficiency_scores)){
-            # the only thing that actually changes the scores are the 'ge_beta'
-            # for simplicity for now still print out the EG as well as the ge_betas
-            if(input.data$estimate_ge_alphaDiffScale){
-              print('feature not yet implemented')
-            }
+          if(! input.data$fixed_ge_coeff){
+            ge.coff.df <- data.frame(ge_coeff = c('beta0', paste0('beta', 1:ncol(input.data$guide_efficiency_scores))), 
+                                     ge_coeff_scores = ge.coeff.list[[i - 1]])
+            write.csv(ge.coff.df, file = paste0(out.dir, '_final_k',i,'_ge_coeff.csv'), row.names = F)
           }
+          # if(! is.null(input.data$guide_efficiency_scores)){
+          #   # the only thing that actually changes the scores are the 'ge_beta'
+          #   # for simplicity for now still print out the EG as well as the ge_betas
+          #   if(input.data$estimate_ge_alphaDiffScale){
+          #     print('feature not yet implemented')
+          #   }
+          # }
 
           break()
         } else {
@@ -1249,13 +1372,18 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
           plot_fs_stats(all.layers.ll, layer.corr.df, paste0(out.dir, '_atRecommendedCutoff'), i, fs.correlation.cutoff)
           
           # guide efficiency vars:
-          if(! is.null(input.data$guide_efficiency_scores)){
-            # the only thing that actually changes the scores are the 'ge_beta'
-            # for simplicity for now still print out the EG as well as the ge_betas
-            if(input.data$estimate_ge_alphaDiffScale){
-              print('feature not yet implemented')
-            }
+          if(! input.data$fixed_ge_coeff){
+            ge.coff.df <- data.frame(ge_coeff = c('beta0', paste0('beta', 1:ncol(input.data$guide_efficiency_scores))), 
+                                     ge_coeff_scores = ge.coeff.list[[i - 1]])
+            write.csv(ge.coff.df, file = paste0(out.dir, '_recommendedFinal_k',i,'_ge_coeff.csv'), row.names = F)
           }
+          # if(! is.null(input.data$guide_efficiency_scores)){
+          #   # the only thing that actually changes the scores are the 'ge_beta'
+          #   # for simplicity for now still print out the EG as well as the ge_betas
+          #   if(input.data$estimate_ge_alphaDiffScale){
+          #     print('feature not yet implemented')
+          #   }
+          # }
           
         }
 
@@ -1269,23 +1397,94 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
                                                  relics.hyper,
                                                  input.data$data,
                                                  input.data$guide_to_seg_lst,
-                                                 input.data$guide_efficiency)
+                                                 input.data$guide_efficiency,
+                                                 one.dispersion)
     }
     
     if(! is.null(input.data$guide_efficiency_scores)){
-      
-      #input.data$guide_efficiency
-      
-      if(! input.data$fix_guideEfficiency){
-        print('non-fixed guide efficiency or reestimation of alpha diff scale is not yet implemented')
-        # input.data$estimate_ge_alphaDiffScale
-        #input.data$guide_efficiency
+      if(! input.data$fixed_ge_coeff){
+        ge.list <- recompute_ge_coefficients(relics.param,
+                                             relics.hyper,
+                                             input.data$data,
+                                             input.data$guide_to_seg_lst,
+                                             input.data$guide_efficiency_scores,
+                                             input.data$ge_coeff, #ToDo
+                                             one.dispersion)
+        
+        input.data$guide_efficiency <- ge.list$guide_efficiency
+        input.data$ge_coeff
+        ge.coeff.list[[i]] <- ge.list$ge_coeff
       }
 
     }
 
   }
 
+}
+
+
+#' @title wrapper which returns -log likelihood given provided prior distribution hyperparameters, and current estimates of the cumulative posteriors. Formerly 'fit_prior_dirichlet_distr_mvr'
+#' @param hyper: hyperparameters
+#' @param param: matrix of all posterior probs
+#' @param data: data, consists of: $y1, $y2 and $n
+#' @param guide.seg.idx.lst: list: each element is a guide, contaiing the indexes of the segments it overlaps
+#' @param guide.efficiency.scores: matrix, each column containing a different set of scores per guide
+#' @param ge.coeff vector, containing the guide efficiency coefficients
+#' @param one.dispersion. logical, if there should be one or two dispersions for the hyper parameters
+#' @return list: $guide_efficiency, 
+#' @export recompute_ge_coefficients()
+
+recompute_ge_coefficients <- function(param, hyper, data, guide.seg.idx.lst, guide.efficiency.scores, ge.coeff) {
+  cumulative.pp <- colSums(param$delta.pp) #apply(param$delta.pp, 2, sum)
+  cumulative.pp[cumulative.pp > 1] <- 1
+  
+  guide.lls.list <- compute_perGuide_fs_ll(cumulative.pp, guide.seg.idx.lst)
+  
+  for(i in 1:length(data)){
+    alpha0 <- hyper$alpha0[[i]]
+    alpha1 <- hyper$alpha1[[i]]
+    
+    ge.coeff.param <- ge.coeff
+    
+    res <- optim(ge.coeff.param, guide_coeff_ll, method= 'L-BFGS-B', #'BFGS', #"Nelder-Mead",
+                 data=data[[i]], region.ll.list = guide.lls.list,
+                 alpha0.idx = alpha0.idx, alpha1.idx = alpha1.idx, 
+                 guide.efficiency = guide.efficiency)
+
+    if(res$convergence==0) {
+      
+      out.list <- list()
+      out.list$guide_efficiency <- 1 / (1 + exp(-(res$par[1] + guide.efficiency.scores %*% res$par[2:length(res$par)])))
+      out.list$ge_coeff <- res$par
+      
+    } else {
+      warning("estimation of hyperparameters failed to converge")
+    }
+  }
+  
+  
+  return(out.list)
+}
+
+
+#' @title optimize the guide efficiency coefficients
+#' @param ge.coeff.param: guide efficiency coefficients (beta0, beta1, ...)
+#' @param data: data, consists of: $pool1, pool2... and $n
+#' @param region.ll.list: list containing the ll and the indexes of the null alternative and both
+#' @param alpha0.input: hyper parameters of the background
+#' @param alpha1.input: hyper parameters of the functional sequences
+#' @param guide.efficiency.scores: matrix, each column containing a different set of scores per guide
+#' @return sum of the -log likelihood across all guides
+#' @export guide_coeff_ll()
+
+guide_coeff_ll <- function(ge.coeff.param, data, region.ll.list, alpha0.input, alpha1.input, guide.efficiency.scores) {
+  
+  guide.efficiency <- 1 / (1 + exp(-(ge.coeff.param[1] + guide.efficiency.scores %*% ge.coeff.param[2:length(ge.coeff.param)])))
+    
+  hyper <- list(alpha0 = alpha0.input,
+                alpha1 = alpha1.input)
+  
+  -sum(estimate_relics_sgrna_log_like(hyper, data, region.ll.list, guide.efficiency))
 }
 
 
@@ -1865,6 +2064,7 @@ init_relics_param <- function(hyper, in.data.list) {
 #' @param geom.p: proababilty of the genometric distribution to penalize for enhancers of increasing length
 #' @param min.pp: minimum posterior required to be part of a regulatory set
 #' @param guide.efficiency: data.frame of guide efficiences. Either vector of guide efficiency or NULL
+#' @param one.dispersion: whether the hyper parameters should be estimated with one or two dispersions
 #' @return ll_tract, posterior_trace_list, alpha0_est, alpha1_est, max_iter_reached
 #' @export relics_compute_FS_k()
 
@@ -1876,7 +2076,8 @@ relics_compute_FS_k <- function(input.param,
                           iterative.hyper.est = TRUE,
                           nr.segs = 10, geom.p = 0.1,
                           min.pp = 0.1,
-                          guide.efficiency){
+                          guide.efficiency,
+                          one.dispersion){
 
 
   dirichlet.hyper <- input.hyper
@@ -1935,7 +2136,8 @@ relics_compute_FS_k <- function(input.param,
                                                      dirichlet.hyper,
                                                      input.data.list$data,
                                                      input.data.list$guide_to_seg_lst,
-                                                    guide.efficiency)
+                                                    guide.efficiency,
+                                                    one.dispersion)
     }
 
     dirichlet.pp <- colSums(dirichlet.param$delta.pp)
@@ -2006,10 +2208,11 @@ relics_compute_FS_k <- function(input.param,
 #' @param data: data, consists of: $y1, $y2 and $n
 #' @param guide.seg.idx.lst: list: each element is a guide, contaiing the indexes of the segments it overlaps
 #' @param guide.efficiency: either a vector of guide efficiency or NULL
+#' @param one.dispersion. logical, if there should be one or two dispersions for the hyper parameters
 #' @return list of the re-estimated hyperparameters
 #' @export recompute_hyper_parameters()
 
-recompute_hyper_parameters <- function(param, hyper, data, guide.seg.idx.lst, guide.efficiency) {
+recompute_hyper_parameters <- function(param, hyper, data, guide.seg.idx.lst, guide.efficiency, one.dispersion) {
   cumulative.pp <- colSums(param$delta.pp) #apply(param$delta.pp, 2, sum)
   cumulative.pp[cumulative.pp > 1] <- 1
 
@@ -2020,16 +2223,39 @@ recompute_hyper_parameters <- function(param, hyper, data, guide.seg.idx.lst, gu
     hyper.param <- c(sqrt(hyper$alpha0[[i]]), sqrt(hyper$alpha1[[i]]))
     alpha0.idx <- c(1:length(hyper$alpha0[[i]]))
     alpha1.idx <- c(1:length(hyper$alpha0[[i]])) + max(alpha0.idx)
+    
+    res <- c()
+    
+    if(one.dispersion){
+      res <- optim(hyper.param, prior_dirichlet_ll_singleDisp, method= 'L-BFGS-B', #'BFGS', #"Nelder-Mead",
+                   data=data[[i]], region.ll.list = guide.lls.list,
+                   alpha0.idx = alpha0.idx, alpha1.idx = alpha1.idx, 
+                   guide.efficiency = guide.efficiency)
+    } else {
+      res <- optim(hyper.param, prior_dirichlet_ll, method= 'L-BFGS-B', #'BFGS', #"Nelder-Mead",
+                   data=data[[i]], region.ll.list = guide.lls.list,
+                   alpha0.idx = alpha0.idx, alpha1.idx = alpha1.idx, 
+                   guide.efficiency = guide.efficiency)
+    }
 
-    res <- optim(hyper.param, prior_dirichlet_ll, method= 'L-BFGS-B', #'BFGS', #"Nelder-Mead",
-                 data=data[[i]], region.ll.list = guide.lls.list,
-                 alpha0.idx = alpha0.idx, alpha1.idx = alpha1.idx, 
-                 guide.efficiency = guide.efficiency)
 
     if(res$convergence==0) {
       # return new estimates of hyperparamers
-      hyper$alpha0[[i]] <-res$par[alpha0.idx]**2
-      hyper$alpha1[[i]] <-res$par[alpha1.idx]**2
+      
+      if(one.dispersion){
+        alpha0s <- res$par[alpha0.idx]**2
+        alpha1s <- res$par[alpha1.idx]**2
+        
+        alpha1s.norm <- alpha1s / sum(alpha1s)
+        alpha1s.adj <- alpha1s.norm * sum(alpha0s)
+        
+        hyper$alpha0[[i]] <- alpha0s
+        hyper$alpha1[[i]] <- alpha1s.adj
+      } else {
+        hyper$alpha0[[i]] <-res$par[alpha0.idx]**2
+        hyper$alpha1[[i]] <-res$par[alpha1.idx]**2
+      }
+
 
     } else {
       warning("estimation of hyperparameters failed to converge")
