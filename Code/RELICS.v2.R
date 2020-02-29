@@ -605,6 +605,7 @@ set_up_RELICS_data <- function(input.parameter.list, data.file.split, guide.offs
     write.csv(sim.info, file = paste0(file.save.dir, '_guideInfo.csv'), row.names = F)
     write.csv(sim.counts, file = paste0(file.save.dir, '_guideCounts.csv'), row.names = F)
   }
+  
   return(format.data.beta)
 
 }
@@ -799,6 +800,7 @@ generate_next_guide_list <- function(input.seg.to.guide.list){
 
 }
 
+
 #' @title extract hyper parameters given a label for multiple replicates. Deprecated. Uses the old setup of individually estimating alpha0 and alpha1
 #' @param input.counts.loc: string location of the count file
 #' @param input.info.loc: string location of the info file
@@ -889,6 +891,7 @@ estimate_hyper_parameters_deprecated <- function(analysis.parameters, data.file.
 
 }
 
+
 #' @title extract hyper parameters given a label for multiple replicates
 #' @param input.counts.loc: string location of the count file
 #' @param input.info.loc: string location of the info file
@@ -902,40 +905,14 @@ estimate_hyper_parameters_deprecated <- function(analysis.parameters, data.file.
 #' @return list: hyper parameter estimates for each replicate per list element
 #' @export estimate_hyper_parameters()
 
-estimate_hyper_parameters <- function(data.par.list, input.repl.pools,  fs0.label, one.dispersion#, 
-                                      # data.file.split, input.guide.offset,
-                                      # input.labelHierarchy, min.seg.dist = 100
-                                      ){
-  
-  # data.par.list <- set_up_RELICS_data(analysis.parameters,
-  #                                     data.file.split,
-  #                                     input.guide.offset,
-  #                                     input.repl.pools,
-  #                                     input.labelHierarchy,
-  #                                     fs0.label,
-  #                                     min.seg.dist)
-  # 
+estimate_hyper_parameters <- function(data.par.list, input.repl.pools,  fs0.label, one.dispersion){
+
   # most basic implementation of GE
   if(! is.null(data.par.list$guide_efficiency_scores)){
     
     data.par.list$guide_efficiency <- 1 / (1 + exp(-(data.par.list$guide_efficiency_scores %*% rep(1, ncol(data.par.list$guide_efficiency_scores)))))
     
   }
-  
-  # # if guide efficiency scores are provided, calculate guide efficiency and include in the model
-  # if(! is.null(analysis.parameters$guide_efficiency_scores)){
-  #   
-  #   # estimate_ge_alphaDiffScale should work for one-time calculation
-  #   # same as in 'RELICS', assumption is that data.par.list$guide_efficiency_scores is n x 1
-  #   if(analysis.parameters$fix_guideEfficiency & ! analysis.parameters$estimate_ge_alphaDiffScale){ 
-  #     data.par.list$guide_efficiency <- data.par.list$guide_efficiency_scores[,1]
-  #   } else {
-  #     # ge_beta_estimation
-  #     print('non-fixed guide efficiency or reestimation of alpha diff scale is not yet implemented')
-  #     
-  #     # if scaling is calculated, then immediately print it!
-  #   }
-  # }
   
   # make sure all guides are considered to be the same category
   fs.assignment <- rep(0, nrow(data.par.list$seg_info))
@@ -985,7 +962,6 @@ estimate_hyper_parameters <- function(data.par.list, input.repl.pools,  fs0.labe
       final.alpha$alpha0[[i]] <- temp.alpha0s
       final.alpha$alpha1[[i]] <- temp.alpha1s
       
-      # final.alpha[[i]] <- round(temp.res.drch$par[temp.alpha1.idx]**2, 3)
     }
     
     
@@ -1345,13 +1321,7 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
                                  ge_coeff_scores = round(input.data$ge_coeff, 3))
         write.csv(ge.coff.df, file = paste0(out.dir, '_k',i,'_ge_coeff.csv'), row.names = F)
       }
-      # if(! is.null(input.data$guide_efficiency_scores)){
-      #   # the only thing that actually changes the scores are the 'ge_beta'
-      #   # for simplicity for now still print out the EG as well as the ge_betas
-      #   if(input.data$ge_beta_estimation){
-      #     print('feature not yet implemented')
-      #   }
-      # }
+
     }
 
     # plot the outputs
@@ -1435,13 +1405,6 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
                                      ge_coeff_scores = round(ge.coeff.list[[i - 1]], 3))
             write.csv(ge.coff.df, file = paste0(out.dir, '_final_k',i,'_ge_coeff.csv'), row.names = F)
           }
-          # if(! is.null(input.data$guide_efficiency_scores)){
-          #   # the only thing that actually changes the scores are the 'ge_beta'
-          #   # for simplicity for now still print out the EG as well as the ge_betas
-          #   if(input.data$estimate_ge_alphaDiffScale){
-          #     print('feature not yet implemented')
-          #   }
-          # }
 
           break()
         } else {
@@ -1499,14 +1462,7 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
                                      ge_coeff_scores = round(ge.coeff.list[[i - 1]], 3))
             write.csv(ge.coff.df, file = paste0(out.dir, '_recommendedFinal_k',i,'_ge_coeff.csv'), row.names = F)
           }
-          # if(! is.null(input.data$guide_efficiency_scores)){
-          #   # the only thing that actually changes the scores are the 'ge_beta'
-          #   # for simplicity for now still print out the EG as well as the ge_betas
-          #   if(input.data$estimate_ge_alphaDiffScale){
-          #     print('feature not yet implemented')
-          #   }
-          # }
-          
+
         }
 
       }
@@ -1533,7 +1489,7 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
                                              input.data$ge_coeff)
         
         input.data$guide_efficiency <- ge.list$guide_efficiency
-        input.data$ge_coeff
+        input.data$ge_coeff <- ge.list$ge_coeff
         ge.coeff.list[[i + 1]] <- ge.list$ge_coeff
       }
 
@@ -1544,7 +1500,7 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
 }
 
 
-#' @title wrapper which returns -log likelihood given provided prior distribution hyperparameters, and current estimates of the cumulative posteriors. Formerly 'fit_prior_dirichlet_distr_mvr'
+#' @title wrapper which returns the updated guide efficiency and the corresponding coefficients used to calculate it
 #' @param hyper: hyperparameters
 #' @param param: matrix of all posterior probs
 #' @param data: data, consists of: $y1, $y2 and $n
@@ -1552,7 +1508,7 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
 #' @param guide.efficiency.scores: matrix, each column containing a different set of scores per guide
 #' @param ge.coeff vector, containing the guide efficiency coefficients
 #' @param one.dispersion. logical, if there should be one or two dispersions for the hyper parameters
-#' @return list: $guide_efficiency, 
+#' @return list: $guide_efficiency, $ge_coeff
 #' @export recompute_ge_coefficients()
 
 recompute_ge_coefficients <- function(param, hyper, data, guide.seg.idx.lst, guide.efficiency.scores, ge.coeff) {
@@ -1561,29 +1517,23 @@ recompute_ge_coefficients <- function(param, hyper, data, guide.seg.idx.lst, gui
   
   guide.lls.list <- compute_perGuide_fs_ll(cumulative.pp, guide.seg.idx.lst)
   
-  for(i in 1:length(data)){
-    alpha0 <- hyper$alpha0[[i]]
-    alpha1 <- hyper$alpha1[[i]]
+  ge.coeff.param <- ge.coeff
+  
+  res <- optim(ge.coeff.param, guide_coeff_ll, method= 'L-BFGS-B', #'BFGS', #"Nelder-Mead",
+               data=data, region.ll.list = guide.lls.list,
+               alpha0.input = hyper$alpha0, alpha1.input = hyper$alpha1, 
+               guide.efficiency.scores = guide.efficiency.scores)
+  
+  if(res$convergence==0) {
     
-    ge.coeff.param <- ge.coeff
+    out.list <- list()
+    out.list$guide_efficiency <- 1 / (1 + exp(-(res$par[1] + guide.efficiency.scores %*% res$par[2:length(res$par)])))
+    out.list$ge_coeff <- res$par
     
-    res <- optim(ge.coeff.param, guide_coeff_ll, method= 'L-BFGS-B', #'BFGS', #"Nelder-Mead",
-                 data=data[[i]], region.ll.list = guide.lls.list,
-                 alpha0.input = alpha0, alpha1.input = alpha1, 
-                 guide.efficiency.scores = guide.efficiency.scores)
-
-    if(res$convergence==0) {
-      
-      out.list <- list()
-      out.list$guide_efficiency <- 1 / (1 + exp(-(res$par[1] + guide.efficiency.scores %*% res$par[2:length(res$par)])))
-      out.list$ge_coeff <- res$par
-      
-    } else {
-      warning("estimation of hyperparameters failed to converge")
-    }
+  } else {
+    warning("estimation of hyperparameters failed to converge")
   }
-  
-  
+
   return(out.list)
 }
 
@@ -1601,11 +1551,20 @@ recompute_ge_coefficients <- function(param, hyper, data, guide.seg.idx.lst, gui
 guide_coeff_ll <- function(ge.coeff.param, data, region.ll.list, alpha0.input, alpha1.input, guide.efficiency.scores) {
   
   guide.efficiency <- 1 / (1 + exp(-(ge.coeff.param[1] + guide.efficiency.scores %*% ge.coeff.param[2:length(ge.coeff.param)])))
-    
-  hyper <- list(alpha0 = alpha0.input,
-                alpha1 = alpha1.input)
   
-  -sum(estimate_relics_sgrna_log_like(hyper, data, region.ll.list, guide.efficiency))
+  total.neg.ll <- 0
+  
+  for(i in 1:length(data)){
+    hyper <- list(alpha0 = alpha0.input[[i]],
+                  alpha1 = alpha1.input[[i]])
+    
+    temp.neg.ll <- -sum(estimate_relics_sgrna_log_like(hyper, data[[i]], region.ll.list, guide.efficiency))
+    
+    total.neg.ll <- total.neg.ll + temp.neg.ll
+    
+  }
+  
+  total.neg.ll
 }
 
 
@@ -1708,13 +1667,6 @@ display_relics_fs_as_tiff <- function(input.L, input.labels, tiff.name, fs.thres
       cs.col <- rep("black", ncol(input.L))
       cs.col[input.L[i,] > fs.threshold] <- "purple"
 
-      # temp.cs.pp <- c()
-      # if(length(which(input.L[i,] == 1)) == 0){
-      #   temp.cs.pp <- 0
-      # } else {
-      #   temp.cs.pp <- round(1 - dpoibin(0, input.L[i, input.L[i,] > fs.threshold]), 3)
-      # }
-
       plot(input.L[i,], pch=21,
            main=paste("FS", i-1, ", Nr. segments > ", fs.threshold, " = ", length(which(input.L[i,] > fs.threshold)), sep=""), col=cs.col,
            ylab = 'PP', xlab = 'Genome Segment')
@@ -1759,13 +1711,6 @@ display_relics_fs_as_tiff <- function(input.L, input.labels, tiff.name, fs.thres
 
           cs.col <- rep("black", ncol(input.L))
           cs.col[input.L[row.index,] > fs.threshold] <- "purple"
-
-          # temp.cs.pp <- c()
-          # if(length(which(input.L[row.index,] > fs.threshold)) == 0){
-          #   temp.cs.pp <- 0
-          # } else {
-          #   temp.cs.pp <- round(1 - dpoibin(0, input.L[row.index, input.L[row.index,] > fs.threshold]), 3)
-          # }
 
           # ', RS-pp: ', temp.cs.pp,
           plot(input.L[row.index,], pch=21,
@@ -1825,35 +1770,16 @@ compute_PP_RS <- function(input.L, threshold){
 
 plot_fs_stats <- function(input.layer.ll.df, layer.corr.df, out.dir, layer.nr, fs.correlation.cutoff){
 
-  #layer.ll.df.noConv <- input.layer.ll.df[-which(input.layer.ll.df$no_convergence != 1),]
-
   pdf(paste0(out.dir, '_k', layer.nr, '_summaryStatPlots.pdf'))
 
   p.ll.prog <- ggplot() + geom_line(data = input.layer.ll.df, aes(x = FS, y = FS_ll)) +
     ggtitle('Log-Likelihood progression') + theme_bw() + labs(x='Number of FSs (K)', y='Log-Likelihood')
-
-  # # plotting ll progression
-  # p.ll.prog <- c()
-  # if(nrow(layer.ll.df.noConv) > 0){
-  #   p.ll.prog <- ggplot() + geom_line(data = input.layer.ll.df, aes(x = nr_of_layers, y = layer_ll)) +
-  #     #geom_point(data = layer.ll.df.noConv, aes(x = nr_of_layers, y = layer_ll, color = 'No convergence'), size = 3) +
-  #     ggtitle('Log-Likelihood progression') + theme_bw() + labs(x='Number of FSs (K)', y='Log-Likelihood', col = '')
-  # } else {
-  #   p.ll.prog <- ggplot() + geom_line(data = input.layer.ll.df, aes(x = nr_of_layers, y = layer_ll)) +
-  #     ggtitle('Log-Likelihood progression') + theme_bw() + labs(x='Number of FSs (K)', y='Log-Likelihood')
-  # }
 
   layer.corr.df.mod <- layer.corr.df
   layer.corr.df.mod$cutoff <- 'below'
   layer.corr.df.mod$cutoff[which(layer.corr.df.mod$corr > fs.correlation.cutoff)] <- 'above'
   layer.corr.df.mod$layer_comb[which(layer.corr.df.mod$corr < fs.correlation.cutoff)] <- layer.corr.df.mod$layer_1[which(layer.corr.df.mod$corr < fs.correlation.cutoff)]
 
-  # p.corr <- ggplot(data = layer.corr.df.mod) +
-  #   geom_boxplot(aes(y = corr, x = layer_Iteration, color = layer_Iteration),position = position_dodge(0.7))+
-  #   ggtitle('PP correlations (Boxplots)') + theme_bw() + geom_hline(yintercept = fs.correlation.cutoff, linetype="dashed", color = "black") +
-  #   labs(x='# FS detected', y='PP Correlation', col="FS", shape=paste0("FS = ",fs.correlation.cutoff) )
-  #
-  
   # attempt to arrange the factors
   layer.corr.df.mod$layer_Iteration <- factor(layer.corr.df.mod$layer_Iteration, levels = c(1:max(as.numeric(layer.corr.df.mod$layer_Iteration))))
 
@@ -1870,11 +1796,6 @@ plot_fs_stats <- function(input.layer.ll.df, layer.corr.df, out.dir, layer.nr, f
     geom_line(data = layer.corr.df.mod.max.corrs, aes(x = as.numeric(layer_Iteration), y = corr, color = 'Max. corr'), linetype = "dashed") +
     ggtitle('FS correlations (Boxplots)') + theme_classic() + geom_hline(yintercept=0.1, linetype="dotted", color = "black") +
     labs(x='Number of FSs (K)', y='Correlation of FS prob.', col="", shape="Cutoff = 0.1")
-
-  # if(length(which(layer.corr.df.mod$corr > fs.correlation.cutoff)) > 0){
-  #   p.corr <- p.corr + geom_vline(xintercept = min(as.numeric(layer.corr.df.mod$layer_Iteration[which(layer.corr.df.mod$corr > fs.correlation.cutoff)])) - 0.5,
-  #                                 linetype="dotted", color = "black", size = 1.05)
-  # }
 
   grid.arrange(p.ll.prog, p.corr, nrow = 2)
 
@@ -1896,14 +1817,16 @@ record_alphas <- function(input.alpha0.list, input.alpha1.list, input.alpha.outD
   total.cols <- max(c( unlist(lapply(input.alpha0.list, function(x){length(x)})),
                        unlist(lapply(input.alpha1.list, function(x){length(x)}))))
 
-  alpha.matrix <- matrix(0, nrow = total.rows, ncol = total.cols)
+  alpha.matrix <- matrix(0, nrow = total.rows, ncol = total.cols + 1)
 
   for(i in 1:length(input.alpha0.list)){
-    alpha.matrix[i, c(1:length(input.alpha0.list[[i]]))] <- input.alpha0.list[[i]]
+    alpha.matrix[i, c(1:length(input.alpha0.list[[i]]))] <- round(input.alpha0.list[[i]] / sum(input.alpha0.list[[i]]), 3)
+    alpha.matrix[i, length(input.alpha0.list[[i]]) + 1] <- round(sum(input.alpha0.list[[i]]), 3)
   }
 
   for(j in (length(input.alpha0.list) + 1):total.rows){
-    alpha.matrix[j, c(1:length(input.alpha1.list[[j - length(input.alpha0.list)]]))] <- input.alpha1.list[[j - length(input.alpha0.list)]]
+    alpha.matrix[j, c(1:length(input.alpha1.list[[j - length(input.alpha0.list)]]))] <- round(input.alpha1.list[[j - length(input.alpha0.list)]] / sum(input.alpha1.list[[j - length(input.alpha0.list)]]), 3)
+    alpha.matrix[j, length(input.alpha1.list[[j - length(input.alpha0.list)]]) + 1] <- round(sum(input.alpha1.list[[j - length(input.alpha0.list)]]), 3)
   }
 
   alpha.names <- c(paste(rep('alpha0', length(input.alpha0.list)), 'r', c(1:length(input.alpha0.list)), sep = '_'),
@@ -1912,7 +1835,7 @@ record_alphas <- function(input.alpha0.list, input.alpha1.list, input.alpha.outD
 
   out.alpha.df <- cbind(alpha.names, alpha.matrix)
 
-  colnames(out.alpha.df) <- c('alpha_type', paste('pool', c(1:total.cols)))
+  colnames(out.alpha.df) <- c('alpha_type', paste('pool', c(1:total.cols)), 'dispersion')
 
   write.csv(out.alpha.df, file = paste0(input.alpha.outDir, '_k', layer.nr, '_alphas.csv'), row.names = F, quote = F)
 
