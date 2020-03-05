@@ -996,7 +996,9 @@ prior_dirichlet_ll_singleDisp <- function(hyper.param, data, region.ll.list, alp
   hyper <- list(alpha0 = alpha0s,
                 alpha1 = alpha1s.adj)
   
-  -sum(estimate_relics_sgrna_log_like(hyper, data, region.ll.list, guide.efficiency))
+  out.sg.ll <- estimate_relics_sgrna_log_like(hyper, data, region.ll.list, guide.efficiency)
+  
+  -sum(out.sg.ll$total_guide_ll)
 }
 
 
@@ -1019,7 +1021,10 @@ prior_dirichlet_ll <- function(hyper.param, data, region.ll.list, alpha0.idx, al
   hyper <- list(alpha0 = alpha0s,
                 alpha1 = alpha1s)
 
-  -sum(estimate_relics_sgrna_log_like(hyper, data, region.ll.list, guide.efficiency))
+  out.sg.ll <- estimate_relics_sgrna_log_like(hyper, data, region.ll.list, guide.efficiency)
+  
+  -sum(out.sg.ll$total_guide_ll)
+  
 }
 
 
@@ -1028,7 +1033,7 @@ prior_dirichlet_ll <- function(hyper.param, data, region.ll.list, alpha0.idx, al
 #' @param data: data, consists of: pool1, pool2... and $n
 #' @param region.ll.list: list containing the ll and the indexes of the null alternative and both
 #' @param guide.efficiency: data.frame of guide efficiences. Either vector of guide efficiency or NULL
-#' @return total log likelihood of each guide
+#' @return data frame: total_guide_ll, alt_only_ll
 #' @export estimate_relics_sgrna_log_like()
 
 estimate_relics_sgrna_log_like <- function(hyper, data, region.ll.list, guide.efficiency){
@@ -1065,8 +1070,12 @@ estimate_relics_sgrna_log_like <- function(hyper, data, region.ll.list, guide.ef
   comb.lls <- apply(comb.df, 1, function(x){addlogs(x[1] + x[2], x[3] + x[4])})
 
   out.comb[region.ll.list$both_idx] <- comb.lls
+  
+  # output is now a data frame, where the first column is the total guide ll
+  # the second one is the alternate ll (FS ll)
+  out.df <- data.frame(total_guide_ll = out.comb, alt_only_ll = sgrna.alt.log.like)
 
-  return(out.comb)
+  return(out.df)
 
 }
 
@@ -1558,9 +1567,9 @@ guide_coeff_ll <- function(ge.coeff.param, data, region.ll.list, alpha0.input, a
     hyper <- list(alpha0 = alpha0.input[[i]],
                   alpha1 = alpha1.input[[i]])
     
-    temp.neg.ll <- -sum(estimate_relics_sgrna_log_like(hyper, data[[i]], region.ll.list, guide.efficiency))
+    temp.neg.ll <- estimate_relics_sgrna_log_like(hyper, data[[i]], region.ll.list, guide.efficiency)
     
-    total.neg.ll <- total.neg.ll + temp.neg.ll
+    total.neg.ll <- total.neg.ll + -sum(temp.neg.ll$total_guide_ll)
     
   }
   
@@ -2044,10 +2053,12 @@ order_pps <- function(input.pp, input.total.ll, input.data, input.alpha0, input.
     temp.ll <- 0
     for(r in 1:length(input.data$data)){
       temp.hypers <- list(alpha0 = input.alpha0[[r]], alpha1 = input.alpha1[[r]])
-      temp.dirichlet.ll <- sum(estimate_relics_sgrna_log_like(temp.hypers,
+      temp.sgRNa.ll <- estimate_relics_sgrna_log_like(temp.hypers,
                                                                 input.data$data[[r]],
                                                                 temp.guide.ll,
-                                                              guide.efficiency))
+                                                              guide.efficiency)
+
+      temp.dirichlet.ll <- sum(temp.sgRNa.ll$total_guide_ll)
       temp.ll <- temp.ll + temp.dirichlet.ll
     }
 
@@ -2191,10 +2202,12 @@ relics_compute_FS_k <- function(input.param,
     dirichlet.ll <- 0
     for(i in 1:length(input.data.list$data)){
       temp.hypers <- list(alpha0 = dirichlet.hyper$alpha0[[i]], alpha1 = dirichlet.hyper$alpha1[[i]])
-      temp.dirichlet.ll <- sum(estimate_relics_sgrna_log_like(temp.hypers,
+      temp.sgRNa.ll <- estimate_relics_sgrna_log_like(temp.hypers,
                                                                 input.data.list$data[[i]],
                                                                 dirichlet.guide.ll,
-                                                              guide.efficiency))
+                                                              guide.efficiency)
+      
+      temp.dirichlet.ll <- sum(temp.sgRNa.ll$total_guide_ll)
       dirichlet.ll <- dirichlet.ll + temp.dirichlet.ll
     }
 
@@ -2382,7 +2395,7 @@ relics_estimate_pp <- function(param, hyper, data, known.reg,
 #' @param next.guide.lst: list that contains the index of $next_guide_idx and next_nonGuide_idx
 #' @param nr.segs: max number of segemnts that can be combined
 #' @param geom.p: probability of the geometic distribution used to calculate the probability of there being x segments in the regulatory element
-#' @param sg.ll.list: list, each element is the per.guide log likelihood given the posteriors for a replicate
+#' @param sg.ll.list: list, each element is a data frame per.guide log likelihood given the posteriors for a replicate and alt. ll (total_guide_ll, alt_only_ll)
 #' @return log likelihood for each segment
 #' @export estimate_fs_pp()
 
@@ -2404,10 +2417,12 @@ estimate_fs_pp <- function(hyper, in.data.list, in.data.totals,
   initial.nonGuide.idx<- seg.to.guide.lst[[1]]$nonGuide_idx
 
   for(repl in 1:length(in.data.list)){
-    initial.guide.ll <- sum(ddirmnom(in.data.list[[repl]][initial.guide.idx,],
-                                     size = in.data.totals[[repl]][initial.guide.idx],
-                                     alpha = hyper$alpha1[[repl]], log = T))
-    initial.nonGuide.ll <- sum(sg.ll.list[[repl]][initial.nonGuide.idx])
+    # initial.guide.ll <- sum(ddirmnom(in.data.list[[repl]][initial.guide.idx,],
+    #                                  size = in.data.totals[[repl]][initial.guide.idx],
+    #                                  alpha = hyper$alpha1[[repl]], log = T))
+    
+    initial.guide.ll <- sum(sg.ll.list[[repl]][initial.guide.idx,2])
+    initial.nonGuide.ll <- sum(sg.ll.list[[repl]][initial.nonGuide.idx,1])
     initial.segment.ll <- initial.segment.ll + initial.guide.ll + initial.nonGuide.ll + log(dgeom(1, geom.p) / geom.norm.factr)
   }
 
@@ -2421,17 +2436,19 @@ estimate_fs_pp <- function(hyper, in.data.list, in.data.totals,
     temp.nonGuide.idx<- seg.to.guide.lst[[seg]]$nonGuide_idx
 
     for(repl in 1:length(in.data.list)){
-      temp.guide.ll <- sum(ddirmnom(in.data.list[[repl]][temp.guide.idx,],
-                                    size = in.data.totals[[repl]][temp.guide.idx],
-                                    alpha = hyper$alpha1[[repl]], log = T))
-      temp.nonGuide.ll <- sum(sg.ll.list[[repl]][temp.nonGuide.idx])
+      # temp.guide.ll <- sum(ddirmnom(in.data.list[[repl]][temp.guide.idx,],
+      #                               size = in.data.totals[[repl]][temp.guide.idx],
+      #                               alpha = hyper$alpha1[[repl]], log = T))
+      
+      temp.guide.ll <- sum(sg.ll.list[[repl]][temp.guide.idx,2])
+      temp.nonGuide.ll <- sum(sg.ll.list[[repl]][temp.nonGuide.idx,1])
       temp.segment.ll <- temp.segment.ll + temp.guide.ll + temp.nonGuide.ll + log(dgeom(1, geom.p) / geom.norm.factr)
     }
     segment.ll.list[[seg]] <- temp.segment.ll
     total.ll <- addlogs(total.ll, temp.segment.ll)
   }
 
-  all.guide.idx <- c(1:length(sg.ll.list[[1]])) # helps to differentitate between guides for null vs alternative
+  all.guide.idx <- c(1:length(sg.ll.list[[1]][,1])) # helps to differentitate between guides for null vs alternative
 
   # now make a pass through all 2 to nr.segs length segments
   for(ns in 1:(nr.segs-1) ){
@@ -2444,11 +2461,12 @@ estimate_fs_pp <- function(hyper, in.data.list, in.data.totals,
       temp.nonGuide.idx <- all.guide.idx[-temp.guide.idx]
 
       for(repl in 1:length(in.data.list)){
-
-        temp.guide.ll <- sum(ddirmnom(in.data.list[[repl]][temp.guide.idx,],
-                                      size = in.data.totals[[repl]][temp.guide.idx],
-                                      alpha = hyper$alpha1[[repl]], log = T))
-        temp.nonGuide.ll <- sum(sg.ll.list[[repl]][temp.nonGuide.idx])
+        # temp.guide.ll <- sum(ddirmnom(in.data.list[[repl]][temp.guide.idx,],
+        #                               size = in.data.totals[[repl]][temp.guide.idx],
+        #                               alpha = hyper$alpha1[[repl]], log = T))
+        
+        temp.guide.ll <- sum(sg.ll.list[[repl]][temp.guide.idx,2])
+        temp.nonGuide.ll <- sum(sg.ll.list[[repl]][temp.nonGuide.idx,1])
 
         # likelihood of this continous stretch of bins to contain a regulatory element
         temp.stretch.ll <- temp.stretch.ll + temp.guide.ll + temp.nonGuide.ll + log(dgeom(1 + ns, geom.p) / geom.norm.factr)
