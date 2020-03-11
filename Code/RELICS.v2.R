@@ -229,6 +229,9 @@ check_parameter_list <- function(input.parameter.list, data.file.split){
   if(! 'one_dispersion' %in% par.given){
     out.parameter.list$one_dispersion <- TRUE
   }
+  if(! 'dualToSingle' %in% par.given){
+    out.parameter.list$one_dispersion <- FALSE
+  }
   
   # guide efficiency related parameters
   if('guide_efficiency_loc' %in% par.given){
@@ -436,6 +439,9 @@ read_analysis_parameters <- function(parameter.file.loc){
     if('crisprSystem' == parameter.id){
       out.parameter.list$crisprSystem <- strsplit(parameter,':')[[1]][2]
     }
+    if('dualToSingle' == parameter.id){
+      out.parameter.list$dualToSingle <- as.logical(strsplit(parameter,':')[[1]][2])
+    }
     if('FS0_label' == parameter.id){
       out.parameter.list$FS0_label <- strsplit(parameter,':')[[1]][2]
     }
@@ -554,10 +560,6 @@ set_up_RELICS_data <- function(input.parameter.list, data.file.split, guide.offs
     sim.info <- sim.info[-which(is.na(sim.info$start)),]
     #save.files <- TRUE
   }
-
-  # adjust the target positions according to CRISPRi
-  sim.info$start <- sim.info$start - guide.offset
-  sim.info$end <- sim.info$end + guide.offset
   
   if(length(unique(sim.info$chrom)) > 1){
     print(paste0("Currently RELICS only processes one chromosome per analysis. Multi-chromosome analysis is in active development and will hopefully be deployed soon."))
@@ -577,10 +579,36 @@ set_up_RELICS_data <- function(input.parameter.list, data.file.split, guide.offs
     processed.ge.scores <- as.matrix(sim.info[, ges.cols, drop = F])
     filtered.ges <- processed.ge.scores
   }
-
-  # generate the guide-segment matrix and the per-segment labels
-  # seg_info, guide_to_seg_lst, seg_to_guide_lst, counts
-  sim.guide.seg.list <- adapt_data_to_regionFormat(sim.counts, repl_pools, sim.info, labelHierarchy, min.seg.dist)
+  
+  # initialize varaible
+  sim.guide.seg.list <- c()
+  
+  if(input.parameter.list$crisprSystem == 'dualCRISPR' & input.parameter.list$dualToSingle){
+    
+    # set up two data frames, one for each guide
+    sim.info.g1 <- sim.info
+    sim.info.g2 <- sim.info
+    
+    sim.info.g1$start <- sim.info.g1$start - guide.offset
+    sim.info.g1$end <- sim.info.g1$start + guide.offset
+    
+    sim.info.g2$start <- sim.info.g2$end - guide.offset
+    sim.info.g2$end <- sim.info.g2$end + guide.offset
+    
+    sim.guide.seg.list <- adapt_data_to_regionFormat_forDualCRISPR(sim.counts, repl_pools, sim.info.g1, 
+                                                                   sim.info.g2, labelHierarchy, min.seg.dist)
+    
+  } else {
+    # adjust the target positions according to CRISPRi
+    sim.info$start <- sim.info$start - guide.offset
+    sim.info$end <- sim.info$end + guide.offset
+    
+    # generate the guide-segment matrix and the per-segment labels
+    # seg_info, guide_to_seg_lst, seg_to_guide_lst, counts
+    sim.guide.seg.list <- adapt_data_to_regionFormat(sim.counts, repl_pools, sim.info, labelHierarchy, min.seg.dist)
+    
+  }
+  
   sim.seg.info <- sim.guide.seg.list$seg_info
 
   # set up the delta vector and the vector containing positions of positive controls
@@ -609,6 +637,159 @@ set_up_RELICS_data <- function(input.parameter.list, data.file.split, guide.offs
   return(format.data.beta)
 
 }
+
+#' @title Adapt an info file to a overlap matrix and corresponding data structures and filter the counts, return by replicate. Adapted for dual guide screens
+#' @param input.counts: data.frame, rows are guides, columns are pools
+#' @param replicate.list: each element is a replicate
+#' @param input.info.g1: data frame, for first guide: each row contains chrom, start, end, a label
+#' @param input.info.g2: data frame, for second guide: each row contains chrom, start, end, a label
+#' @param input.label.hierarchy: ordering lof guide labels, left to right signifies ordering hor hierarchy to override in case of multiple labels overlapping
+#' @param min.seg.dist: minimum distance of a segment. Default = 100
+#' @return list: seg_info, guide_to_seg_lst, seg_to_guide_lst, counts (list, per replicate)
+#' @export adapt_data_to_regionFormat_forDualCRISPR()
+
+adapt_data_to_regionFormat_forDualCRISPR <- function(input.counts, replicate.list, input.info.g1, 
+                                                     input.info.g2, input.label.hierarchy, min.seg.dist = 100){
+  
+  info.targeting.df.g1 <- c()
+  info.targeting.df.g2 <- c()
+  counts.targeting.df <- c()
+  if(length(which(is.na(input.info.g1$start))) > 0 | length(which(is.na(input.info.g2$start))) > 0){
+    print('Error: data was not properly filtered!')
+    break()
+  }
+  
+  
+  info.targeting.df.g1 <- input.info.g1
+  info.targeting.df.g2 <- input.info.g2
+  counts.targeting.df <- input.counts
+  
+  # create guide-segment matrix for targeting guides in dual guide design: seg_info, guide_to_seg_lst, seg_to_guide_lst
+  targeting.gs.list <- create_targeting_guide_segment_matrix_forDualCRISPR(info.targeting.df.g1, info.targeting.df.g2, 
+                                                                           input.label.hierarchy, min.seg.dist)
+  
+  targeting.gs.list$counts <- list()
+  for(i in 1:length(replicate.list)){
+    temp.counts <- counts.targeting.df[, replicate.list[[i]]]
+    colnames(temp.counts) <- paste('pool', c(1:ncol(temp.counts)), sep = '_')
+    temp.counts$n <- rowSums(temp.counts)
+    targeting.gs.list$counts[[i]] <- temp.counts
+  }
+  
+  return(targeting.gs.list)
+  
+}
+
+
+#' @title Generate the guide to segment and segment to guide mappings along with the segment info file, for gual guide design
+#' @note Modified by ont trimming guides at start and end but only end. Avoid having information-less segments
+#' @param input.targeting.info.g1: data.frame for first guide, start, end, chrom, label
+#'  @param input.targeting.info.g2: data.frame for second guide, start, end, chrom, label
+#' @param input.label.hierarchy: order in which labels are assigned to segments
+#' @param min.seg.dist: minimum distance of a segment. Default = 100
+#' @return list: seg_info, guide_to_seg_lst, seg_to_guide_lst
+#' @export create_targeting_guide_segment_matrix_forDualCRISPR()
+
+create_targeting_guide_segment_matrix_forDualCRISPR <- function(input.targeting.info.g1, input.targeting.info.g2, 
+                                                                input.label.hierarchy, min.seg.dist = 100){
+  
+  all.breaks <- unique(c(input.targeting.info.g1$start, input.targeting.info.g1$end, 
+                         input.targeting.info.g2$start, input.targeting.info.g2$end))
+  sorted.breaks <- sort(all.breaks)
+  
+  bin.start <- c() #sorted.breaks[1]
+  bin.ends <- c()
+  
+  break.idx <- 1
+  next.counter <- 0
+  proxy.start <- sorted.breaks[1]
+  while(break.idx < length(sorted.breaks)){
+    
+    next.counter <- 1
+    while(sorted.breaks[break.idx + next.counter] - proxy.start < min.seg.dist){
+      next.counter <- next.counter + 1
+      if(break.idx + next.counter > length(sorted.breaks)){
+        bin.start <- c(bin.start, proxy.start)
+        bin.ends <- c(bin.ends, sorted.breaks[break.idx + next.counter - 1])
+        break.idx <- break.idx + next.counter
+        break()
+      }
+    }
+    if(break.idx + next.counter > length(sorted.breaks)){
+      break()
+    }
+    
+    bin.start <- c(bin.start, proxy.start)
+    bin.ends <- c(bin.ends, sorted.breaks[break.idx + next.counter])
+    
+    proxy.start <- sorted.breaks[break.idx + next.counter] + 1
+    break.idx <- break.idx + next.counter
+    
+  }
+  
+  region.df <- data.frame(chrom = rep(input.targeting.info.g1$chrom[1], length(bin.start)),
+                          start = bin.start, end = bin.ends, stringsAsFactors = F)
+  
+  region.ranges <- GRanges(seqnames = region.df$chrom,
+                           ranges = IRanges(region.df$start, region.df$end))
+  
+  # adjust score ranges such that they fall within, not onto, boarders of genomic ranges
+  #score.ranges
+  g1.ranges <- GRanges(seqnames = input.targeting.info.g1$chrom,
+                          ranges = IRanges(input.targeting.info.g1$start+ 1, input.targeting.info.g1$end-1))
+  g2.ranges <- GRanges(seqnames = input.targeting.info.g2$chrom,
+                          ranges = IRanges(input.targeting.info.g2$start+ 1, input.targeting.info.g2$end-1))
+  
+  g1.overlaps <- as.data.frame(findOverlaps(region.ranges, g1.ranges, type = 'any'))
+  g2.overlaps <- as.data.frame(findOverlaps(region.ranges, g2.ranges, type = 'any'))
+  
+  rows.to.keep <- unique(sort(c(g1.overlaps$queryHits, g2.overlaps$queryHits)))
+  
+  region.df.filtered <- region.df[rows.to.keep,]
+  region.ranges.filtered <- region.ranges[rows.to.keep]
+  
+  g1.overlaps.filtered <- as.data.frame(findOverlaps(region.ranges.filtered, g1.ranges, type = 'any'))
+  g2.overlaps.filtered <- as.data.frame(findOverlaps(region.ranges.filtered, g2.ranges, type = 'any'))
+  
+  if(length(unique(g1.overlaps.filtered$queryHits)) != length(rows.to.keep) | length(unique(g2.overlaps.filtered$queryHits)) != length(rows.to.keep)){
+    print('removing segments not overlapping guides failed!')
+    break
+  }
+  if(max(g1.overlaps.filtered$queryHits) != nrow(region.df.filtered) | max(g2.overlaps.filtered$queryHits) != nrow(region.df.filtered)){
+    print('removing segments not overlapping guides failed! Unequal max nr.')
+    break
+  }
+  
+  # combine the per-bin overlaps of both guides
+  guide.overlaps.filtered <- rbind(g1.overlaps.filtered, g2.overlaps.filtered)
+  region.overlap.list <- split(guide.overlaps.filtered, guide.overlaps.filtered$queryHits)
+  seg.to.guide.list <- generate_seg_to_guide_list(region.overlap.list, c(1:nrow(input.targeting.info.g1)))
+  
+  g1.to.seg.overlaps <- as.data.frame(findOverlaps(g1.ranges, region.ranges.filtered, type = 'any'))
+  g2.to.seg.overlaps <- as.data.frame(findOverlaps(g2.ranges, region.ranges.filtered, type = 'any'))
+  
+  guide.to.seg.overlaps <- rbind(g1.to.seg.overlaps, g2.to.seg.overlaps)
+  guide.overlap.list <- split(guide.to.seg.overlaps, guide.to.seg.overlaps$queryHits)
+  guide.to.seg.list <- generate_guide_to_seg_list(guide.overlap.list)
+  
+  # set the labels for each segment
+  region.labels <- unlist(lapply(region.overlap.list, function(x){
+    temp.label <- input.targeting.info.g1$label[x$subjectHits]
+    temp.labels.present <- which(input.label.hierarchy %in% temp.label)
+    out.label <- input.label.hierarchy[max(temp.labels.present)]
+    return(out.label)
+  }))
+  
+  region.df.filtered$label <- region.labels
+  
+  
+  out.list <- list(seg_info = region.df.filtered,
+                   guide_to_seg_lst = guide.to.seg.list,
+                   seg_to_guide_lst = seg.to.guide.list)
+  
+  return(out.list)
+}
+
 
 
 #' @title Adapt an info file to a overlap matrix and corresponding data structures and filter the counts, return by replicate
