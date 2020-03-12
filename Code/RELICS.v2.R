@@ -230,7 +230,7 @@ check_parameter_list <- function(input.parameter.list, data.file.split){
     out.parameter.list$one_dispersion <- TRUE
   }
   if(! 'dualToSingle' %in% par.given){
-    out.parameter.list$one_dispersion <- FALSE
+    out.parameter.list$dualToSingle <- FALSE
   }
   
   # guide efficiency related parameters
@@ -589,11 +589,11 @@ set_up_RELICS_data <- function(input.parameter.list, data.file.split, guide.offs
     sim.info.g1 <- sim.info
     sim.info.g2 <- sim.info
     
-    sim.info.g1$start <- sim.info.g1$start - guide.offset
-    sim.info.g1$end <- sim.info.g1$start + guide.offset
+    sim.info.g1$start <- sim.info$start - guide.offset
+    sim.info.g1$end <- sim.info$start + guide.offset
     
-    sim.info.g2$start <- sim.info.g2$end - guide.offset
-    sim.info.g2$end <- sim.info.g2$end + guide.offset
+    sim.info.g2$start <- sim.info$end - guide.offset
+    sim.info.g2$end <- sim.info$end + guide.offset
     
     sim.guide.seg.list <- adapt_data_to_regionFormat_forDualCRISPR(sim.counts, repl_pools, sim.info.g1, 
                                                                    sim.info.g2, labelHierarchy, min.seg.dist)
@@ -751,11 +751,11 @@ create_targeting_guide_segment_matrix_forDualCRISPR <- function(input.targeting.
   g1.overlaps.filtered <- as.data.frame(findOverlaps(region.ranges.filtered, g1.ranges, type = 'any'))
   g2.overlaps.filtered <- as.data.frame(findOverlaps(region.ranges.filtered, g2.ranges, type = 'any'))
   
-  if(length(unique(g1.overlaps.filtered$queryHits)) != length(rows.to.keep) | length(unique(g2.overlaps.filtered$queryHits)) != length(rows.to.keep)){
+  if(length(unique(c(g1.overlaps.filtered$queryHits, g2.overlaps.filtered$queryHits))) != length(rows.to.keep)){
     print('removing segments not overlapping guides failed!')
     break
   }
-  if(max(g1.overlaps.filtered$queryHits) != nrow(region.df.filtered) | max(g2.overlaps.filtered$queryHits) != nrow(region.df.filtered)){
+  if(max(c(g1.overlaps.filtered$queryHits, g2.overlaps.filtered$queryHits)) != nrow(region.df.filtered)){
     print('removing segments not overlapping guides failed! Unequal max nr.')
     break
   }
