@@ -79,7 +79,7 @@ RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.
     }
     
     fs0.alphas <- estimate_hyper_parameters(data.setup,
-                                            #data.file.split,
+                                            analysis.parameters,
                                             #input.guide.offset = analysis.parameters$crisprEffectRange,
                                             input.repl.pools = analysis.parameters$repl_groups,
                                             #input.labelHierarchy = analysis.parameters$FS0_label,
@@ -992,7 +992,7 @@ generate_next_guide_list <- function(input.seg.to.guide.list){
 #' @param file.save.dir: directory in which to save the used counts, info and segment info files
 #' @param save.files: logical, by default, do not save the files used for analysis. However, if a filtering step is introduced, file saving is switched on
 #' @param min.seg.dist: minimum distance of a segment. Default = 100
-#' @return list: hyper parameter estimates for each replicate per list element
+#' @return list: hyper parameter estimates for each replicate per list element, $alpha0, alpha1, and $L
 #' @export estimate_hyper_parameters_deprecated()
 
 estimate_hyper_parameters_deprecated <- function(analysis.parameters, data.file.split, input.guide.offset,
@@ -1074,25 +1074,28 @@ estimate_hyper_parameters_deprecated <- function(analysis.parameters, data.file.
 
 
 #' @title extract hyper parameters given a label for multiple replicates
-#' @param input.counts.loc: string location of the count file
-#' @param input.info.loc: string location of the info file
-#' @param input.guide.offset: range by which each guide has an effect beyon the target site (default = 500)
+#' @param data.par.list: list, contains the elements of the processed and formatted data
+#' @param analysis.par.list: list, contains all analysis flags
 #' @param input.repl.pools: list, each element is a set of columns which correspond to a replicate
-#' @param input.labelHierarchy: ordering lof guide labels, left to right signifies ordering hor hierarchy to override in case of multiple labels overlapping
 #' @param fs0.label: label used for generating FS0
-#' @param file.save.dir: directory in which to save the used counts, info and segment info files
-#' @param save.files: logical, by default, do not save the files used for analysis. However, if a filtering step is introduced, file saving is switched on
-#' @param min.seg.dist: minimum distance of a segment. Default = 100
-#' @return list: hyper parameter estimates for each replicate per list element
+#' @param one.dispersion: logical, whether analysis is happening with one ro two dispersions
+#' @return list: hyper parameter estimates for each replicate per list element, $alpha0, alpha1, and $L
 #' @export estimate_hyper_parameters()
 
-estimate_hyper_parameters <- function(data.par.list, input.repl.pools,  fs0.label, one.dispersion){
+estimate_hyper_parameters <- function(data.par.list, analysis.par.list, input.repl.pools,  fs0.label, one.dispersion){
 
   # most basic implementation of GE
   if(! is.null(data.par.list$guide_efficiency_scores)){
-    
-    data.par.list$guide_efficiency <- 1 / (1 + exp(-(data.par.list$guide_efficiency_scores %*% rep(1, ncol(data.par.list$guide_efficiency_scores)))))
-    
+    if(! analysis.par.list$fixed_ge_coeff){
+      #data.par.list$guide_efficiency <- 1 / (1 + exp(-(data.par.list$guide_efficiency_scores %*% rep(1, ncol(data.par.list$guide_efficiency_scores)))))
+      
+      logit.ge <- apply(data.par.list$guide_efficiency_scores, 2, function(x){
+        log(x / (1 - x))
+      })
+      data.par.list$guide_efficiency <- 1 / (1 + exp(-(logit.ge %*% rep(1, ncol(data.par.list$guide_efficiency_scores)))))
+    } else {
+      data.par.list$guide_efficiency <- data.par.list$guide_efficiency_scores
+    }
   }
   
   # make sure all guides are considered to be the same category
@@ -1717,7 +1720,13 @@ recompute_ge_coefficients <- function(param, hyper, data, guide.seg.idx.lst, gui
   if(res$convergence==0) {
     
     out.list <- list()
-    out.list$guide_efficiency <- 1 / (1 + exp(-(res$par[1] + guide.efficiency.scores %*% res$par[2:length(res$par)])))
+    # out.list$guide_efficiency <- 1 / (1 + exp(-(res$par[1] + guide.efficiency.scores %*% res$par[2:length(res$par)])))
+
+    guide.efficiency.scores.logit <- apply(guide.efficiency.scores, 2, function(x){
+      log(x / (1-x))
+    })
+    
+    out.list$guide_efficiency <- 1 / (1 + exp(-(res$par[1] + guide.efficiency.scores.logit %*% res$par[2:length(res$par)])))
     out.list$ge_coeff <- res$par
     
   } else {
@@ -1740,7 +1749,12 @@ recompute_ge_coefficients <- function(param, hyper, data, guide.seg.idx.lst, gui
 
 guide_coeff_ll <- function(ge.coeff.param, data, region.ll.list, alpha0.input, alpha1.input, guide.efficiency.scores) {
   
-  guide.efficiency <- 1 / (1 + exp(-(ge.coeff.param[1] + guide.efficiency.scores %*% ge.coeff.param[2:length(ge.coeff.param)])))
+  #guide.efficiency <- 1 / (1 + exp(-(ge.coeff.param[1] + guide.efficiency.scores %*% ge.coeff.param[2:length(ge.coeff.param)])))
+  
+  guide.efficiency.scores.logit <- apply(guide.efficiency.scores, 2, function(x){
+    log(x / (1-x))
+  })
+  guide.efficiency <- 1 / (1 + exp(-(ge.coeff.param[1] + guide.efficiency.scores.logit %*% ge.coeff.param[2:length(ge.coeff.param)])))
   
   total.neg.ll <- 0
   
