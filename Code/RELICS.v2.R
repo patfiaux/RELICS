@@ -153,6 +153,7 @@ RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.
                final.layer.nr = analysis.parameters$min_FS_nr,
                out.dir = paste0(analysis.parameters$out_dir, '/', analysis.parameters$dataName),
                input.hypers = analysis.parameters$hyper_pars,
+               fix.hypers = analysis.parameters$fix_hypers,
                nr.segs = analysis.parameters$nr_segs,
                geom.p = analysis.parameters$geom_p,
                fs.correlation.cutoff = analysis.parameters$fs_correlation_cutoff,
@@ -161,7 +162,8 @@ RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.
                record.all.fs = record.all.fs,
                input.convergence.tol = analysis.parameters$convergence_tol,
                adjust.tol = analysis.parameters$adjust_tol,
-               one.dispersion = analysis.parameters$one_dispersion)
+               one.dispersion = analysis.parameters$one_dispersion,
+               recompute.fs0 = analysis.parameters$recompute_fs0)
 
 
 }
@@ -192,6 +194,9 @@ check_parameter_list <- function(input.parameter.list, data.file.split){
   }
   if(! 'fix_hypers' %in% par.given){
     out.parameter.list$fix_hypers <- FALSE
+  }
+  if(! 'recompute_fs0' %in% par.given){
+    out.parameter.list$recompute_fs0 <- FALSE
   }
   if(! 'iterative_hyper_est' %in% par.given){
     out.parameter.list$iterative_hyper_est <- FALSE
@@ -390,6 +395,9 @@ read_analysis_parameters <- function(parameter.file.loc){
     if('fix_hypers' == parameter.id){
       out.parameter.list$fix_hypers <- as.logical(strsplit(parameter,':')[[1]][2])
     }
+    if('recompute_fs0' == parameter.id){
+      out.parameter.list$recompute_fs0 <- as.logical(strsplit(parameter,':')[[1]][2])
+    }
     if('iterative_hyper_est' == parameter.id){
       out.parameter.list$iterative_hyper_est <- as.logical(strsplit(parameter,':')[[1]][2])
     }
@@ -544,7 +552,13 @@ set_up_RELICS_data <- function(input.parameter.list, data.file.split, guide.offs
   if(! is.null(input.parameter.list$guide_efficiency_scores)){
     cols.in.info <- ncol(sim.info)
     ges.cols <- c((cols.in.info + 1):((cols.in.info + 1) + (ncol(input.parameter.list$guide_efficiency_scores) - 1)))
-    sim.info <- cbind(sim.info, input.parameter.list$guide_efficiency_scores)
+    
+    # adjust 0 and 1 values to avoid -Inf and Inf during logit/expit
+    guide.eff.filt <- input.parameter.list$guide_efficiency_scores
+    guide.eff.filt[guide.eff.filt == 0] <- 0.0001
+    guide.eff.filt[guide.eff.filt == 1] <- 0.9999
+    
+    sim.info <- cbind(sim.info, guide.eff.filt)
   }
 
   if(length(which(! sim.info$label %in% labelHierarchy)) > 0){
@@ -1347,6 +1361,7 @@ compute_perGuide_fs_ll <- function(cumulative.pp, guide.seg.idx.lst, hyper.setup
 #' @param auto.stop: whether or not computations should be stopped after recomended stopping point
 #' @param record.all.fs: logical, if information of all intermediate FS should be recorded, in addition to the final set of FS
 #' @param one.dispersion: whether there should be one or 2 dispersions estimated for the 2 hyper parameters
+#' @param recompute.fs0: logical, whether FS0 is to be set to 0 or keep the initial assignment
 #' @return list of final per-layer posteriors
 #' @export run_RELICS_2()
 
@@ -1362,7 +1377,8 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
                      record.all.fs,
                      input.convergence.tol = 0.01,
                      adjust.tol = TRUE,
-                     one.dispersion = TRUE){
+                     one.dispersion = TRUE,
+                     recompute.fs0){
 
   final.layer.posterior <- list()
   final.layer.alpha0 <- list()
@@ -1393,6 +1409,9 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
   }
 
   relics.param <- init_relics_param(relics.hyper, input.data)
+  if(recompute.fs0){
+    relics.param$delta.pp[1,] <- 0
+  }
 
   coverg.tol <- rep(input.convergence.tol, final.layer.nr)
 
@@ -1596,7 +1615,7 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
           if(! is.null(input.data$fixed_ge_coeff) && ! input.data$fixed_ge_coeff){
             ge.coff.df <- data.frame(ge_coeff = c('beta0', paste0('beta', 1:ncol(input.data$guide_efficiency_scores))), 
                                      ge_coeff_scores = round(ge.coeff.list[[i - 1]], 3))
-            write.csv(ge.coff.df, file = paste0(out.dir, '_final_k',i,'_ge_coeff.csv'), row.names = F)
+            write.csv(ge.coff.df, file = paste0(out.dir, '_final_k', i-1, '_ge_coeff.csv'), row.names = F)
           }
 
           break()
