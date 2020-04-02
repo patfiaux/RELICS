@@ -163,7 +163,9 @@ RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.
                input.convergence.tol = analysis.parameters$convergence_tol,
                adjust.tol = analysis.parameters$adjust_tol,
                one.dispersion = analysis.parameters$one_dispersion,
-               recompute.fs0 = analysis.parameters$recompute_fs0)
+               recompute.fs0 = analysis.parameters$recompute_fs0,
+               local.max = analysis.parameters$local_max, 
+               local.max.range = analysis.parameters$local_max_range)
 
 
 }
@@ -197,6 +199,12 @@ check_parameter_list <- function(input.parameter.list, data.file.split){
   }
   if(! 'recompute_fs0' %in% par.given){
     out.parameter.list$recompute_fs0 <- FALSE
+  }
+  if(! 'local_max' %in% par.given){
+    out.parameter.list$local_max <- FALSE
+  }
+  if(! 'local_max_range' %in% par.given){
+    out.parameter.list$local_max_range <- 5
   }
   if(! 'iterative_hyper_est' %in% par.given){
     out.parameter.list$iterative_hyper_est <- FALSE
@@ -397,6 +405,12 @@ read_analysis_parameters <- function(parameter.file.loc){
     }
     if('recompute_fs0' == parameter.id){
       out.parameter.list$recompute_fs0 <- as.logical(strsplit(parameter,':')[[1]][2])
+    }
+    if('local_max' == parameter.id){
+      out.parameter.list$local_max <- as.logical(strsplit(parameter,':')[[1]][2])
+    }
+    if('local_max_range' == parameter.id){
+      out.parameter.list$local_max_range <- as.numeric(strsplit(parameter,':')[[1]][2])
     }
     if('iterative_hyper_est' == parameter.id){
       out.parameter.list$iterative_hyper_est <- as.logical(strsplit(parameter,':')[[1]][2])
@@ -1362,6 +1376,8 @@ compute_perGuide_fs_ll <- function(cumulative.pp, guide.seg.idx.lst, hyper.setup
 #' @param record.all.fs: logical, if information of all intermediate FS should be recorded, in addition to the final set of FS
 #' @param one.dispersion: whether there should be one or 2 dispersions estimated for the 2 hyper parameters
 #' @param recompute.fs0: logical, whether FS0 is to be set to 0 or keep the initial assignment
+#' @param local.max: logical, whether a local maximum should be computed
+#' @param local.max.range: number of segments to include in addition to the the ones with highest PP (one way, so multiply by 2 for total nr of segs)
 #' @return list of final per-layer posteriors
 #' @export run_RELICS_2()
 
@@ -1378,7 +1394,8 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
                      input.convergence.tol = 0.01,
                      adjust.tol = TRUE,
                      one.dispersion = TRUE,
-                     recompute.fs0){
+                     recompute.fs0,
+                     local.max, local.max.range){
 
   final.layer.posterior <- list()
   final.layer.alpha0 <- list()
@@ -1436,7 +1453,8 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
                                       input.data.list = input.data,
                                       input.tol = coverg.tol[i],
                                       fix.hypers, iterative.hyper.est, nr.segs, geom.p,
-                                      min.pp = input.min.rs.pp, input.data$guide_efficiency) # adding dispersion
+                                      min.pp = input.min.rs.pp, input.data$guide_efficiency,
+                                      local.max, local.max.range)
 
     layer.time.final <- proc.time() - layer.time
     layer.times[i] <- layer.time.final[3] / 60
@@ -2334,6 +2352,8 @@ init_relics_param <- function(hyper, in.data.list) {
 #' @param min.pp: minimum posterior required to be part of a regulatory set
 #' @param guide.efficiency: data.frame of guide efficiences. Either vector of guide efficiency or NULL
 #' @param one.dispersion: whether the hyper parameters should be estimated with one or two dispersions
+#' @param local.max: logical, whether a local maximum should be computed
+#' @param local.max.range: number of segments to include in addition to the the ones with highest PP (one way, so multiply by 2 for total nr of segs)
 #' @return ll_tract, posterior_trace_list, alpha0_est, alpha1_est, max_iter_reached
 #' @export relics_compute_FS_k()
 
@@ -2346,7 +2366,8 @@ relics_compute_FS_k <- function(input.param,
                           nr.segs = 10, geom.p = 0.1,
                           min.pp = 0.1,
                           guide.efficiency,
-                          one.dispersion){
+                          one.dispersion,
+                          local.max, local.max.range){
 
 
   dirichlet.hyper <- input.hyper
@@ -2388,7 +2409,8 @@ relics_compute_FS_k <- function(input.param,
                                            input.data.list$guide_to_seg_lst,
                                            input.data.list$seg_to_guide_lst,
                                            input.data.list$next_guide_lst,
-                                           nr.segs, geom.p, guide.efficiency)
+                                           nr.segs, geom.p, guide.efficiency,
+                                          local.max, local.max.range)
 
 
     # keep track of changes in posterior estimates for delta
@@ -2549,13 +2571,16 @@ recompute_hyper_parameters <- function(param, hyper, data, guide.seg.idx.lst, gu
 #' @param nr.segs: max number of segemnts that can be combined
 #' @param geom.p: probability of the geometic distribution used to calculate the probability of there being x segments in the regulatory element
 #' @param guide.efficiency: data.frame of guide efficiences. Either vector of guide efficiency or NULL
+#' @param local.max: logical, whether a local maximum should be computed
+#' @param local.max.range: number of segments to include in addition to the the ones with highest PP (one way, so multiply by 2 for total nr of segs)
 #' @return log likelihood for each region
 #' @export relics_estimate_pp()
 
 relics_estimate_pp <- function(param, hyper, data, known.reg,
                                 guide.to.seg.lst, seg.to.guide.lst,
                                 next.guide.lst, nr.segs = 10, 
-                               geom.p = 0.1, guide.efficiency) {
+                               geom.p = 0.1, guide.efficiency,
+                               local.max, local.max.range) {
   n.sgrna <- length(guide.to.seg.lst)
   n.region <- length(seg.to.guide.lst)
 
@@ -2591,15 +2616,61 @@ relics_estimate_pp <- function(param, hyper, data, known.reg,
 
     }
 
-    delta.pps <- estimate_fs_pp(hyper, data.mat.list,
-                                data.total.list, seg.to.guide.lst,
-                                next.guide.lst, nr.segs, geom.p, sgrna.log.like.list)
+    delta.pps <- estimate_fs_pp(#hyper, data.mat.list, data.total.list, 
+                                seg.to.guide.lst, next.guide.lst, nr.segs, geom.p, sgrna.log.like.list)
+    
+    # if the signal is to be located at a local region
+    if(local.max){
+      
+      # identify segment with highest posterior, pull our segments +/- local.max.region
+      local.max.idx <- extract_local_max_idx(delta.pps, local.max.range) # toDo, add 'local.max.range's
+      
+      ## remove 'hyper' as parameter in estimate_fs_pp
+      ## remove 'in.data.list', replace by 'sg.ll.list' (should both be the same length, per replicate)
+      ## remove 'in.data.totals'
+      
+      local.seg.to.guide.lst <- seg.to.guide.lst[local.max.idx] # toDo (pull out the ones needed)
+      local.next.guide.lst <- next.guide.lst[local.max.idx] # toDo
+      # sg.ll.list # can be left, as the index for the guide remains unchanged
+      
+      local.delta.pps <- estimate_fs_pp(local.seg.to.guide.lst, local.next.guide.lst, 
+                                        nr.segs, geom.p, sgrna.log.like.list)
+      
+      delta.pps <- rep(0, length(delta.pps))
+      delta.pps[local.max.idx] <- local.delta.pps
+      
+    }
 
     param$delta.pp[l, ] <- delta.pps
   }
 
   return(param)
 }
+
+
+#' @title Identifying the segment with the highest PP and surrounding segments (focuses on the first segment if multiple max PPs)
+#' @param input.pps: vector, contains the PPs
+#' @param local.max.range: number of segments to include in addition to the the ones with highest PP (one way, so multiply by 2 for total nr of segs)
+#' @return vector with idx of region to look for signal
+#' @export extract_local_max_idx()
+
+extract_local_max_idx <- function(input.pps, local.max.range){
+  
+  center.idx <- which(input.pps == max(input.pps))[1]
+  min.idx <- center.idx - local.max.range
+  max.idx <- center.idx + local.max.range
+  
+  if(min.idx < 1){
+    min.idx <- 1
+  }
+  if(max.idx > length(input.pps)){
+    max.idx <- length(input.pps)
+  }
+  
+  return(c(min.idx:max.idx))
+  
+}
+
 
 #' @title Compute the log likelihood of each possible configuration of the placement of a fs amonst a set f segments. Formerly 'compute_dirichlet_delta_ll_mrvr_nromSegLLMat'
 #' @param hyper: list, hyperparameters
@@ -2613,7 +2684,7 @@ relics_estimate_pp <- function(param, hyper, data, known.reg,
 #' @return log likelihood for each segment
 #' @export estimate_fs_pp()
 
-estimate_fs_pp <- function(hyper, in.data.list, in.data.totals,
+estimate_fs_pp <- function(#hyper, in.data.list, in.data.totals,
                            seg.to.guide.lst, next.guide.lst, nr.segs = 10, geom.p = 0.1,
                            sg.ll.list) {
 
@@ -2630,7 +2701,7 @@ estimate_fs_pp <- function(hyper, in.data.list, in.data.totals,
   initial.guide.idx<- seg.to.guide.lst[[1]]$guide_idx
   initial.nonGuide.idx<- seg.to.guide.lst[[1]]$nonGuide_idx
 
-  for(repl in 1:length(in.data.list)){
+  for(repl in 1:length(sg.ll.list)){ # in.data.list
     # initial.guide.ll <- sum(ddirmnom(in.data.list[[repl]][initial.guide.idx,],
     #                                  size = in.data.totals[[repl]][initial.guide.idx],
     #                                  alpha = hyper$alpha1[[repl]], log = T))
@@ -2649,7 +2720,7 @@ estimate_fs_pp <- function(hyper, in.data.list, in.data.totals,
     temp.guide.idx<- seg.to.guide.lst[[seg]]$guide_idx
     temp.nonGuide.idx<- seg.to.guide.lst[[seg]]$nonGuide_idx
 
-    for(repl in 1:length(in.data.list)){
+    for(repl in 1:length(sg.ll.list)){ # in.data.list
       # temp.guide.ll <- sum(ddirmnom(in.data.list[[repl]][temp.guide.idx,],
       #                               size = in.data.totals[[repl]][temp.guide.idx],
       #                               alpha = hyper$alpha1[[repl]], log = T))
@@ -2674,7 +2745,7 @@ estimate_fs_pp <- function(hyper, in.data.list, in.data.totals,
       temp.guide.idx <- c(seg.to.guide.lst[[seg]]$guide_idx, unlist(next.guide.lst[(seg + 1):(seg + ns)]))
       temp.nonGuide.idx <- all.guide.idx[-temp.guide.idx]
 
-      for(repl in 1:length(in.data.list)){
+      for(repl in 1:length(sg.ll.list)){ # in.data.list
         # temp.guide.ll <- sum(ddirmnom(in.data.list[[repl]][temp.guide.idx,],
         #                               size = in.data.totals[[repl]][temp.guide.idx],
         #                               alpha = hyper$alpha1[[repl]], log = T))
