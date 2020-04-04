@@ -1454,6 +1454,7 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
                                       input.tol = coverg.tol[i],
                                       fix.hypers, iterative.hyper.est, nr.segs, geom.p,
                                       min.pp = input.min.rs.pp, input.data$guide_efficiency,
+                                      one.dispersion,
                                       local.max, local.max.range)
 
     layer.time.final <- proc.time() - layer.time
