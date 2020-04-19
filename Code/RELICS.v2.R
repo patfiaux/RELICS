@@ -1248,7 +1248,7 @@ prior_dirichlet_ll <- function(hyper.param, data, region.ll.list, alpha0.idx, al
 #' @return data frame: total_guide_ll, alt_only_ll
 #' @export estimate_relics_sgrna_log_like()
 
-estimate_relics_sgrna_log_like <- function(hyper, data, region.ll.list, guide.efficiency){
+estimate_relics_sgrna_log_like <- function(hyper, data, region.ll.list, guide.efficiency, return.model.ll = FALSE){
 
   pool.cols <- c(1:(ncol(data) - 1))
 
@@ -1268,6 +1268,10 @@ estimate_relics_sgrna_log_like <- function(hyper, data, region.ll.list, guide.ef
     }
     
     sgrna.alt.log.like <- ddirmnom(data[,pool.cols], size = data[,ncol(data)], alpha = alpha1.matrix, log = T)
+  }
+  
+  if(return.model.ll){
+    return(data.frame(null_only_ll = sgrna.null.log.like, alt_only_ll = sgrna.alt.log.like))
   }
 
   out.comb <- vector('numeric', length = length(sgrna.null.log.like))
@@ -1407,6 +1411,7 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
   final.all.layers.ll <- list() # record the overal model ll progression
   ge.coeff.list <- list()
   ge.coeff.list[[1]] <- input.data$ge_coeff
+  final.fs.ll.rt <- list()
 
   no.convergence.layer <- c() # during what layers whas there no convergence
   no.convergence.lls <- c() #model ll when convergence was not reached
@@ -1425,7 +1430,7 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
     relics.hyper <- input.hypers
   }
 
-  relics.param <- init_relics_param(relics.hyper, input.data)
+  relics.param <- init_relics_param(relics.hyper, input.data, local.max)
   if(recompute.fs0){
     relics.param$delta.pp[1,] <- 0
   }
@@ -1463,16 +1468,22 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
 
     layer.posteriors <- layer.data$posterior_trace_list[[layer.size]]
     layer.posteriors[layer.posteriors > 1] <- 1
-
+    
+    fs.ll.rt <- list()
+    if(local.max){
+      fs.ll.rt <- layer.data$fs_ll_rt_trace[[layer.size]]
+    }
+    
     # order the layers according to their model contributions
     order.pps.lst <- order_pps(layer.posteriors, layer.data$ll_tract[[layer.size]],
                                input.data, layer.data$alpha0[[layer.size]], layer.data$alpha1[[layer.size]], 
-                               input.data$guide_efficiency)
+                               input.data$guide_efficiency, local.max, fs.ll.rt)
 
     final.layer.posterior[[i]] <- order.pps.lst$pp_ordered
     final.layer.alpha0[[i]] <- layer.data$alpha0[[layer.size]]
     final.layer.alpha1[[i]] <- layer.data$alpha1[[layer.size]]
     final.layer.ll <- c(final.layer.ll, layer.data$ll_tract[[layer.size]])
+    final.fs.ll.rt[[i]] <- order.pps.lst$fs_ll_rt_ordered
 
     #$nr_rs, $rs_prob, $training_overlap, $prct_overlap
     pp.stat.lst <- pps_stats(order.pps.lst$pp_ordered, input.min.rs.pp)
@@ -1492,6 +1503,10 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
     relics.param$delta.pp <- rbind(order.pps.lst$pp_ordered, rep(0, ncol(relics.param$delta.pp)))
     relics.hyper$alpha0 <- layer.data$alpha0[[layer.size]]
     relics.hyper$alpha1 <- layer.data$alpha1[[layer.size]]
+    
+    if(local.max){
+      relics.param$ll_rt <- rbind(order.pps.lst$fs_ll_rt_ordered, rep(0, ncol(relics.param$delta.pp)))
+    }
 
     # if there was an issue with convergence, then record it
     no.convergence.bool <- c(no.convergence.bool, layer.data$max_iter_reached)
@@ -1511,6 +1526,11 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
     out.bedgraph <- input.data$seg_info
     out.bedgraph$score <- total.per.seg.posterior
     to.bg.list <- list(total_pp = out.bedgraph)
+    
+    if(local.max){
+      to.bg.list$total_ll <- input.data$seg_info
+      to.bg.list$total_ll$score <- colSums(order.pps.lst$fs_ll_rt_ordered)
+    }
 
     # record the segments with FS probabilities above the threshold.
     all.seg.fs.df <- extract_fs_locations(order.pps.lst$pp_ordered, input.data$seg_info, input.min.rs.pp)
@@ -1524,6 +1544,10 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
     if(record.all.fs){
       # record posteriors
       write.csv(order.pps.lst$pp_ordered, file = paste0(out.dir, '_k',i,'.csv'), row.names = F)
+      
+      if(local.max){
+        write.csv(order.pps.lst$fs_ll_rt_ordered, file = paste0(out.dir, '_k',i,'_llRt.csv'), row.names = F)
+      }
 
       # record bedgraph
       create_bedgraphs(to.bg.list, paste0(out.dir, '_k',i) )
@@ -1552,6 +1576,8 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
                                  ge_coeff_scores = round(input.data$ge_coeff, 3))
         write.csv(ge.coff.df, file = paste0(out.dir, '_k',i,'_ge_coeff.csv'), row.names = F)
       }
+      
+      
 
     }
 
@@ -1577,6 +1603,7 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
         final.pp.out <- final.layer.posterior[[i - 1]]
         all.layers.ll.out <- final.all.layers.ll[[i - 1]]
         final.per.layer.ll.out <- final.per.layer.ll[[i - 1]]
+        final.ll.rt.out <- final.fs.ll.rt[[i - 1]]
 
         # record sum of posteriors as bedgraph
         total.per.seg.posterior <- colSums(final.pp.out)
@@ -1584,6 +1611,11 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
         out.bedgraph <- input.data$seg_info
         out.bedgraph$score <- total.per.seg.posterior
         to.bg.list <- list(total_pp = out.bedgraph)
+        
+        if(local.max){
+          to.bg.list$total_ll <- input.data$seg_info
+          to.bg.list$total_ll$score <- colSums(final.ll.rt.out)
+        }
 
         # record the segments with FS probabilities above the threshold.
         all.seg.fs.df.final <- extract_fs_locations(final.pp.out, input.data$seg_info, input.min.rs.pp)
@@ -1607,6 +1639,10 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
 
           # record posteriors
           write.csv(final.pp.out, file = paste0(out.dir, '_final_k', i - 1,'.csv'), row.names = F)
+          
+          if(local.max){
+            write.csv(final.ll.rt.out, file = paste0(out.dir, 'final_k', i-1, '_llRt.csv'), row.names = F)
+          }
 
           # record all correlations
           write.layer.corrs.df <- data.frame(FSpair_1 = layer.corr.df$layer_1, FSpair_2 = layer.corr.df$layer_2,
@@ -1661,6 +1697,10 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
 
           # record posteriors
           write.csv(final.pp.out, file = paste0(out.dir, '_recommendedFinal_k', i - 1,'.csv'), row.names = F)
+          
+          if(local.max){
+            write.csv(final.ll.rt.out, file = paste0(out.dir, '_recommendedFinal_k', i-1, '_llRt.csv'), row.names = F)
+          }
 
           # record posteriors
           write.csv(final.pp.out, file = paste0(out.dir, '_recommendedFinal_k', i - 1,'.csv'), row.names = F)
@@ -2265,10 +2305,13 @@ pps_stats <- function(input.pp, rs.cutoff){
 #' @param input.alpha0: list, alpha 0s for the replicates
 #' @param input.alpha1: list, alpha 1s for the replicates
 #' @param guide.efficiency: data.frame of guide efficiences. Either vector of guide efficiency or NULL
-#' @return list: $pp_ordered, $layer_ll_ordered
+#' @param local.max: logical, whether a local max was computed
+#' @param fs.ll.rt: per functional sequence, per segment log-likelihood ratio. Is empty list if local.max == FALSE
+#' @return list: $pp_ordered, $layer_ll_ordered, $fs_ll_rt_ordered
 #' @export order_pps()
 
-order_pps <- function(input.pp, input.total.ll, input.data, input.alpha0, input.alpha1, guide.efficiency){
+order_pps <- function(input.pp, input.total.ll, input.data, input.alpha0, input.alpha1, 
+                      guide.efficiency, local.max, fs.ll.rt){
 
   final.ll <- input.total.ll
   final.pp <- input.pp
@@ -2303,6 +2346,7 @@ order_pps <- function(input.pp, input.total.ll, input.data, input.alpha0, input.
   if(nrow(input.pp) == 2){
     out.list$pp_ordered <- input.pp
     out.list$layer_ll_ordered <- layer.ll.diff
+    out.list$fs_ll_rt_ordered <- fs.ll.rt
 
     return(out.list)
   } else {
@@ -2312,9 +2356,17 @@ order_pps <- function(input.pp, input.total.ll, input.data, input.alpha0, input.
     out.pp <- rbind(input.pp[1,], pp.ordered)
 
     layer.ll.diff.ordered <- layer.ll.diff[order(layer.ll.diff)]
+    
+    fs.ll.rt.ordered  <- fs.ll.rt
+    if(local.max){
+      fs.ll.rt.to.order <- fs.ll.rt[2:nrow(input.pp),]
+      fs.ll.rt.ordered <- fs.ll.rt.to.order[order(layer.ll.diff),]
+      fs.ll.rt.ordered <- rbind(fs.ll.rt[1, ], fs.ll.rt.ordered)
+    }
 
     out.list$pp_ordered <- out.pp
     out.list$layer_ll_ordered <- layer.ll.diff.ordered
+    out.list$fs_ll_rt_ordered <- fs.ll.rt.ordered
 
   }
 
@@ -2329,7 +2381,7 @@ order_pps <- function(input.pp, input.total.ll, input.data, input.alpha0, input.
 #' @return list
 #' @export init_relics_param()
 
-init_relics_param <- function(hyper, in.data.list) {
+init_relics_param <- function(hyper, in.data.list, local.max) {
   param <- list()
 
   # delta posterior probabilities
@@ -2337,6 +2389,12 @@ init_relics_param <- function(hyper, in.data.list) {
 
   # first row is special and contains posterior probs of known regulatory elements
   param$delta.pp[1, in.data.list$fs0_idx] <- 1
+  
+  param$ll_rt <- list()
+  
+  if(local.max){
+    param$ll_rt <- matrix(0, nrow=hyper$L+1, ncol= nrow(in.data.list$seg_info))
+  }
 
   return(param)
 }
@@ -2355,7 +2413,7 @@ init_relics_param <- function(hyper, in.data.list) {
 #' @param one.dispersion: whether the hyper parameters should be estimated with one or two dispersions
 #' @param local.max: logical, whether a local maximum should be computed
 #' @param local.max.range: number of segments to include in addition to the the ones with highest PP (one way, so multiply by 2 for total nr of segs)
-#' @return ll_tract, posterior_trace_list, alpha0_est, alpha1_est, max_iter_reached
+#' @return ll_tract, posterior_trace_list, alpha0_est, alpha1_est, max_iter_reached, fs_ll_rt_trace
 #' @export relics_compute_FS_k()
 
 relics_compute_FS_k <- function(input.param,
@@ -2388,6 +2446,7 @@ relics_compute_FS_k <- function(input.param,
   max.diff.trace <- c()
   alpha0.est <- list()
   alpha1.est <- list()
+  fs.ll.rt.trace <- list() # per functional sequence, per segment log-likelihood ratio of local max
 
   too.low.pps <- 3 # 3 strikes to get posteriors higher than lowest possibility
 
@@ -2422,6 +2481,10 @@ relics_compute_FS_k <- function(input.param,
 
     max.diff.trace <- c(max.diff.trace, max.diff)
     dirichlet.posterior.trace[[iter]] <- dirichlet.param$delta.pp
+    
+    if(local.max){
+      fs.ll.rt.trace[[iter]] <- dirichlet.param$ll_rt
+    }
 
     if(!fix.hypers & iterative.hyper.est){
       dirichlet.hyper <- recompute_hyper_parameters(dirichlet.param,
@@ -2479,6 +2542,11 @@ relics_compute_FS_k <- function(input.param,
       dirichlet.ll.trace[iter] <- dirichlet.ll.trace[iter - max.ll.idx + 1]
       alpha0.est[[iter]] <- alpha0.est[[iter - max.ll.idx + 1]]
       alpha1.est[[iter]] <- alpha1.est[[iter - max.ll.idx + 1]]
+      
+      if(local.max){
+        fs.ll.rt.trace[[iter]] <- fs.ll.rt.trace[[iter - max.ll.idx + 1]]
+      }
+      
     }
 
 
@@ -2488,7 +2556,8 @@ relics_compute_FS_k <- function(input.param,
                    posterior_trace_list = dirichlet.posterior.trace,
                    alpha0_est = alpha0.est,
                    alpha1_est = alpha1.est,
-                   max_iter_reached = max.iter.reached)
+                   max_iter_reached = max.iter.reached,
+                   fs_ll_rt_trace = fs.ll.rt.trace)
 
 
   return(out.list)
@@ -2626,11 +2695,12 @@ relics_estimate_pp <- function(param, hyper, data, known.reg,
       # identify segment with highest posterior, pull our segments +/- local.max.region
       local.max.idx <- extract_local_max_idx(delta.pps, local.max.range) # toDo, add 'local.max.range's
       
-      ## remove 'hyper' as parameter in estimate_fs_pp
-      ## remove 'in.data.list', replace by 'sg.ll.list' (should both be the same length, per replicate)
-      ## remove 'in.data.totals'
+      # temp.local.seg.to.guide.lst <- seg.to.guide.lst[local.max.idx]
+      # # adjust $nonGuide_idx to match local region
+      # local.seg.to.guide.lst <- extract_local_seg_to_guide(temp.local.seg.to.guide.lst, local.max.idx)
+      local.seg.to.guide.lst <- seg.to.guide.lst[local.max.idx]
       
-      local.seg.to.guide.lst <- seg.to.guide.lst[local.max.idx] # toDo (pull out the ones needed)
+      # local.seg.to.guide.lst <- seg.to.guide.lst[local.max.idx] # toDo (pull out the ones needed)
       local.next.guide.lst <- next.guide.lst[local.max.idx] # toDo
       # sg.ll.list # can be left, as the index for the guide remains unchanged
       
@@ -2639,6 +2709,24 @@ relics_estimate_pp <- function(param, hyper, data, known.reg,
       
       delta.pps <- rep(0, length(delta.pps))
       delta.pps[local.max.idx] <- local.delta.pps
+      
+      # compute log-lik. ratio for each segment
+      ll.rt <- rep(0, length(delta.pps))
+      
+      for(repl in 1:length(data)){
+        temp.hypers <- list(alpha0 = hyper$alpha0[[repl]], alpha1 = hyper$alpha1[[repl]])
+        temp.data <- data[[repl]]
+        temp.data.counts <- temp.data[, c(1:(ncol(temp.data) - 1))]
+        temp.data.totals <- temp.data[, ncol(temp.data)]
+        
+        temp.guide.model.ll <- estimate_relics_sgrna_log_like(temp.hypers, temp.data, layer.guide.ll, guide.efficiency, return.model.ll = TRUE)
+        
+        local.ll.rt <- compute_local_ll_ratio(temp.guide.model.ll, local.seg.to.guide.lst)
+        ll.rt[local.max.idx] <- ll.rt[local.max.idx] + local.ll.rt
+        
+      }
+
+      param$ll_rt[l, ] <- ll.rt
       
     }
 
@@ -2669,6 +2757,52 @@ extract_local_max_idx <- function(input.pps, local.max.range){
   }
   
   return(c(min.idx:max.idx))
+  
+}
+
+
+#' @title adjust the non_guide index according to the window
+#' @param seg.to.guide.lst: list, $guide_idx, $nonGuide_idx
+#' @param local.max.range: number of segments to include in addition to the the ones with highest PP (one way, so multiply by 2 for total nr of segs)
+#' @return vector with idx of region to look for signal
+#' @export extract_local_seg_to_guide()
+
+extract_local_seg_to_guide <- function(seg.to.guide.lst, local.max.idx){
+  
+  all.local.guides <- unique(unlist(lapply(seg.to.guide.lst, function(x){
+    x$guide_idx
+  })))
+  
+  local.seg.to.guide.lst <- lapply(seg.to.guide.lst, function(x){
+    x$nonGuide_idx <- all.local.guides[which(! all.local.guides %in% x$guide_idx)]
+    
+    x
+  })
+
+  return(local.seg.to.guide.lst)
+  
+}
+
+
+#' @title comput log-lik. ratio for the selected idx
+#' @param local.seg.to.guide.lst: list, $guide_idx, $nonGuide_idx
+#' @param guide.ll.df: data.frame, null_only_ll, alt_only_ll
+#' @return vector with idx of region to look for signal
+#' @export compute_local_ll_ratio()
+
+compute_local_ll_ratio <- function(guide.ll.df, local.seg.to.guide.lst){
+  
+  fs.ll <- unlist(lapply(local.seg.to.guide.lst, function(x){
+    sum(guide.ll.df$alt_only_ll[x$guide_idx])
+  }))
+  
+  background.ll <- unlist(lapply(local.seg.to.guide.lst, function(x){
+    sum(guide.ll.df$null_only_ll[x$guide_idx])
+  }))
+  
+  out.ll.rt <- -2 * (background.ll - fs.ll)
+  
+  return(out.ll.rt)
   
 }
 
