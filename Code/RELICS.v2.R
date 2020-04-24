@@ -148,6 +148,13 @@ RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.
     #   # also, might want to see if 'ge_beta_estimation' is required here
     # }
   }
+  
+  # plot the per-segment ll-ratio
+  record_ll_ratio(analysis.parameters$hyper_pars, data.setup, analysis.parameters)
+  
+  # temp.guide.model.ll <- estimate_relics_sgrna_log_like(temp.hypers, temp.data, layer.guide.ll, guide.efficiency, return.model.ll = TRUE)
+  # local.ll.rt <- compute_local_ll_ratio(temp.guide.model.ll, local.seg.to.guide.lst)
+  # ll.rt[local.max.idx] <- ll.rt[local.max.idx] + local.ll.rt
 
   run_RELICS_2(input.data = data.setup,
                final.layer.nr = analysis.parameters$min_FS_nr,
@@ -168,6 +175,45 @@ RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.
                local.max.range = analysis.parameters$local_max_range)
 
 
+}
+
+#' @title given hyper parameters and guide efficiency (optional), report the per-segment ll ratio
+#' @param input.hypers: list: hyper parameters
+#' @param input.data: list: $seg_to_guide_lst, $guide_efficiency_scores (and $guide_efficiency if former not NULL)
+#' @param input.ge: guide efficiency
+#' @param input.seg.to.guide.lst: list: hyper parameters
+#' @return list with parameters for running RELICS or logical FALSE if required parameter is missing
+#' @export record_ll_ratio()
+
+record_ll_ratio <- function(input.hypers, input.data, input.parameters){
+  
+  not.used <- c()
+  guide.efficiency <- NULL
+  if(! is.null(input.data$guide_efficiency_scores)){
+    guide.efficiency <- input.data$guide_efficiency
+  }
+  
+  ll.rt <- vector('numeric', length = length(input.data$seg_to_guide_lst))
+  for(i in 1:length(input.data$data)){
+    temp.data <- input.data$data[[i]]
+    temp.hyper <- list(alpha0 = input.hypers$alpha0[[i]],
+                       alpha1 = input.hypers$alpha1[[i]])
+    
+    guide.model.ll <- estimate_relics_sgrna_log_like(temp.hyper, temp.data, not.used, guide.efficiency, return.model.ll = TRUE)
+    temp.ll.rt <- compute_local_ll_ratio(guide.model.ll, input.data$seg_to_guide_lst)
+    ll.rt <- ll.rt + temp.ll.rt
+  }
+
+  # combine with segment info
+  segment.info <- input.data$seg_info
+  segment.info$score <- ll.rt
+  
+  # create bedgraph
+  to.bg.list <- list(seg_llRt = segment.info)
+  
+  # write bedgraph to output
+  out.dir <- paste0(input.parameters$out_dir, '/', input.parameters$dataName)
+  create_bedgraphs(to.bg.list, out.dir)
 }
 
 
@@ -1764,6 +1810,11 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
         ge.coeff.list[[i + 1]] <- ge.list$ge_coeff
       }
 
+    }
+    
+    if(!fix.hypers | !is.null(input.data$guide_efficiency_scores)){
+      out.pars <- list(out_dir = out.dir, dataName = '')
+      record_ll_ratio(relics.hyper, input.data, analysis.parameters)
     }
 
   }
