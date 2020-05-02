@@ -1586,21 +1586,37 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
                                 FS_ll = final.layer.ll,
                                 stringsAsFactors = F)
     final.all.layers.ll[[i]] <- all.layers.ll
-
+    
     if(record.all.fs){
       
-      # toDo
+      # total_effSize, repl_effSize
       abs.effect.size <- record_abs_effectSize(order.pps.lst$pp_ordered, 
                                                 input.min.rs.pp,
-                                                hyper,
+                                               relics.hyper,
                                                 input.data$data,
                                                 input.data$guide_to_seg_lst,
+                                               input.data$seg_to_guide_lst,
                                                 input.data$guide_efficiency,
-                                                one.dispersion)
+                                                one.dispersion,
+                                               input.data$seg_info)
       
-      #toDo
-      record_scaling_effectSize(order.pps.lst$pp_ordered, out.dir, input.min.rs.pp)
+      # total_scaledEffSize, repl_scaledEffSize
+      scaled.effect.size <- record_scaling_effectSize(order.pps.lst$pp_ordered, 
+                                               input.min.rs.pp,
+                                               relics.hyper,
+                                               input.data$data,
+                                               input.data$guide_to_seg_lst,
+                                               input.data$seg_to_guide_lst,
+                                               input.data$guide_efficiency,
+                                               one.dispersion,
+                                               input.data$seg_info)
       
+      to.bg.list$abs_effSize <- abs.effect.size$total_effSize
+      to.bg.list$scaled_effSize <- scaled.effect.size$total_scaledEffSize
+      write.csv(abs.effect.size$fs_effSize_ID, file = paste0(out.dir, '_k', i, '_absEffSizeID.csv'), row.names = F)
+      write.csv(scaled.effect.size$fs_effSize_ID, file = paste0(out.dir, '_k', i, '_scaledEffSizeID.csv'), row.names = F)
+      write_eff_size_lists(length(input.data$data), abs.effect.size$repl_effSize, scaled.effect.size$repl_scaledEffSize, out.dir, i, is.final = F)
+        
       # record posteriors
       write.csv(order.pps.lst$pp_ordered, file = paste0(out.dir, '_k',i,'.csv'), row.names = F)
       
@@ -1676,8 +1692,41 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
 
         # record the segments with FS probabilities above the threshold.
         all.seg.fs.df.final <- extract_fs_locations(final.pp.out, input.data$seg_info, input.min.rs.pp)
+        
+        final.alpha0s <- final.layer.alpha0[[i - 1]]
+        final.alpha1s <- final.layer.alpha1[[i - 1]]
+        final.hypers <- list(alpha0 = final.alpha0s, alpha1 = final.alpha1s)
+        
+        # total_effSize, repl_effSize
+        abs.effect.size <- record_abs_effectSize(final.pp.out, 
+                                                 input.min.rs.pp,
+                                                 final.hypers,
+                                                 input.data$data,
+                                                 input.data$guide_to_seg_lst,
+                                                 input.data$seg_to_guide_lst,
+                                                 input.data$guide_efficiency,
+                                                 one.dispersion,
+                                                 input.data$seg_info)
+        
+        # total_scaledEffSize, repl_scaledEffSize
+        scaled.effect.size <- record_scaling_effectSize(final.pp.out, 
+                                                        input.min.rs.pp,
+                                                        final.hypers,
+                                                        input.data$data,
+                                                        input.data$guide_to_seg_lst,
+                                                        input.data$seg_to_guide_lst,
+                                                        input.data$guide_efficiency,
+                                                        one.dispersion,
+                                                        input.data$seg_info)
+        
+        to.bg.list$abs_effSize <- abs.effect.size$total_effSize
+        to.bg.list$scaled_effSize <- scaled.effect.size$total_scaledEffSize
+        write.csv(abs.effect.size$fs_effSize_ID, file = paste0(out.dir, '_final_k',i - 1,'_absEffSizeID.csv'), row.names = F)
+        write.csv(scaled.effect.size$fs_effSize_ID, file = paste0(out.dir, '_final_k',i - 1,'_scaledEffSizeID.csv'), row.names = F)
+        write_eff_size_lists(abs.effect.size$repl_effSize, scaled.effect.size$repl_scaledEffSize, out.dir, i, is.final = T)
 
         if(auto.stop){
+          
           # record bedgraph
           create_bedgraphs(to.bg.list, paste0(out.dir, '_final_k', i - 1) )
 
@@ -1833,45 +1882,107 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
 }
 
 
-#' @title wrapper which returns -log likelihood given provided prior distribution hyperparameters, and current estimates of the cumulative posteriors. Formerly 'fit_prior_dirichlet_distr_mvr'
+#' @title optimize the hyper parameters, only one dispersion across the two distributions
+#' @param nr.repl: number of replicates
+#' @param total.eff.list: each element is a FS, each FS is a list of hyper parameters
+#' @param scaled.eff.list: each element is a FS, contains a vecor for each replicate
+#' @return recorded .csv files
+#' @export write_eff_size_lists()
+
+write_eff_size_lists <- function(nr.repl, total.eff.list, scaled.eff.list, out.dir, iter, is.final = F) {
+  
+  out.total.eff.list <- do.call(rbind, lapply(total.eff.list, function(x){
+    if(length(x) == 0){
+      0
+    } else {
+      unlist(x)
+    }
+  }))
+  
+  col.names <- c()
+  no.fs <- TRUE
+  lst.idx <- 1
+  while(no.fs){
+    if(length(total.eff.list[[lst.idx]]) > 0 ){
+      no.fs <- FALSE
+      for(i in 1:nr.repl){
+        col.names <- c(col.names, paste0('repl', i, '_pool_', c(1:length(total.eff.list[[lst.idx]][[i]]))))
+      }
+    } else {
+      lst.idx <- lst.idx + 1
+    }
+  }
+  colnames(out.total.eff.list) <- col.names
+  
+  out.scaled.eff.list <- do.call(rbind, scaled.eff.list)
+  colnames(out.scaled.eff.list) <- paste0('repl', c(1:length(scaled.eff.list[[1]])))
+  
+  if(is.final){
+    write.csv(out.total.eff.list, file = paste0(out.dir, '_final_k', iter, '_abs_perPool_sizeEffDiff.csv'), row.names = F)
+    
+    write.csv(out.scaled.eff.list, file = paste0(out.dir, '_final_k', iter, '_scaled_sizeEff.csv'), row.names = F)
+  } else {
+    write.csv(out.total.eff.list, file = paste0(out.dir, '_k', iter, '_abs_sizeEff_diff.csv'), row.names = F)
+    
+    write.csv(out.scaled.eff.list, file = paste0(out.dir, '_k', iter, '_scaled_sizeEff.csv'), row.names = F)
+  }
+  
+}
+
+
+#' @title records the absolute effect size across all pools (avg across replicates) for each FS
 #' @param hyper: hyperparameters
-#' @param param: matrix of all posterior probs
-#' @param data: data, consists of: $y1, $y2 and $n
+#' @param input.pp: matrix of all posterior probs
+#' @param input.min.rs.pp: threshold for FS detection
+#' @param data: list, each element is a replicate
 #' @param guide.seg.idx.lst: list: each element is a guide, contaiing the indexes of the segments it overlaps
-#' @param seg.to.guide.idx.lst: 
+#' @param seg.guide.idx.lst: list: each elemnt is a segment and all guide that overlap it
 #' @param guide.efficiency: either a vector of guide efficiency or NULL
 #' @param one.dispersion. logical, if there should be one or two dispersions for the hyper parameters
-#' @return list of the re-estimated hyperparameters
+#' @param seg.info: data frame, coordinates for each segment
+#' @return list: total_effSize, repl_effSize, fs_effSize_ID
 #' @export record_abs_effectSize()
 
 record_abs_effectSize <- function(input.pp, input.min.rs.pp, hyper, data, 
                                   guide.seg.idx.lst, seg.guide.idx.lst,
-                                  guide.efficiency, one.dispersion) {
+                                  guide.efficiency, one.dispersion, seg.info) {
+  
+  # list of all alpha 1s (one for each FS)
+  fs.alpha1.eff.size <- list()
+  fs.total.eff.size <- c()
+  fs.eff.size.ID <- c()
   
   for(f in 1:nrow(input.pp)){
     
     temp.fs.idx <- which(input.pp[f,] > input.min.rs.pp)
+    
+    fs.alpha1.eff.size[[f]] <- list()
+    
     if(length(temp.fs.idx) > 0){
       temp.pp <- input.pp[f,]
       
-      # 1. extract the guides overlapping all the FS segments and their index
+      temp.seg.info <- seg.info[temp.fs.idx,]
+      
+      # 1. extract the index of guides overlapping all the FS segments
       temp.fs.guide.idx <- sort(unique(unlist(lapply(seg.guide.idx.lst[temp.fs.idx], function(x){
         x$guide_idx
       }))))
       
-      fs.data <- data[[i]][temp.fs.guide.idx,]
-      
-      
-      # 2. use that data to then go back to the pp and get the per-guide ll given all the FS overlapping that guide
-      # Issue here is that I actually include more pp than the FS is long...
-      temp.fs.guide.pp.idx <- sort(unique(unlist(lapply(guide.seg.idx.lst[temp.fs.guide.idx], function(x){
-        x
-      }))))
-      
-      temp.guide.lls.list <- FS_only_guide_ll(temp.pp, guide.seg.idx.lst, temp.fs.guide.pp.idx)
-      
       # for each replicate
       for(i in 1:length(data)){
+        
+        fs.data <- data[[i]][temp.fs.guide.idx,]
+        
+        # 2. use fs.data to get overpalling pp and calculate the per-guide ll given all the FS overlapping that guide
+        # Issue here is that I actually include more pp than the FS is long...
+        temp.fs.guide.pp.idx <- sort(unique(unlist(lapply(guide.seg.idx.lst[temp.fs.guide.idx], function(x){
+          x
+        }))))
+        
+        temp.guide.lls.list <- FS_only_guide_ll(temp.pp, guide.seg.idx.lst, temp.fs.guide.pp.idx, temp.fs.guide.idx)
+        
+        
+        temp.alpha0 <- hyper$alpha0[[i]]
         temp.alpha1 <- sqrt(hyper$alpha1[[i]])
         
         res <- c()
@@ -1879,28 +1990,25 @@ record_abs_effectSize <- function(input.pp, input.min.rs.pp, hyper, data,
         if(one.dispersion){
           res <- optim(temp.alpha1, prior_dirichlet_ll_singleDisp_sizeE, method= 'L-BFGS-B', #'BFGS', #"Nelder-Mead",
                        data = fs.data, region.ll.list = temp.guide.lls.list,
-                       guide.efficiency = guide.efficiency, alpha.zero = hyper$alpha0[[i]])
+                       guide.efficiency = guide.efficiency, alpha.zero = temp.alpha0)
         } else {
-          res <- optim(temp.alpha1, prior_dirichlet_ll, method= 'L-BFGS-B', #'BFGS', #"Nelder-Mead",
+          res <- optim(temp.alpha1, prior_dirichlet_ll_sizeE, method= 'L-BFGS-B', #'BFGS', #"Nelder-Mead",
                        data = fs.data, region.ll.list = temp.guide.lls.list,
-                       guide.efficiency = guide.efficiency, alpha.zero = hyper$alpha0[[i]])
+                       guide.efficiency = guide.efficiency, alpha.zero = temp.alpha0)
         }
         
         if(res$convergence==0) {
           # return new estimates of hyperparamers
           
           if(one.dispersion){
-            alpha0s <- res$par[alpha0.idx]**2
-            alpha1s <- res$par[alpha1.idx]**2
+            alpha1s <- res$par**2
             
             alpha1s.norm <- alpha1s / sum(alpha1s)
-            alpha1s.adj <- alpha1s.norm * sum(alpha0s)
+            alpha1s.adj <- alpha1s.norm * sum(temp.alpha0)
             
-            hyper$alpha0[[i]] <- alpha0s
-            hyper$alpha1[[i]] <- alpha1s.adj
+            fs.alpha1.eff.size[[f]][[i]] <- abs(alpha1s.adj - temp.alpha0)
           } else {
-            hyper$alpha0[[i]] <- res$par[alpha0.idx]**2
-            hyper$alpha1[[i]] <- res$par[alpha1.idx]**2
+            fs.alpha1.eff.size[[f]][[i]] <- abs(res$par**2 - temp.alpha0)
           }
           
         } else {
@@ -1909,74 +2017,39 @@ record_abs_effectSize <- function(input.pp, input.min.rs.pp, hyper, data,
         
       }
       
+      # at this stage, all FS alpha1s should be obtained, present in list of lists at fs.alpha1[[f]]
+      # compute the average effect size across all replicates
+      temp.eff.df <- do.call(rbind, fs.alpha1.eff.size[[f]])
+      temp.total.avg.eff <- sum(colSums(temp.eff.df) / nrow(temp.eff.df))
+      
+      temp.eff.size.loc <- temp.seg.info[, c('chrom', 'start', 'end')]
+      temp.eff.size.loc$FS <- paste0('FS', f-1)
+      temp.eff.size.loc$score <- temp.total.avg.eff # preparing for bg format
+      
+      fs.eff.size.ID <- rbind(fs.eff.size.ID, data.frame(FS = paste0('FS', f-1), FS_effSize = temp.total.avg.eff, stringsAsFactors = F))
+      
+      fs.total.eff.size <- rbind(fs.total.eff.size, temp.eff.size.loc)
     }
-    
-    # do something with the FS that did not pass threshold
     
   }
-  
-  for(i in 1:length(data)){
-    # need alphas to be greater than 0, taking square root now to exponentiate after
-    hyper.param <- c(sqrt(hyper$alpha0[[i]]), sqrt(hyper$alpha1[[i]]))
-    alpha0.idx <- c(1:length(hyper$alpha0[[i]]))
-    alpha1.idx <- c(1:length(hyper$alpha0[[i]])) + max(alpha0.idx)
-    
-    res <- c()
-    
-    if(one.dispersion){
-      res <- optim(hyper.param, prior_dirichlet_ll_singleDisp, method= 'L-BFGS-B', #'BFGS', #"Nelder-Mead",
-                   data=data[[i]], region.ll.list = guide.lls.list,
-                   alpha0.idx = alpha0.idx, alpha1.idx = alpha1.idx, 
-                   guide.efficiency = guide.efficiency)
-    } else {
-      res <- optim(hyper.param, prior_dirichlet_ll, method= 'L-BFGS-B', #'BFGS', #"Nelder-Mead",
-                   data=data[[i]], region.ll.list = guide.lls.list,
-                   alpha0.idx = alpha0.idx, alpha1.idx = alpha1.idx, 
-                   guide.efficiency = guide.efficiency)
-    }
-    
-    if(res$convergence==0) {
-      # return new estimates of hyperparamers
-      
-      if(one.dispersion){
-        alpha0s <- res$par[alpha0.idx]**2
-        alpha1s <- res$par[alpha1.idx]**2
-        
-        alpha1s.norm <- alpha1s / sum(alpha1s)
-        alpha1s.adj <- alpha1s.norm * sum(alpha0s)
-        
-        hyper$alpha0[[i]] <- alpha0s
-        hyper$alpha1[[i]] <- alpha1s.adj
-      } else {
-        hyper$alpha0[[i]] <- res$par[alpha0.idx]**2
-        hyper$alpha1[[i]] <- res$par[alpha1.idx]**2
-      }
-      
-    } else {
-      warning("estimation of hyperparameters failed to converge")
-    }
-    
-    
-  }
-  
-  
-  return(hyper)
+
+  return(list(total_effSize = fs.total.eff.size, repl_effSize = fs.alpha1.eff.size, fs_effSize_ID= fs.eff.size.ID))
 }
 
 
 #' @title Compute log likelihoods of each sgRNA that overlaps a specifc FS.
 #' @param cumulative.pp: sum of all previous posteriors
 #' @param guide.seg.idx.lst: list, each element is a guide and contains the indexes of the segments it overlaps
-#' @param hyper.setup: logical, if this function is called during the hyper parameter setup or not.
 #' @param fs.idx: vector of segment indeces of the functional sequence
+#' @param guide.fs.idx: index of the guides overlapping the FS
 #' @return list: null_only_idx, null_only_lls, alt_only_idx, alt_only_lls, both_idx, both_lls (last one is a df)
 #' @export FS_only_guide_ll()
 
-FS_only_guide_ll <- function(cumulative.pp, guide.seg.idx.lst, hyper.setup = FALSE, fs.idx){
+FS_only_guide_ll <- function(cumulative.pp, guide.seg.idx.lst, fs.idx, guide.fs.idx, hyper.setup = FALSE){
   
-  fs.pp <- cumulative.pp[fs.idx]
+  # fs.pp <- cumulative.pp[fs.idx]
   
-  nr.fs.sgrna <- length(fs.pp)
+  nr.fs.sgrna <- length(guide.fs.idx)
   
   null.ll <- vector('numeric', length = nr.fs.sgrna)
   alt.ll <- vector('numeric', length = nr.fs.sgrna)
@@ -1992,7 +2065,7 @@ FS_only_guide_ll <- function(cumulative.pp, guide.seg.idx.lst, hyper.setup = FAL
   
   for(j in 1:nr.fs.sgrna){
 
-    region.pp <- cumulative.pp[guide.seg.idx.lst[[fs.idx[j] ]] ]
+    region.pp <- cumulative.pp[guide.seg.idx.lst[[guide.fs.idx[j] ]] ]
     
     # compute probability that number of regulatory regions overlapped by this sgRNA is 0 or >0, given posterior
     # probabilities, using poisson binomial probability mass function
@@ -2018,12 +2091,7 @@ FS_only_guide_ll <- function(cumulative.pp, guide.seg.idx.lst, hyper.setup = FAL
   null.idxs <- null.only.idx[1:(null.only.counter - 1)]
   alt.idxs <-alt.only.idx[1:(alt.only.counter - 1)]
   both.idxs <- both.idx[1:(both.counter - 1)]
-  
-  # if there are overlaps between the indeces that's a problem!
-  if(sum(c(length(null.idxs), length(alt.idxs), length(both.idxs))) != length(unique(c(null.idxs, alt.idxs, both.idxs))) & !hyper.setup){
-    print('Potential issue with guide likelihood assignments!')
-  }
-  
+
   out.list <- list(null_only_idx = null.idxs,
                    null_only_lls = null.ll[null.idxs],
                    alt_only_idx = alt.idxs,
@@ -2037,9 +2105,11 @@ FS_only_guide_ll <- function(cumulative.pp, guide.seg.idx.lst, hyper.setup = FAL
 
 
 #' @title optimize the hyper parameters, only one dispersion across the two distributions
-#' @param hyper.param: hyperparameters
+#' @param scaling.par: scaling parameter for alpha 1 hypers
 #' @param data: data, consists of: $pool1, pool2... and $n
 #' @param region.ll.list: list containing the ll and the indexes of the null alternative and both
+#' @param alpha.one: hyper parameters for functional sequence
+#' @param alpha.zero: hyper parameters for background
 #' @param guide.efficiency: data.frame of guide efficiences. Either vector of guide efficiency or NULL
 #' @return sum of the -log likelihood across all guides
 #' @export prior_dirichlet_ll_singleDisp_sizeE()
@@ -2049,7 +2119,7 @@ prior_dirichlet_ll_singleDisp_sizeE <- function(alpha.one, alpha.zero, data, reg
   alpha1s <- alpha.one**2
   
   alpha1s.norm <- alpha1s / sum(alpha1s)
-  alpha1s.adj <- alpha1s.norm * sum(alpha0s)
+  alpha1s.adj <- alpha1s.norm * sum(alpha.zero)
   
   # cat(u0, u1, v0, v1, "\n")
   hyper <- list(alpha0 = alpha.zero,
@@ -2062,11 +2132,11 @@ prior_dirichlet_ll_singleDisp_sizeE <- function(alpha.one, alpha.zero, data, reg
 
 
 #' @title optimize the hyper parameters, each distribution with it's own variance
-#' @param hyper.param: hyperparameters
+#' @param scaling.par: scaling parameter for alpha 1 hypers
 #' @param data: data, consists of: $pool1, pool2... and $n
 #' @param region.ll.list: list containing the ll and the indexes of the null alternative and both
-#' @param alpha0.idx: positions in the par vector of the null alphas
-#' @param alpha1.idx: positions in the par vector of the alternative alphas
+#' @param alpha.one: hyper parameters for functional sequence
+#' @param alpha.zero: hyper parameters for background
 #' @param guide.efficiency: data.frame of guide efficiences. Either vector of guide efficiency or NULL
 #' @return sum of the -log likelihood across all guides
 #' @export prior_dirichlet_ll_sizeE()
@@ -2092,7 +2162,7 @@ prior_dirichlet_ll_sizeE <- function(alpha.one, alpha.zero, data, region.ll.list
 #' @param region.ll.list: list containing the ll and the indexes of the null alternative and both
 #' @param guide.efficiency: data.frame of guide efficiences. Either vector of guide efficiency or NULL
 #' @return data frame: total_guide_ll, alt_only_ll
-#' @export estimate_relics_sgrna_log_like()
+#' @export estimate_relics_sgrna_log_like_sizeE()
 
 estimate_relics_sgrna_log_like_sizeE <- function(hyper, data, region.ll.list, guide.efficiency){
   
@@ -2138,11 +2208,171 @@ estimate_relics_sgrna_log_like_sizeE <- function(hyper, data, region.ll.list, gu
 }
 
 
+#' @title records the absolute effect size across all pools (avg across replicates) for each FS
+#' @param hyper: hyperparameters
+#' @param input.pp: matrix of all posterior probs
+#' @param input.min.rs.pp: threshold for FS detection
+#' @param data: list, each element is a replicate
+#' @param guide.seg.idx.lst: list: each element is a guide, contaiing the indexes of the segments it overlaps
+#' @param seg.guide.idx.lst: list: each elemnt is a segment and all guide that overlap it
+#' @param guide.efficiency: either a vector of guide efficiency or NULL
+#' @param one.dispersion. logical, if there should be one or two dispersions for the hyper parameters
+#' @param seg.info: data frame, coordinates for each segment
+#' @return list: total_scaledEffSize, repl_scaledEffSize, fs_effSize_ID
+#' @export record_scaling_effectSize()
+
+record_scaling_effectSize <- function(input.pp, input.min.rs.pp, hyper, data, 
+                                  guide.seg.idx.lst, seg.guide.idx.lst,
+                                  guide.efficiency, one.dispersion, seg.info) {
+  
+  # list of all alpha 1s (one for each FS)
+  fs.alpha1.scaling <- list()
+  fs.alpha1.scaling.df <- c()
+  fs.eff.size.ID <- c()
+
+  for(f in 1:nrow(input.pp)){
+    
+    temp.fs.idx <- which(input.pp[f,] > input.min.rs.pp)
+    
+    fs.alpha1.scaling[[f]] <- rep(0, length(data))
+    
+    if(length(temp.fs.idx) > 0){
+      temp.pp <- input.pp[f,]
+      
+      temp.seg.info <- seg.info[temp.fs.idx,]
+      
+      # 1. extract the index of guides overlapping all the FS segments
+      temp.fs.guide.idx <- sort(unique(unlist(lapply(seg.guide.idx.lst[temp.fs.idx], function(x){
+        x$guide_idx
+      }))))
+      
+      # for each replicate
+      for(i in 1:length(data)){
+        
+        fs.data <- data[[i]][temp.fs.guide.idx,]
+        
+        # 2. use fs.data to get overpalling pp and calculate the per-guide ll given all the FS overlapping that guide
+        # Issue here is that I actually include more pp than the FS is long...
+        temp.fs.guide.pp.idx <- sort(unique(unlist(lapply(guide.seg.idx.lst[temp.fs.guide.idx], function(x){
+          x
+        }))))
+        
+        temp.guide.lls.list <- FS_only_guide_ll(temp.pp, guide.seg.idx.lst, temp.fs.guide.pp.idx, temp.fs.guide.idx)
+        
+        temp.alpha0 <- hyper$alpha0[[i]]
+        temp.alpha1 <- hyper$alpha1[[i]]
+        temp.scaling <- 1
+        
+        res <- c()
+        
+        if(one.dispersion){
+          res <- optim(temp.scaling, prior_dirichlet_ll_singleDisp_sizeE_scaled, method= 'L-BFGS-B', #'BFGS', #"Nelder-Mead",
+                       data = fs.data, region.ll.list = temp.guide.lls.list,
+                       guide.efficiency = guide.efficiency, alpha.zero = temp.alpha0, alpha.one = temp.alpha1)
+        } else {
+          res <- optim(temp.scaling, prior_dirichlet_ll_sizeE_scaled, method= 'L-BFGS-B', #'BFGS', #"Nelder-Mead",
+                       data = fs.data, region.ll.list = temp.guide.lls.list,
+                       guide.efficiency = guide.efficiency, alpha.zero = temp.alpha0, alpha.one = temp.alpha1)
+        }
+        
+        if(res$convergence==0) {
+          # return new estimates of hyperparamers
+          
+          fs.alpha1.scaling[[f]][i] <- abs(res$par)
+          
+        } else {
+          warning("estimation of hyperparameters failed to converge")
+        }
+        
+      }
+      
+      # at this stage, all FS alpha1s should be obtained, present in list of lists at fs.alpha1[[f]]
+      # compute the average effect size across all replicates
+      temp.avg.scaling <- mean(fs.alpha1.scaling[[f]])
+
+      temp.eff.size.loc <- temp.seg.info[, c('chrom', 'start', 'end')]
+      temp.eff.size.loc$FS <- paste0('FS', f-1)
+      temp.eff.size.loc$score <- temp.avg.scaling
+      
+      fs.alpha1.scaling.df <- rbind(fs.alpha1.scaling.df, temp.eff.size.loc)
+      
+      fs.eff.size.ID <- rbind(fs.eff.size.ID, data.frame(FS = paste0('FS', f-1), FS_effSize = temp.avg.scaling, stringsAsFactors = F))
+      
+    } else {
+      fs.alpha1.scaling[[f]] <- rep(0, length(data))
+    }
+    
+    
+  }
+  
+  return(list(total_scaledEffSize = fs.alpha1.scaling.df, repl_scaledEffSize = fs.alpha1.scaling, fs_effSize_ID = fs.eff.size.ID))
+}
+
+
+#' @title optimize the hyper parameters, only one dispersion across the two distributions
+#' @param scaling.par: scaling parameter for alpha 1 hypers
+#' @param data: data, consists of: $pool1, pool2... and $n
+#' @param region.ll.list: list containing the ll and the indexes of the null alternative and both
+#' @param alpha.one: hyper parameters for functional sequence
+#' @param alpha.zero: hyper parameters for background
+#' @param guide.efficiency: data.frame of guide efficiences. Either vector of guide efficiency or NULL
+#' @return sum of the -log likelihood across all guides
+#' @export prior_dirichlet_ll_singleDisp_sizeE_scaled()
+
+prior_dirichlet_ll_singleDisp_sizeE_scaled <- function(scaling.par, alpha.one, alpha.zero, data, region.ll.list, guide.efficiency) {
+  
+  if(scaling.par == 0){
+    scaling.par <- 0.000001
+  }
+  
+  alpha1s <- alpha.one * abs(scaling.par)
+  
+  alpha1s.norm <- alpha1s / sum(alpha1s)
+  alpha1s.adj <- alpha1s.norm * sum(alpha.zero)
+  
+  # cat(u0, u1, v0, v1, "\n")
+  hyper <- list(alpha0 = alpha.zero,
+                alpha1 = alpha1s.adj)
+  
+  out.sg.ll <- estimate_relics_sgrna_log_like_sizeE(hyper, data, region.ll.list, guide.efficiency)
+  
+  -sum(out.sg.ll$total_guide_ll)
+}
+
+
+#' @title optimize the hyper parameters, each distribution with it's own variance
+#' @param scaling.par: scaling parameter for alpha 1 hypers
+#' @param data: data, consists of: $pool1, pool2... and $n
+#' @param region.ll.list: list containing the ll and the indexes of the null alternative and both
+#' @param alpha.one: hyper parameters for functional sequence
+#' @param alpha.zero: hyper parameters for background
+#' @param guide.efficiency: data.frame of guide efficiences. Either vector of guide efficiency or NULL
+#' @return sum of the -log likelihood across all guides
+#' @export prior_dirichlet_ll_sizeE_scaled()
+
+prior_dirichlet_ll_sizeE_scaled <- function(scaling.par, alpha.one, alpha.zero, data, region.ll.list, guide.efficiency) {
+  
+  if(scaling.par == 0){
+    scaling.par <- 0.000001
+  }
+  
+  alpha1s <- alpha.one * abs(scaling.par)
+  
+  # cat(u0, u1, v0, v1, "\n")
+  hyper <- list(alpha0 = alpha.zero,
+                alpha1 = alpha1s)
+  
+  out.sg.ll <- estimate_relics_sgrna_log_like_sizeE(hyper, data, region.ll.list, guide.efficiency)
+  
+  -sum(out.sg.ll$total_guide_ll)
+  
+}
+
 
 #' @title wrapper which returns the updated guide efficiency and the corresponding coefficients used to calculate it
 #' @param hyper: hyperparameters
 #' @param param: matrix of all posterior probs
-#' @param data: data, consists of: $y1, $y2 and $n
+#' @param data: list, each element is a replicate
 #' @param guide.seg.idx.lst: list: each element is a guide, contaiing the indexes of the segments it overlaps
 #' @param guide.efficiency.scores: matrix, each column containing a different set of scores per guide
 #' @param ge.coeff vector, containing the guide efficiency coefficients
