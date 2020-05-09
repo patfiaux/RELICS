@@ -1611,11 +1611,30 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
                                                one.dispersion,
                                                input.data$seg_info)
       
+      # total_effSize, repl_effSize
+      absProp.effect.size <- record_abs_effectSize(order.pps.lst$pp_ordered,
+                                                      input.min.rs.pp,
+                                                      relics.hyper,
+                                                      input.data$data,
+                                                      input.data$guide_to_seg_lst,
+                                                      input.data$seg_to_guide_lst,
+                                                      input.data$guide_efficiency,
+                                                      one.dispersion,
+                                                      input.data$seg_info,
+                                                   abs.prop = TRUE)
+      
       to.bg.list$abs_effSize <- abs.effect.size$total_effSize
       to.bg.list$scaled_effSize <- scaled.effect.size$total_scaledEffSize
+      to.bg.list$absProb_effSize <- absProp.effect.size$total_effSize
+      
       write.csv(abs.effect.size$fs_effSize_ID, file = paste0(out.dir, '_k', i, '_absEffSizeID.csv'), row.names = F)
       write.csv(scaled.effect.size$fs_effSize_ID, file = paste0(out.dir, '_k', i, '_scaledEffSizeID.csv'), row.names = F)
-      write_eff_size_lists(length(input.data$data), abs.effect.size$repl_effSize, scaled.effect.size$repl_scaledEffSize, out.dir, i, is.final = F)
+      write.csv(absProp.effect.size$fs_effSize_ID, file = paste0(out.dir, '_k', i, '_absProbEffSizeID.csv'), row.names = F)
+      
+      # toDo, modify below
+      write_eff_size_lists(length(input.data$data), abs.effect.size$repl_effSize, 
+                           scaled.effect.size$repl_scaledEffSize, absProp.effect.size$repl_effSize, 
+                           out.dir, i, is.final = F)
         
       # record posteriors
       write.csv(order.pps.lst$pp_ordered, file = paste0(out.dir, '_k',i,'.csv'), row.names = F)
@@ -1719,12 +1738,29 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
                                                         one.dispersion,
                                                         input.data$seg_info)
         
+        absProp.effect.size <- record_abs_effectSize(final.pp.out,
+                                                     input.min.rs.pp,
+                                                     relics.hyper,
+                                                     input.data$data,
+                                                     input.data$guide_to_seg_lst,
+                                                     input.data$seg_to_guide_lst,
+                                                     input.data$guide_efficiency,
+                                                     one.dispersion,
+                                                     input.data$seg_info,
+                                                     abs.prop = TRUE)
+        
         to.bg.list$abs_effSize <- abs.effect.size$total_effSize
         to.bg.list$scaled_effSize <- scaled.effect.size$total_scaledEffSize
+        to.bg.list$absProb_effSize <- absProp.effect.size$total_effSize
+        
         write.csv(abs.effect.size$fs_effSize_ID, file = paste0(out.dir, '_final_k',i - 1,'_absEffSizeID.csv'), row.names = F)
         write.csv(scaled.effect.size$fs_effSize_ID, file = paste0(out.dir, '_final_k',i - 1,'_scaledEffSizeID.csv'), row.names = F)
-        write_eff_size_lists(abs.effect.size$repl_effSize, scaled.effect.size$repl_scaledEffSize, out.dir, i, is.final = T)
-
+        write.csv(absProp.effect.size$fs_effSize_ID, file = paste0(out.dir, '_k', i, '_absProbEffSizeID.csv'), row.names = F)
+        
+        write_eff_size_lists(length(input.data$data), abs.effect.size$repl_effSize, 
+                             scaled.effect.size$repl_scaledEffSize, absProp.effect.size$repl_effSize, 
+                             out.dir, i, is.final = T)
+        
         if(auto.stop){
           
           # record bedgraph
@@ -1874,7 +1910,7 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
     
     if(!fix.hypers | !is.null(input.data$guide_efficiency_scores)){
       out.pars <- list(out_dir = out.dir, dataName = '')
-      record_ll_ratio(relics.hyper, input.data, analysis.parameters)
+      record_ll_ratio(relics.hyper, input.data, out.pars)
     }
 
   }
@@ -1889,7 +1925,7 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
 #' @return recorded .csv files
 #' @export write_eff_size_lists()
 
-write_eff_size_lists <- function(nr.repl, total.eff.list, scaled.eff.list, out.dir, iter, is.final = F) {
+write_eff_size_lists <- function(nr.repl, total.eff.list, scaled.eff.list, prop.eff.list, out.dir, iter, is.final = F) {
   
   out.total.eff.list <- do.call(rbind, lapply(total.eff.list, function(x){
     if(length(x) == 0){
@@ -1914,6 +1950,33 @@ write_eff_size_lists <- function(nr.repl, total.eff.list, scaled.eff.list, out.d
   }
   colnames(out.total.eff.list) <- col.names
   
+  #
+  
+  out.prop.eff.list <- do.call(rbind, lapply(prop.eff.list, function(x){
+    if(length(x) == 0){
+      0
+    } else {
+      unlist(x)
+    }
+  }))
+  
+  col.names <- c()
+  no.fs <- TRUE
+  lst.idx <- 1
+  while(no.fs){
+    if(length(prop.eff.list[[lst.idx]]) > 0 ){
+      no.fs <- FALSE
+      for(i in 1:nr.repl){
+        col.names <- c(col.names, paste0('repl', i, '_pool_', c(1:length(prop.eff.list[[lst.idx]][[i]]))))
+      }
+    } else {
+      lst.idx <- lst.idx + 1
+    }
+  }
+  colnames(out.prop.eff.list) <- col.names
+  
+  #
+  
   out.scaled.eff.list <- do.call(rbind, scaled.eff.list)
   colnames(out.scaled.eff.list) <- paste0('repl', c(1:length(scaled.eff.list[[1]])))
   
@@ -1921,10 +1984,14 @@ write_eff_size_lists <- function(nr.repl, total.eff.list, scaled.eff.list, out.d
     write.csv(out.total.eff.list, file = paste0(out.dir, '_final_k', iter, '_abs_perPool_sizeEffDiff.csv'), row.names = F)
     
     write.csv(out.scaled.eff.list, file = paste0(out.dir, '_final_k', iter, '_scaled_sizeEff.csv'), row.names = F)
+    
+    write.csv(out.prop.eff.list, file = paste0(out.dir, '_final_k', iter, '_absProb_perPool_sizeEffDiff.csv'), row.names = F)
   } else {
     write.csv(out.total.eff.list, file = paste0(out.dir, '_k', iter, '_abs_sizeEff_diff.csv'), row.names = F)
     
     write.csv(out.scaled.eff.list, file = paste0(out.dir, '_k', iter, '_scaled_sizeEff.csv'), row.names = F)
+    
+    write.csv(out.prop.eff.list, file = paste0(out.dir, '_k', iter, '_absProb_sizeEff_diff.csv'), row.names = F)
   }
   
 }
@@ -1940,12 +2007,14 @@ write_eff_size_lists <- function(nr.repl, total.eff.list, scaled.eff.list, out.d
 #' @param guide.efficiency: either a vector of guide efficiency or NULL
 #' @param one.dispersion. logical, if there should be one or two dispersions for the hyper parameters
 #' @param seg.info: data frame, coordinates for each segment
+#' @param abs.prop: logical, whether the absolute difference of the proportion should be considered
 #' @return list: total_effSize, repl_effSize, fs_effSize_ID
 #' @export record_abs_effectSize()
 
 record_abs_effectSize <- function(input.pp, input.min.rs.pp, hyper, data, 
                                   guide.seg.idx.lst, seg.guide.idx.lst,
-                                  guide.efficiency, one.dispersion, seg.info) {
+                                  guide.efficiency, one.dispersion, seg.info,
+                                  abs.prop = FALSE) {
   
   # list of all alpha 1s (one for each FS)
   fs.alpha1.eff.size <- list()
@@ -2000,15 +2069,32 @@ record_abs_effectSize <- function(input.pp, input.min.rs.pp, hyper, data,
         if(res$convergence==0) {
           # return new estimates of hyperparamers
           
+          alpha1s <- res$par**2
+          
           if(one.dispersion){
-            alpha1s <- res$par**2
-            
+
             alpha1s.norm <- alpha1s / sum(alpha1s)
             alpha1s.adj <- alpha1s.norm * sum(temp.alpha0)
             
-            fs.alpha1.eff.size[[f]][[i]] <- abs(alpha1s.adj - temp.alpha0)
+            if(abs.prop){
+              fs.alpha1.eff.size[[f]][[i]] <- (alpha1s.adj / sum(alpha1s.adj)) - (temp.alpha0 / sum(temp.alpha0 ))
+            } else {
+              fs.alpha1.eff.size[[f]][[i]] <- abs(alpha1s.adj - temp.alpha0)
+            }
+            
+
           } else {
-            fs.alpha1.eff.size[[f]][[i]] <- abs(res$par**2 - temp.alpha0)
+            
+            
+            if(abs.prop){
+              
+              fs.alpha1.eff.size[[f]][[i]] <- abs( (alpha1s / sum(alpha1s)) - (temp.alpha0 / sum(temp.alpha0)) )
+              
+              
+            } else {
+              fs.alpha1.eff.size[[f]][[i]] <- abs(res$par**2 - temp.alpha0)
+            }
+            
           }
           
         } else {
