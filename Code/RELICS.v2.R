@@ -635,17 +635,21 @@ set_up_RELICS_data <- function(input.parameter.list, data.file.split, guide.offs
     #save.files <- TRUE
   }
   
-  if(length(unique(sim.info$chrom)) > 1){
-    print(paste0("Currently RELICS only processes one chromosome per analysis. Multi-chromosome analysis is in active development and will hopefully be deployed soon."))
-    missing.parameters <- TRUE
-  }
+  # if(length(unique(sim.info$chrom)) > 1){
+  #   print(paste0("Currently RELICS only processes one chromosome per analysis. Multi-chromosome analysis is in active development and will hopefully be deployed soon."))
+  #   missing.parameters <- TRUE
+  # }
 
-  if(is.unsorted(sim.info$start)){
-    print('Guide targets are unsorted. Adjusting them!')
-    sim.counts <- sim.counts[order(sim.info$start),]
-    sim.info <- sim.info[order(sim.info$start),]
-    #save.files <- TRUE
-  }
+  print('Ordering guide targets.')
+  sim.counts <- sim.counts[order(sim.info$chrom, sim.info$start),]
+  sim.info <- sim.info[order(sim.info$chrom, sim.info$start),]
+  
+  # if(is.unsorted(sim.info$start)){
+  #   print('Guide targets are unsorted. Adjusting them!')
+  #   sim.counts <- sim.counts[order(sim.info$chrom, sim.info$start),]
+  #   sim.info <- sim.info[order(sim.info$chrom, sim.info$start),]
+  #   #save.files <- TRUE
+  # }
   
   # if GE scores exist, extract them from the info file
   filtered.ges <- NULL
@@ -913,41 +917,50 @@ adapt_data_to_regionFormat <- function(input.counts, replicate.list, input.info,
 
 create_targeting_guide_segment_matrix <- function(input.targeting.info, input.label.hierarchy, min.seg.dist = 100){
 
-  all.breaks <- unique(c(input.targeting.info$start, input.targeting.info$end))
-  sorted.breaks <- sort(all.breaks)
-
-  bin.start <- c() #sorted.breaks[1]
-  bin.ends <- c()
-
-  break.idx <- 1
-  next.counter <- 0
-  proxy.start <- sorted.breaks[1]
-  while(break.idx < length(sorted.breaks)){
-
-    next.counter <- 1
-    while(sorted.breaks[break.idx + next.counter] - proxy.start < min.seg.dist){
-      next.counter <- next.counter + 1
+  
+  info.chroms <- split(input.targeting.info, input.targeting.info$chrom)
+  region.df <- c()
+  
+  for(i in 1:length(info.chroms)){
+    temp.info <- info.chroms[[i]]
+    all.breaks <- unique(c(temp.info$start, temp.info$end))
+    sorted.breaks <- sort(all.breaks)
+    
+    bin.start <- c() #sorted.breaks[1]
+    bin.ends <- c()
+    
+    break.idx <- 1
+    next.counter <- 0
+    proxy.start <- sorted.breaks[1]
+    while(break.idx < length(sorted.breaks)){
+      
+      next.counter <- 1
+      while(sorted.breaks[break.idx + next.counter] - proxy.start < min.seg.dist){
+        next.counter <- next.counter + 1
+        if(break.idx + next.counter > length(sorted.breaks)){
+          bin.start <- c(bin.start, proxy.start)
+          bin.ends <- c(bin.ends, sorted.breaks[break.idx + next.counter - 1])
+          break.idx <- break.idx + next.counter
+          break()
+        }
+      }
       if(break.idx + next.counter > length(sorted.breaks)){
-        bin.start <- c(bin.start, proxy.start)
-        bin.ends <- c(bin.ends, sorted.breaks[break.idx + next.counter - 1])
-        break.idx <- break.idx + next.counter
         break()
       }
+      
+      bin.start <- c(bin.start, proxy.start)
+      bin.ends <- c(bin.ends, sorted.breaks[break.idx + next.counter])
+      
+      proxy.start <- sorted.breaks[break.idx + next.counter] + 1
+      break.idx <- break.idx + next.counter
+      
     }
-    if(break.idx + next.counter > length(sorted.breaks)){
-      break()
-    }
-
-    bin.start <- c(bin.start, proxy.start)
-    bin.ends <- c(bin.ends, sorted.breaks[break.idx + next.counter])
-
-    proxy.start <- sorted.breaks[break.idx + next.counter] + 1
-    break.idx <- break.idx + next.counter
-
+    
+    temp.region.df <- data.frame(chrom = rep(temp.info$chrom[1], length(bin.start)),
+                            start = bin.start, end = bin.ends, stringsAsFactors = F)
+    
+    region.df <- rbind(region.df, temp.region.df)
   }
-
-  region.df <- data.frame(chrom = rep(input.targeting.info$chrom[1], length(bin.start)),
-                          start = bin.start, end = bin.ends, stringsAsFactors = F)
 
   region.ranges <- GRanges(seqnames = region.df$chrom,
                            ranges = IRanges(region.df$start, region.df$end))
