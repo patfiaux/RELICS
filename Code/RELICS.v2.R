@@ -704,7 +704,8 @@ set_up_RELICS_data <- function(input.parameter.list, data.file.split, guide.offs
                            guide_to_seg_lst = sim.guide.seg.list$guide_to_seg_lst,
                            seg_to_guide_lst = sim.guide.seg.list$seg_to_guide_lst,
                            next_guide_lst = next.guide.list,
-                           guide_efficiency_scores = filtered.ges)
+                           guide_efficiency_scores = filtered.ges,
+                           guide_info = sim.info)
 
   write.csv(sim.seg.info, file = paste0(file.save.dir, '_segmentInfo.csv'), row.names = F)
 
@@ -1306,6 +1307,7 @@ prior_dirichlet_ll <- function(hyper.param, data, region.ll.list, alpha0.idx, al
 #' @param data: data, consists of: pool1, pool2... and $n
 #' @param region.ll.list: list containing the ll and the indexes of the null alternative and both
 #' @param guide.efficiency: data.frame of guide efficiences. Either vector of guide efficiency or NULL
+#' @param return.model.ll: logical, whether the function should terminate early and return only the null and alternative model ll
 #' @return data frame: total_guide_ll, alt_only_ll
 #' @export estimate_relics_sgrna_log_like()
 
