@@ -1718,7 +1718,8 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
         display_relics_fs_as_tiff(final.layer.posterior[[i]],
                                input.data$segLabels,
                                paste0(out.dir, '_k_', i),
-                               input.min.rs.pp)
+                               input.min.rs.pp,
+                               input.data$seg_info)
 
         # plot the ll progression and mark layers where convergence failed
         # plot the correlation between PP
@@ -1853,12 +1854,14 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
           display_relics_fs_as_tiff(final.layer.posterior[[i]],
                                     input.data$segLabels,
                                     paste0(out.dir, '_atFinal_k', i),
-                                    input.min.rs.pp)
+                                    input.min.rs.pp,
+                                    input.data$seg_info)
 
           display_relics_fs_as_tiff(final.pp.out,
                                     input.data$segLabels,
                                     paste0(out.dir, '_final_k', i-1),
-                                    input.min.rs.pp)
+                                    input.min.rs.pp,
+                                    input.data$seg_info)
 
           # # plot the ll progression and mark layers where convergence failed
           # # plot the correlation between PP
@@ -1916,12 +1919,14 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
           display_relics_fs_as_tiff(final.layer.posterior[[i]],
                                     input.data$segLabels,
                                     paste0(out.dir, '_atRecommendedFinal_k', i),
-                                    input.min.rs.pp)
+                                    input.min.rs.pp,
+                                    input.data$seg_info)
 
           display_relics_fs_as_tiff(final.pp.out,
                                     input.data$segLabels,
                                     paste0(out.dir, '_recommendedFinal_k', i-1),
-                                    input.min.rs.pp)
+                                    input.min.rs.pp,
+                                    input.data$seg_info)
 
           # plot the ll progression and mark layers where convergence failed
           # plot the correlation between PP
@@ -2683,12 +2688,22 @@ determine_FS_nr_cutoff <- function(input.layer.corrs, fs.correlation.cutoff){
 #' @param input.labels: labelling of all segments
 #' @param tiff.name: name for plot
 #' @param fs.threshold: threshold for defining functional sequences
+#' @param seg.info: contains info for each segment, specicially chromosome information
 #' @return One plot for each selection step, credible sets colored in purple
 #' @export display_relics_fs_as_tiff()
 
-display_relics_fs_as_tiff <- function(input.L, input.labels, tiff.name, fs.threshold){
+display_relics_fs_as_tiff <- function(input.L, input.labels, tiff.name, fs.threshold, seg.info){
 
-  #cs.mat <- compute_PP_RS(input.L, fs.threshold)
+  cs.col.orig <- rep("darkgrey", ncol(input.L))
+  
+  if(length(unique(seg.info$chrom)) > 1){
+    even.chroms <- unique(seg.info$chrom)[,c(FALSE,TRUE)]
+    even.chroms.idx <- which(seg.info$chrom %in% even.chroms)
+    cs.col.orig[even.chroms.idx] <- 'lightgrey'
+  }
+  
+  cs.col[which(seg.info$chrom %in% )]
+  
 
   # attempt to put 8 per page
   if(nrow(input.L) <= 9){
@@ -2696,7 +2711,7 @@ display_relics_fs_as_tiff <- function(input.L, input.labels, tiff.name, fs.thres
     par(mfrow = c(3,3))
 
     for(i in 1:nrow(input.L)){
-      cs.col <- rep("black", ncol(input.L))
+      cs.col <- cs.col.orig
       cs.col[input.L[i,] > fs.threshold] <- "purple"
 
       plot(input.L[i,], pch=21,
@@ -2712,7 +2727,7 @@ display_relics_fs_as_tiff <- function(input.L, input.labels, tiff.name, fs.thres
     p.sum[p.sum > 1] <- 1
     plot(p.sum, pch=21,
          main="Sum of Posteriors",
-         col="black", bg = input.labels, ylab = 'PP', xlab = 'Genome Segment')
+         col=cs.col.orig, bg = input.labels, ylab = 'PP', xlab = 'Genome Segment')
 
     dev.off()
   } else {
@@ -2736,12 +2751,12 @@ display_relics_fs_as_tiff <- function(input.L, input.labels, tiff.name, fs.thres
           p.sum[p.sum > 1] <- 1
           plot(p.sum, pch=21,
                main="Sum of Posteriors",
-               col="black", bg = input.labels, ylab = 'PP', xlab = 'Genome Segment')
+               col=cs.col.orig, bg = input.labels, ylab = 'PP', xlab = 'Genome Segment')
           #dev.off()
           break()
         } else{
 
-          cs.col <- rep("black", ncol(input.L))
+          cs.col <- cs.col.orig #rep("black", ncol(input.L))
           cs.col[input.L[row.index,] > fs.threshold] <- "purple"
 
           # ', RS-pp: ', temp.cs.pp,
@@ -2758,7 +2773,7 @@ display_relics_fs_as_tiff <- function(input.L, input.labels, tiff.name, fs.thres
             p.sum[p.sum > 1] <- 1
             plot(p.sum, pch=21,
                  main="Sum of Posteriors",
-                 col="black", bg = input.labels, ylab = 'PP', xlab = 'Genome Segment')
+                 col=cs.col.orig, bg = input.labels, ylab = 'PP', xlab = 'Genome Segment') #"black"
           }
         }
       }
