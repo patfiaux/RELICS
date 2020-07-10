@@ -2697,13 +2697,10 @@ display_relics_fs_as_tiff <- function(input.L, input.labels, tiff.name, fs.thres
   cs.col.orig <- rep("darkgrey", ncol(input.L))
   
   if(length(unique(seg.info$chrom)) > 1){
-    even.chroms <- unique(seg.info$chrom)[,c(FALSE,TRUE)]
+    even.chroms <- unique(seg.info$chrom)[c(FALSE,TRUE)]
     even.chroms.idx <- which(seg.info$chrom %in% even.chroms)
     cs.col.orig[even.chroms.idx] <- 'lightgrey'
   }
-  
-  cs.col[which(seg.info$chrom %in% )]
-  
 
   # attempt to put 8 per page
   if(nrow(input.L) <= 9){
