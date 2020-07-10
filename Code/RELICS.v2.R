@@ -152,7 +152,7 @@ RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.
   # plot the per-segment ll-ratio
   out.pars <- list(out_dir = paste0(analysis.parameters$out_dir, '/', analysis.parameters$dataName),
                    iter = 0)
-  record_ll_ratio(analysis.parameters$hyper_pars, data.setup, analysis.parameters)
+  record_ll_ratio(analysis.parameters$hyper_pars, data.setup, out.pars)
 
   # temp.guide.model.ll <- estimate_relics_sgrna_log_like(temp.hypers, temp.data, layer.guide.ll, guide.efficiency, return.model.ll = TRUE)
   # local.ll.rt <- compute_local_ll_ratio(temp.guide.model.ll, local.seg.to.guide.lst)
@@ -1820,6 +1820,8 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
 
         if(auto.stop){
 
+          write.csv(out.guide.info, file = paste0(out.dir, '_final_k', i - 1,'_guide_ll_info.csv'), row.names = F)
+
           # record bedgraph
           create_bedgraphs(to.bg.list, paste0(out.dir, '_final_k', i - 1) )
 
@@ -2131,36 +2133,31 @@ record_abs_effectSize <- function(input.pp, input.min.rs.pp, hyper, data,
 
         alpha1s <- res$par**2
 
-        if(res$convergence==0) {
-          # return new estimates of hyperparamers
+        if(one.dispersion){
 
-          alpha1s <- res$par**2
+          alpha1s.norm <- alpha1s / sum(alpha1s)
+          alpha1s.adj <- alpha1s.norm * sum(temp.alpha0)
 
-          if(one.dispersion){
+          if(abs.prop){
+            fs.alpha1.eff.size[[f]][[i]] <- (alpha1s.adj / sum(alpha1s.adj)) - (temp.alpha0 / sum(temp.alpha0 ))
+          } else {
+            fs.alpha1.eff.size[[f]][[i]] <- abs(alpha1s.adj - temp.alpha0)
+          }
 
-            alpha1s.norm <- alpha1s / sum(alpha1s)
-            alpha1s.adj <- alpha1s.norm * sum(temp.alpha0)
 
-            if(abs.prop){
-              fs.alpha1.eff.size[[f]][[i]] <- (alpha1s.adj / sum(alpha1s.adj)) - (temp.alpha0 / sum(temp.alpha0 ))
-            } else {
-              fs.alpha1.eff.size[[f]][[i]] <- abs(alpha1s.adj - temp.alpha0)
-            }
+        } else {
+
+
+          if(abs.prop){
+
+            fs.alpha1.eff.size[[f]][[i]] <- abs( (alpha1s / sum(alpha1s)) - (temp.alpha0 / sum(temp.alpha0)) )
 
 
           } else {
-
-
-            if(abs.prop){
-
-              fs.alpha1.eff.size[[f]][[i]] <- abs( (alpha1s / sum(alpha1s)) - (temp.alpha0 / sum(temp.alpha0)) )
-
-
-            } else {
-              fs.alpha1.eff.size[[f]][[i]] <- abs(res$par**2 - temp.alpha0)
-            }
-
+            fs.alpha1.eff.size[[f]][[i]] <- abs(res$par**2 - temp.alpha0)
           }
+
+        }
 
           if(res$convergence != 0) {
             warning("estimation of hyperparameters failed to converge")
