@@ -1776,7 +1776,7 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
 
         absProp.effect.size <- record_abs_effectSize(final.pp.out,
                                                      input.min.rs.pp,
-                                                     relics.hyper,
+                                                     final.hypers,
                                                      input.data$data,
                                                      input.data$guide_to_seg_lst,
                                                      input.data$seg_to_guide_lst,
@@ -1795,7 +1795,7 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
 
         write_eff_size_lists(length(input.data$data), abs.effect.size$repl_effSize,
                              scaled.effect.size$repl_scaledEffSize, absProp.effect.size$repl_effSize,
-                             out.dir, i, is.final = T)
+                             out.dir, i - 1, is.final = T)
 
          dirichlet.guide.ll <- compute_perGuide_fs_ll(final.pp.out, input.data$guide_to_seg_lst)
          total.per.guide.ll <- 0
@@ -2040,11 +2040,11 @@ write_eff_size_lists <- function(nr.repl, total.eff.list, scaled.eff.list, prop.
   colnames(out.scaled.eff.list) <- paste0('repl', c(1:length(scaled.eff.list[[1]])))
 
   if(is.final){
-    write.csv(out.total.eff.list, file = paste0(out.dir, '_final_k', iter, '_abs_perPool_sizeEffDiff.csv'), row.names = F)
+    write.csv(out.total.eff.list, file = paste0(out.dir, '_final_k', iter - 1, '_abs_perPool_sizeEffDiff.csv'), row.names = F)
 
-    write.csv(out.scaled.eff.list, file = paste0(out.dir, '_final_k', iter, '_scaled_sizeEff.csv'), row.names = F)
+    write.csv(out.scaled.eff.list, file = paste0(out.dir, '_final_k', iter - 1, '_scaled_sizeEff.csv'), row.names = F)
 
-    write.csv(out.prop.eff.list, file = paste0(out.dir, '_final_k', iter, '_absProb_perPool_sizeEffDiff.csv'), row.names = F)
+    write.csv(out.prop.eff.list, file = paste0(out.dir, '_final_k', iter - 1, '_absProb_perPool_sizeEffDiff.csv'), row.names = F)
   } else {
     write.csv(out.total.eff.list, file = paste0(out.dir, '_k', iter, '_abs_sizeEff_diff.csv'), row.names = F)
 
@@ -2096,6 +2096,8 @@ record_abs_effectSize <- function(input.pp, input.min.rs.pp, hyper, data,
         x$guide_idx
       }))))
 
+      did.converge <- TRUE
+
       # for each replicate
       for(i in 1:length(data)){
 
@@ -2124,6 +2126,8 @@ record_abs_effectSize <- function(input.pp, input.min.rs.pp, hyper, data,
                        data = fs.data, region.ll.list = temp.guide.lls.list,
                        guide.efficiency = guide.efficiency, alpha.zero = temp.alpha0)
         }
+
+        alpha1s <- res$par**2
 
         if(res$convergence==0) {
           # return new estimates of hyperparamers
@@ -2156,9 +2160,10 @@ record_abs_effectSize <- function(input.pp, input.min.rs.pp, hyper, data,
 
           }
 
-        } else {
-          warning("estimation of hyperparameters failed to converge")
-        }
+          if(res$convergence != 0) {
+            warning("estimation of hyperparameters failed to converge")
+            did.converge <- FALSE
+          }
 
       }
 
@@ -2170,6 +2175,7 @@ record_abs_effectSize <- function(input.pp, input.min.rs.pp, hyper, data,
       temp.eff.size.loc <- temp.seg.info[, c('chrom', 'start', 'end')]
       temp.eff.size.loc$FS <- paste0('FS', f-1)
       temp.eff.size.loc$score <- temp.total.avg.eff # preparing for bg format
+      temp.eff.size.loc$converged <- as.character(did.converge)
 
       fs.eff.size.ID <- rbind(fs.eff.size.ID, data.frame(FS = paste0('FS', f-1), FS_effSize = temp.total.avg.eff, stringsAsFactors = F))
 
@@ -2391,6 +2397,8 @@ record_scaling_effectSize <- function(input.pp, input.min.rs.pp, hyper, data,
         x$guide_idx
       }))))
 
+      did.converge <- TRUE
+
       # for each replicate
       for(i in 1:length(data)){
 
@@ -2420,13 +2428,12 @@ record_scaling_effectSize <- function(input.pp, input.min.rs.pp, hyper, data,
                        guide.efficiency = guide.efficiency, alpha.zero = temp.alpha0, alpha.one = temp.alpha1)
         }
 
-        if(res$convergence==0) {
-          # return new estimates of hyperparamers
+        fs.alpha1.scaling[[f]][i] <- abs(res$par)
 
-          fs.alpha1.scaling[[f]][i] <- abs(res$par)
-
-        } else {
+        if(res$convergence != 0) {
           warning("estimation of hyperparameters failed to converge")
+          did.converge <- FALSE
+
         }
 
       }
@@ -2438,6 +2445,7 @@ record_scaling_effectSize <- function(input.pp, input.min.rs.pp, hyper, data,
       temp.eff.size.loc <- temp.seg.info[, c('chrom', 'start', 'end')]
       temp.eff.size.loc$FS <- paste0('FS', f-1)
       temp.eff.size.loc$score <- temp.avg.scaling
+      temp.eff.size.loc$converged <- as.character(did.converge)
 
       fs.alpha1.scaling.df <- rbind(fs.alpha1.scaling.df, temp.eff.size.loc)
 
