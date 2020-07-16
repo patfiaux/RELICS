@@ -110,7 +110,7 @@ RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.
   if(return.init.hypers){
     # record alphas used for posterior calculation
     alpha.out.dir <- paste0(analysis.parameters$out_dir, '/', analysis.parameters$dataName)
-    record_alphas(background.alpha0, fs0.alpha1, alpha.out.dir, 'init')
+    record_alphas(background.alpha0, fs0.alpha1, alpha.out.dir, 'init', names(data.setup$data[[1]]))
     break()
   }
 
@@ -642,7 +642,6 @@ set_up_RELICS_data <- function(input.parameter.list, data.file.split, guide.offs
   #   missing.parameters <- TRUE
   # }
 
-  print('Ordering guide targets.')
   sim.counts <- sim.counts[order(sim.info$chrom, sim.info$start),]
   sim.info <- sim.info[order(sim.info$chrom, sim.info$start),]
 
@@ -662,6 +661,8 @@ set_up_RELICS_data <- function(input.parameter.list, data.file.split, guide.offs
 
   # initialize varaible
   sim.guide.seg.list <- c()
+  
+  print('Formatting data...')
 
   if(input.parameter.list$crisprSystem == 'dualCRISPR' & input.parameter.list$dualToSingle){
 
@@ -752,7 +753,7 @@ adapt_data_to_regionFormat_forDualCRISPR <- function(input.counts, replicate.lis
   targeting.gs.list$counts <- list()
   for(i in 1:length(replicate.list)){
     temp.counts <- counts.targeting.df[, replicate.list[[i]]]
-    colnames(temp.counts) <- paste('pool', c(1:ncol(temp.counts)), sep = '_')
+    # colnames(temp.counts) <- paste('pool', c(1:ncol(temp.counts)), sep = '_')
     temp.counts$n <- rowSums(temp.counts)
     targeting.gs.list$counts[[i]] <- temp.counts
   }
@@ -900,7 +901,7 @@ adapt_data_to_regionFormat <- function(input.counts, replicate.list, input.info,
   targeting.gs.list$counts <- list()
   for(i in 1:length(replicate.list)){
     temp.counts <- counts.targeting.df[, replicate.list[[i]]]
-    colnames(temp.counts) <- paste('pool', c(1:ncol(temp.counts)), sep = '_')
+    # colnames(temp.counts) <- paste('pool', c(1:ncol(temp.counts)), sep = '_')
     temp.counts$n <- rowSums(temp.counts)
     targeting.gs.list$counts[[i]] <- temp.counts
   }
@@ -1411,8 +1412,8 @@ compute_perGuide_fs_ll <- function(cumulative.pp, guide.seg.idx.lst, hyper.setup
   alt.idxs <-alt.only.idx[1:(alt.only.counter - 1)]
   both.idxs <- both.idx[1:(both.counter - 1)]
 
-  # if there are overlaps between the indeces that's a problem!
-  if(sum(c(length(null.idxs), length(alt.idxs), length(both.idxs))) != length(unique(c(null.idxs, alt.idxs, both.idxs))) & !hyper.setup){
+  # if there are overlaps between the indexes that's a problem!
+  if(sum(c((null.only.counter - 1), alt.only.counter - 1, both.counter - 1)) != length(guide.seg.idx.lst) & !hyper.setup){
     print('Potential issue with guide likelihood assignments!')
   }
 
@@ -1689,7 +1690,7 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
                   sep = '\t', quote = F, row.names = F, col.names = F)
 
       # record alphas used for posterior calculation
-      record_alphas(final.layer.alpha0[[i]], final.layer.alpha1[[i]], out.dir, i)
+      record_alphas(final.layer.alpha0[[i]], final.layer.alpha1[[i]], out.dir, i, names(input.data$data[[1]]))
 
       # record the per-layer contribution to the model
       write.csv(per.layer.ll.df, file = paste0(out.dir, '_k',i,'_perFS_LLcontributions.csv'), row.names = F)
@@ -1831,7 +1832,7 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
                       sep = '\t', quote = F, row.names = F, col.names = F)
 
           # record alphas used for posterior calculation
-          record_alphas(final.layer.alpha0[[i - 1]], final.layer.alpha1[[i - 1]], paste0(out.dir, '_final'), i - 1)
+          record_alphas(final.layer.alpha0[[i - 1]], final.layer.alpha1[[i - 1]], paste0(out.dir, '_final'), i - 1, names(input.data$data[[1]]))
 
           # record the per-layer contribution to the model
           write.csv(final.per.layer.ll.out, file = paste0(out.dir, '_final_k',i - 1,'_perFS_LLcontributions.csv'), row.names = F)
@@ -1893,7 +1894,7 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
                       sep = '\t', quote = F, row.names = F, col.names = F)
 
           # record alphas used for posterior calculation
-          record_alphas(final.layer.alpha0[[i - 1]], final.layer.alpha1[[i - 1]], paste0(out.dir, '_recommendedFinal'), i - 1)
+          record_alphas(final.layer.alpha0[[i - 1]], final.layer.alpha1[[i - 1]], paste0(out.dir, '_recommendedFinal'), i - 1, names(input.data$data[[1]]))
 
           # record the per-layer contribution to the model
           write.csv(final.per.layer.ll.out, file = paste0(out.dir, '_recommendedFinal_k',i - 1,'_perFS_LLcontributions.csv'), row.names = F)
@@ -2856,10 +2857,11 @@ plot_fs_stats <- function(input.layer.ll.df, layer.corr.df, out.dir, layer.nr, f
 #' @param input.alpha1.list: list of the alternative-alphas resulting the max lolg-lik. for that layer
 #' @param input.alpha.outDir: directory to which the alphas are to be written
 #' @param layer.nr: number of functional sequences recorded
+#' @param pool.names: names of the pools given, includes the total column ($n)
 #' @return .csv file
 #' @export record_alphas()
 
-record_alphas <- function(input.alpha0.list, input.alpha1.list, input.alpha.outDir, layer.nr){
+record_alphas <- function(input.alpha0.list, input.alpha1.list, input.alpha.outDir, layer.nr, pool.names){
 
   total.rows <- length(input.alpha0.list) + length(input.alpha1.list)
   total.cols <- max(c( unlist(lapply(input.alpha0.list, function(x){length(x)})),
@@ -2883,7 +2885,7 @@ record_alphas <- function(input.alpha0.list, input.alpha1.list, input.alpha.outD
 
   out.alpha.df <- cbind(alpha.names, alpha.matrix)
 
-  colnames(out.alpha.df) <- c('alpha_type', paste('pool', c(1:total.cols)), 'dispersion')
+  colnames(out.alpha.df) <- c('alpha_type', pool.names[1:(length(pool.names) - 1)], 'dispersion')
 
   write.csv(out.alpha.df, file = paste0(input.alpha.outDir, '_k', layer.nr, '_alphas.csv'), row.names = F, quote = F)
 
