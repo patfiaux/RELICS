@@ -121,7 +121,7 @@ RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.
 
     if(! analysis.parameters$fixed_ge_coeff){
 
-      temp.relics.params <- init_relics_param(analysis.parameters$hyper_pars, data.setup)
+      temp.relics.params <- init_relics_param(analysis.parameters$hyper_pars, data.setup, analysis.parameters$local_max)
 
       ge.list <- recompute_ge_coefficients(temp.relics.params,
                                            analysis.parameters$hyper_pars,
@@ -3139,7 +3139,7 @@ order_pps <- function(input.pp, input.total.ll, input.data, input.alpha0, input.
 #' @title Set initial hyper parameters, generate the fs posterior matrix
 #' @param hyper: hyperparameters
 #' @param in.data.list: list, $seg_info, $fs0_idx
-#' @param known.reg: position of known regions
+#' @param local.max: whether local.max is computed
 #' @return list
 #' @export init_relics_param()
 
