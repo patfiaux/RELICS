@@ -319,11 +319,11 @@ check_parameter_list <- function(input.parameter.list, data.file.split){
     #   out.parameter.list$fix_guideEfficiency <- input.parameter.list$fix_guideEfficiency
     # }
 
-    if(! 'ge_betas' %in% par.given){
-      print('Default guide efficiency betas are not yet implemented')
-    } else {
-      out.parameter.list$ge_betas <- input.parameter.list$ge_betas
-    }
+    # if(! 'ge_betas' %in% par.given){
+    #   print('Default guide efficiency betas are not yet implemented')
+    # } else {
+    #   out.parameter.list$ge_betas <- input.parameter.list$ge_betas
+    # }
 
     if(! 'ge_beta_estimation' %in% par.given){
       out.parameter.list$ge_beta_estimation <- FALSE
