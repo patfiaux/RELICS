@@ -2429,11 +2429,11 @@ record_scaling_effectSize <- function(input.pp, input.min.rs.pp, hyper, data,
         if(one.dispersion){
           res <- optim(temp.scaling, prior_dirichlet_ll_singleDisp_sizeE_scaled, method= 'L-BFGS-B', #'BFGS', #"Nelder-Mead",
                        data = fs.data, region.ll.list = temp.guide.lls.list,
-                       guide.efficiency = guide.efficiency, alpha.zero = temp.alpha0, alpha.one = temp.alpha1)
+                       guide.efficiency = fs.guide.efficiency, alpha.zero = temp.alpha0, alpha.one = temp.alpha1)
         } else {
           res <- optim(temp.scaling, prior_dirichlet_ll_sizeE_scaled, method= 'L-BFGS-B', #'BFGS', #"Nelder-Mead",
                        data = fs.data, region.ll.list = temp.guide.lls.list,
-                       guide.efficiency = guide.efficiency, alpha.zero = temp.alpha0, alpha.one = temp.alpha1)
+                       guide.efficiency = fs.guide.efficiency, alpha.zero = temp.alpha0, alpha.one = temp.alpha1)
         }
 
         fs.alpha1.scaling[[f]][i] <- abs(res$par)
