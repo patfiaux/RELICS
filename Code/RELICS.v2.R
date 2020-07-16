@@ -45,28 +45,6 @@ RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.
                                    save.files = analysis.parameters$save_input_files,
                                    min.seg.dist = analysis.parameters$seg_dist)
 
-  # the whole section below should be redundant
-  # # if guide efficiency scores are provided, calculate guide efficiency and include in the model
-  # if(! is.null(data.setup$guide_efficiency_scores)){
-  #
-  #   # fixed_ge_coeff
-  #   data.setup$guide_efficiency <- 1 / (1 + exp(-(data.setup$guide_efficiency_scores %*% rep(1, ncol(data.setup$guide_efficiency_scores)))))
-  #         #
-  #   # data.setup$fix_guideEfficiency <- analysis.parameters$fix_guideEfficiency
-  #   # data.setup$estimate_ge_alphaDiffScale <- analysis.parameters$estimate_ge_alphaDiffScale
-  #   # data.setup$ge_beta_estimation <- analysis.parameters$ge_beta_estimation
-  #   #
-  #   # # unde the conditions below, it is assumed that the data.setup$guide_efficiency_scores matrix is only one column
-  #   # # therefore convert to:
-  #   # if(analysis.parameters$fix_guideEfficiency & ! analysis.parameters$estimate_ge_alphaDiffScale){
-  #   #   data.setup$guide_efficiency <- data.setup$guide_efficiency_scores[,1]
-  #   # } else {
-  #   #   print('non-fixed guide efficiency or reestimation of alpha diff scale is not yet implemented')
-  #   #   # immediate prining of the betas
-  #   #   # also, might want to see if 'ge_beta_estimation' is required here
-  #   # }
-  # }
-
   # check if hyper parameters are provided, otherwise estimate from data
   if(! 'hyper_pars' %in% names(analysis.parameters)){
 
@@ -80,31 +58,11 @@ RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.
 
     fs0.alphas <- estimate_hyper_parameters(data.setup,
                                             analysis.parameters,
-                                            #input.guide.offset = analysis.parameters$crisprEffectRange,
                                             input.repl.pools = analysis.parameters$repl_groups,
-                                            #input.labelHierarchy = analysis.parameters$FS0_label,
                                             fs0.label = analysis.parameters$FS0_label,
-                                            analysis.parameters$one_dispersion
-                                            #min.seg.dist = analysis.parameters$seg_dist
-                                            )
+                                            analysis.parameters$one_dispersion)
 
-    # background.alpha0 <- estimate_hyper_parameters(analysis.parameters,
-    #                                                data.file.split,
-    #                                                 input.guide.offset = analysis.parameters$crisprEffectRange,
-    #                                                 input.repl.pools = analysis.parameters$repl_groups,
-    #                                                 input.labelHierarchy = background.labels,
-    #                                                fs0.label = background.labels,
-    #                                                 min.seg.dist = analysis.parameters$seg_dist)
-    #
-    # fs0.alpha1 <- estimate_hyper_parameters(analysis.parameters,
-    #                                         data.file.split,
-    #                                         input.guide.offset = analysis.parameters$crisprEffectRange,
-    #                                         input.repl.pools = analysis.parameters$repl_groups,
-    #                                         input.labelHierarchy = analysis.parameters$FS0_label,
-    #                                         fs0.label = analysis.parameters$FS0_label,
-    #                                         min.seg.dist = analysis.parameters$seg_dist)
-
-    analysis.parameters$hyper_pars <- fs0.alphas #list(alpha0 = background.alpha0, alpha1 = fs0.alpha1, L = 1)
+    analysis.parameters$hyper_pars <- fs0.alphas
   }
 
   if(return.init.hypers){
@@ -134,29 +92,12 @@ RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.
       data.setup$ge_coeff <- ge.list$ge_coeff
     }
 
-    # data.setup$fix_guideEfficiency <- analysis.parameters$fix_guideEfficiency
-    # data.setup$estimate_ge_alphaDiffScale <- analysis.parameters$estimate_ge_alphaDiffScale
-    # data.setup$ge_beta_estimation <- analysis.parameters$ge_beta_estimation
-    #
-    # # unde the conditions below, it is assumed that the data.setup$guide_efficiency_scores matrix is only one column
-    # # therefore convert to:
-    # if(analysis.parameters$fix_guideEfficiency & ! analysis.parameters$estimate_ge_alphaDiffScale){
-    #   data.setup$guide_efficiency <- data.setup$guide_efficiency_scores[,1]
-    # } else {
-    #   print('non-fixed guide efficiency or reestimation of alpha diff scale is not yet implemented')
-    #   # immediate prining of the betas
-    #   # also, might want to see if 'ge_beta_estimation' is required here
-    # }
   }
 
   # plot the per-segment ll-ratio
   out.pars <- list(out_dir = paste0(analysis.parameters$out_dir, '/', analysis.parameters$dataName),
                    iter = 0)
   record_ll_ratio(analysis.parameters$hyper_pars, data.setup, out.pars)
-
-  # temp.guide.model.ll <- estimate_relics_sgrna_log_like(temp.hypers, temp.data, layer.guide.ll, guide.efficiency, return.model.ll = TRUE)
-  # local.ll.rt <- compute_local_ll_ratio(temp.guide.model.ll, local.seg.to.guide.lst)
-  # ll.rt[local.max.idx] <- ll.rt[local.max.idx] + local.ll.rt
 
   run_RELICS_2(input.data = data.setup,
                final.layer.nr = analysis.parameters$min_FS_nr,
