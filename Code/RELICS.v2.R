@@ -2110,7 +2110,9 @@ record_abs_effectSize <- function(input.pp, input.min.rs.pp, hyper, data,
       # for each replicate
       for(i in 1:length(data)){
 
+        # extract the subset of guides overlapping the FS
         fs.data <- data[[i]][temp.fs.guide.idx,]
+        fs.guide.efficiency <- guide.efficiency[temp.fs.guide.idx,]
 
         # 2. use fs.data to get overpalling pp and calculate the per-guide ll given all the FS overlapping that guide
         # Issue here is that I actually include more pp than the FS is long...
@@ -2129,11 +2131,11 @@ record_abs_effectSize <- function(input.pp, input.min.rs.pp, hyper, data,
         if(one.dispersion){
           res <- optim(temp.alpha1, prior_dirichlet_ll_singleDisp_sizeE, method= 'L-BFGS-B', #'BFGS', #"Nelder-Mead",
                        data = fs.data, region.ll.list = temp.guide.lls.list,
-                       guide.efficiency = guide.efficiency, alpha.zero = temp.alpha0)
+                       guide.efficiency = fs.guide.efficiency, alpha.zero = temp.alpha0)
         } else {
           res <- optim(temp.alpha1, prior_dirichlet_ll_sizeE, method= 'L-BFGS-B', #'BFGS', #"Nelder-Mead",
                        data = fs.data, region.ll.list = temp.guide.lls.list,
-                       guide.efficiency = guide.efficiency, alpha.zero = temp.alpha0)
+                       guide.efficiency = fs.guide.efficiency, alpha.zero = temp.alpha0)
         }
 
         alpha1s <- res$par**2
@@ -2406,7 +2408,9 @@ record_scaling_effectSize <- function(input.pp, input.min.rs.pp, hyper, data,
       # for each replicate
       for(i in 1:length(data)){
 
+        # extract the subset of guides overlapping the FS
         fs.data <- data[[i]][temp.fs.guide.idx,]
+        fs.guide.efficiency <- guide.efficiency[temp.fs.guide.idx]
 
         # 2. use fs.data to get overpalling pp and calculate the per-guide ll given all the FS overlapping that guide
         # Issue here is that I actually include more pp than the FS is long...
