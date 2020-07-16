@@ -578,20 +578,8 @@ set_up_RELICS_data <- function(input.parameter.list, data.file.split, guide.offs
     #save.files <- TRUE
   }
 
-  # if(length(unique(sim.info$chrom)) > 1){
-  #   print(paste0("Currently RELICS only processes one chromosome per analysis. Multi-chromosome analysis is in active development and will hopefully be deployed soon."))
-  #   missing.parameters <- TRUE
-  # }
-
   sim.counts <- sim.counts[order(sim.info$chrom, sim.info$start),]
   sim.info <- sim.info[order(sim.info$chrom, sim.info$start),]
-
-  # if(is.unsorted(sim.info$start)){
-  #   print('Guide targets are unsorted. Adjusting them!')
-  #   sim.counts <- sim.counts[order(sim.info$chrom, sim.info$start),]
-  #   sim.info <- sim.info[order(sim.info$chrom, sim.info$start),]
-  #   #save.files <- TRUE
-  # }
 
   # if GE scores exist, extract them from the info file
   filtered.ges <- NULL
@@ -1607,9 +1595,9 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
       to.bg.list$scaled_effSize <- scaled.effect.size$total_scaledEffSize
       to.bg.list$absProb_effSize <- absProp.effect.size$total_effSize
 
-      write.csv(abs.effect.size$fs_effSize_ID, file = paste0(out.dir, '_k', i, '_absEffSizeID.csv'), row.names = F)
-      write.csv(scaled.effect.size$fs_effSize_ID, file = paste0(out.dir, '_k', i, '_scaledEffSizeID.csv'), row.names = F)
-      write.csv(absProp.effect.size$fs_effSize_ID, file = paste0(out.dir, '_k', i, '_absProbEffSizeID.csv'), row.names = F)
+      write.csv(abs.effect.size$fs_effSize_ID, file = paste0(out.dir, '_k', i, '_abs_eS_score.csv'), row.names = F)
+      write.csv(scaled.effect.size$fs_effSize_ID, file = paste0(out.dir, '_k', i, '_scaled_eS_score.csv'), row.names = F)
+      write.csv(absProp.effect.size$fs_effSize_ID, file = paste0(out.dir, '_k', i, '_absProb_eS_score.csv'), row.names = F)
 
       # toDo, modify below
       write_eff_size_lists(length(input.data$data), abs.effect.size$repl_effSize,
@@ -1734,9 +1722,9 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
         to.bg.list$scaled_effSize <- scaled.effect.size$total_scaledEffSize
         to.bg.list$absProb_effSize <- absProp.effect.size$total_effSize
 
-        write.csv(abs.effect.size$fs_effSize_ID, file = paste0(out.dir, '_final_k',i - 1,'_absEffSizeID.csv'), row.names = F)
-        write.csv(scaled.effect.size$fs_effSize_ID, file = paste0(out.dir, '_final_k',i - 1,'_scaledEffSizeID.csv'), row.names = F)
-        write.csv(absProp.effect.size$fs_effSize_ID, file = paste0(out.dir, '_k', i, '_absProbEffSizeID.csv'), row.names = F)
+        write.csv(abs.effect.size$fs_effSize_ID, file = paste0(out.dir, '_final_k', i - 1, '_abs_eS_score.csv'), row.names = F)
+        write.csv(scaled.effect.size$fs_effSize_ID, file = paste0(out.dir, '_final_k', i - 1, '_scaled_eS_score.csv'), row.names = F)
+        write.csv(absProp.effect.size$fs_effSize_ID, file = paste0(out.dir, '_final_k', i - 1, '_absProp__eS_score.csv'), row.names = F)
 
         write_eff_size_lists(length(input.data$data), abs.effect.size$repl_effSize,
                              scaled.effect.size$repl_scaledEffSize, absProp.effect.size$repl_effSize,
@@ -1991,17 +1979,17 @@ write_eff_size_lists <- function(nr.repl, total.eff.list, scaled.eff.list, prop.
   colnames(out.scaled.eff.list) <- paste0('repl', c(1:length(scaled.eff.list[[1]])))
 
   if(is.final){
-    write.csv(out.total.eff.list, file = paste0(out.dir, '_final_k', iter - 1, '_abs_perPool_sizeEffDiff.csv'), row.names = F)
+    write.csv(out.total.eff.list, file = paste0(out.dir, '_final_k', iter, '_abs_eSDiff.csv'), row.names = F)
 
-    write.csv(out.scaled.eff.list, file = paste0(out.dir, '_final_k', iter - 1, '_scaled_sizeEff.csv'), row.names = F)
+    write.csv(out.scaled.eff.list, file = paste0(out.dir, '_final_k', iter, '_scaled_eS.csv'), row.names = F)
 
-    write.csv(out.prop.eff.list, file = paste0(out.dir, '_final_k', iter - 1, '_absProb_perPool_sizeEffDiff.csv'), row.names = F)
+    write.csv(out.prop.eff.list, file = paste0(out.dir, '_final_k', iter, '_absProp_eSDiff.csv'), row.names = F)
   } else {
-    write.csv(out.total.eff.list, file = paste0(out.dir, '_k', iter, '_abs_sizeEff_diff.csv'), row.names = F)
+    write.csv(out.total.eff.list, file = paste0(out.dir, '_k', iter, '_abs_eSDiff.csv'), row.names = F)
 
-    write.csv(out.scaled.eff.list, file = paste0(out.dir, '_k', iter, '_scaled_sizeEff.csv'), row.names = F)
+    write.csv(out.scaled.eff.list, file = paste0(out.dir, '_k', iter, '_scaled_eS.csv'), row.names = F)
 
-    write.csv(out.prop.eff.list, file = paste0(out.dir, '_k', iter, '_absProb_sizeEff_diff.csv'), row.names = F)
+    write.csv(out.prop.eff.list, file = paste0(out.dir, '_k', iter, '_absProp_eSDiff.csv'), row.names = F)
   }
 
 }
@@ -2071,11 +2059,11 @@ record_abs_effectSize <- function(input.pp, input.min.rs.pp, hyper, data,
         res <- c()
 
         if(one.dispersion){
-          res <- optim(temp.alpha1, prior_dirichlet_ll_singleDisp_sizeE, method= 'L-BFGS-B', #'BFGS', #"Nelder-Mead",
+          res <- optim(temp.alpha1, prior_dirichlet_ll_singleDisp_eSize, method= 'L-BFGS-B', #'BFGS', #"Nelder-Mead",
                        data = fs.data, region.ll.list = temp.guide.lls.list,
                        guide.efficiency = fs.guide.efficiency, alpha.zero = temp.alpha0)
         } else {
-          res <- optim(temp.alpha1, prior_dirichlet_ll_sizeE, method= 'L-BFGS-B', #'BFGS', #"Nelder-Mead",
+          res <- optim(temp.alpha1, prior_dirichlet_ll_eSize, method= 'L-BFGS-B', #'BFGS', #"Nelder-Mead",
                        data = fs.data, region.ll.list = temp.guide.lls.list,
                        guide.efficiency = fs.guide.efficiency, alpha.zero = temp.alpha0)
         }
@@ -2211,9 +2199,9 @@ FS_only_guide_ll <- function(cumulative.pp, guide.seg.idx.lst, fs.idx, guide.fs.
 #' @param alpha.zero: hyper parameters for background
 #' @param guide.efficiency: data.frame of guide efficiences. Either vector of guide efficiency or NULL
 #' @return sum of the -log likelihood across all guides
-#' @export prior_dirichlet_ll_singleDisp_sizeE()
+#' @export prior_dirichlet_ll_singleDisp_eSize()
 
-prior_dirichlet_ll_singleDisp_sizeE <- function(alpha.one, alpha.zero, data, region.ll.list, guide.efficiency) {
+prior_dirichlet_ll_singleDisp_eSize <- function(alpha.one, alpha.zero, data, region.ll.list, guide.efficiency) {
 
   alpha1s <- alpha.one**2
 
@@ -2224,7 +2212,7 @@ prior_dirichlet_ll_singleDisp_sizeE <- function(alpha.one, alpha.zero, data, reg
   hyper <- list(alpha0 = alpha.zero,
                 alpha1 = alpha1s.adj)
 
-  out.sg.ll <- estimate_relics_sgrna_log_like_sizeE(hyper, data, region.ll.list, guide.efficiency)
+  out.sg.ll <- estimate_relics_sgrna_log_like_eSize(hyper, data, region.ll.list, guide.efficiency)
 
   -sum(out.sg.ll$total_guide_ll)
 }
@@ -2238,9 +2226,9 @@ prior_dirichlet_ll_singleDisp_sizeE <- function(alpha.one, alpha.zero, data, reg
 #' @param alpha.zero: hyper parameters for background
 #' @param guide.efficiency: data.frame of guide efficiences. Either vector of guide efficiency or NULL
 #' @return sum of the -log likelihood across all guides
-#' @export prior_dirichlet_ll_sizeE()
+#' @export prior_dirichlet_ll_eSize()
 
-prior_dirichlet_ll_sizeE <- function(alpha.one, alpha.zero, data, region.ll.list, guide.efficiency) {
+prior_dirichlet_ll_eSize <- function(alpha.one, alpha.zero, data, region.ll.list, guide.efficiency) {
 
   alpha1s <- alpha.one**2
 
@@ -2248,7 +2236,7 @@ prior_dirichlet_ll_sizeE <- function(alpha.one, alpha.zero, data, region.ll.list
   hyper <- list(alpha0 = alpha.zero,
                 alpha1 = alpha1s)
 
-  out.sg.ll <- estimate_relics_sgrna_log_like_sizeE(hyper, data, region.ll.list, guide.efficiency)
+  out.sg.ll <- estimate_relics_sgrna_log_like_eSize(hyper, data, region.ll.list, guide.efficiency)
 
   -sum(out.sg.ll$total_guide_ll)
 
@@ -2261,9 +2249,9 @@ prior_dirichlet_ll_sizeE <- function(alpha.one, alpha.zero, data, region.ll.list
 #' @param region.ll.list: list containing the ll and the indexes of the null alternative and both
 #' @param guide.efficiency: data.frame of guide efficiences. Either vector of guide efficiency or NULL
 #' @return data frame: total_guide_ll, alt_only_ll
-#' @export estimate_relics_sgrna_log_like_sizeE()
+#' @export estimate_relics_sgrna_log_like_eSize()
 
-estimate_relics_sgrna_log_like_sizeE <- function(hyper, data, region.ll.list, guide.efficiency){
+estimate_relics_sgrna_log_like_eSize <- function(hyper, data, region.ll.list, guide.efficiency){
 
   pool.cols <- c(1:(ncol(data) - 1))
 
@@ -2307,7 +2295,7 @@ estimate_relics_sgrna_log_like_sizeE <- function(hyper, data, region.ll.list, gu
 }
 
 
-#' @title records the absolute effect size across all pools (avg across replicates) for each FS
+#' @title records the  effect size as scaling parameter for the hypers across all pools (avg across replicates) for each FS
 #' @param hyper: hyperparameters
 #' @param input.pp: matrix of all posterior probs
 #' @param input.min.rs.pp: threshold for FS detection
@@ -2369,11 +2357,11 @@ record_scaling_effectSize <- function(input.pp, input.min.rs.pp, hyper, data,
         res <- c()
 
         if(one.dispersion){
-          res <- optim(temp.scaling, prior_dirichlet_ll_singleDisp_sizeE_scaled, method= 'L-BFGS-B', #'BFGS', #"Nelder-Mead",
+          res <- optim(temp.scaling, prior_dirichlet_ll_singleDisp_eSize_scaled, method= 'L-BFGS-B', #'BFGS', #"Nelder-Mead",
                        data = fs.data, region.ll.list = temp.guide.lls.list,
                        guide.efficiency = fs.guide.efficiency, alpha.zero = temp.alpha0, alpha.one = temp.alpha1)
         } else {
-          res <- optim(temp.scaling, prior_dirichlet_ll_sizeE_scaled, method= 'L-BFGS-B', #'BFGS', #"Nelder-Mead",
+          res <- optim(temp.scaling, prior_dirichlet_ll_eSize_scaled, method= 'L-BFGS-B', #'BFGS', #"Nelder-Mead",
                        data = fs.data, region.ll.list = temp.guide.lls.list,
                        guide.efficiency = fs.guide.efficiency, alpha.zero = temp.alpha0, alpha.one = temp.alpha1)
         }
@@ -2420,9 +2408,9 @@ record_scaling_effectSize <- function(input.pp, input.min.rs.pp, hyper, data,
 #' @param alpha.zero: hyper parameters for background
 #' @param guide.efficiency: data.frame of guide efficiences. Either vector of guide efficiency or NULL
 #' @return sum of the -log likelihood across all guides
-#' @export prior_dirichlet_ll_singleDisp_sizeE_scaled()
+#' @export prior_dirichlet_ll_singleDisp_eSize_scaled()
 
-prior_dirichlet_ll_singleDisp_sizeE_scaled <- function(scaling.par, alpha.one, alpha.zero, data, region.ll.list, guide.efficiency) {
+prior_dirichlet_ll_singleDisp_eSize_scaled <- function(scaling.par, alpha.one, alpha.zero, data, region.ll.list, guide.efficiency) {
 
   if(scaling.par == 0){
     scaling.par <- 0.000001
@@ -2437,7 +2425,7 @@ prior_dirichlet_ll_singleDisp_sizeE_scaled <- function(scaling.par, alpha.one, a
   hyper <- list(alpha0 = alpha.zero,
                 alpha1 = alpha1s.adj)
 
-  out.sg.ll <- estimate_relics_sgrna_log_like_sizeE(hyper, data, region.ll.list, guide.efficiency)
+  out.sg.ll <- estimate_relics_sgrna_log_like_eSize(hyper, data, region.ll.list, guide.efficiency)
 
   -sum(out.sg.ll$total_guide_ll)
 }
@@ -2451,9 +2439,9 @@ prior_dirichlet_ll_singleDisp_sizeE_scaled <- function(scaling.par, alpha.one, a
 #' @param alpha.zero: hyper parameters for background
 #' @param guide.efficiency: data.frame of guide efficiences. Either vector of guide efficiency or NULL
 #' @return sum of the -log likelihood across all guides
-#' @export prior_dirichlet_ll_sizeE_scaled()
+#' @export prior_dirichlet_ll_eSize_scaled()
 
-prior_dirichlet_ll_sizeE_scaled <- function(scaling.par, alpha.one, alpha.zero, data, region.ll.list, guide.efficiency) {
+prior_dirichlet_ll_eSize_scaled <- function(scaling.par, alpha.one, alpha.zero, data, region.ll.list, guide.efficiency) {
 
   if(scaling.par == 0){
     scaling.par <- 0.000001
@@ -2465,7 +2453,7 @@ prior_dirichlet_ll_sizeE_scaled <- function(scaling.par, alpha.one, alpha.zero, 
   hyper <- list(alpha0 = alpha.zero,
                 alpha1 = alpha1s)
 
-  out.sg.ll <- estimate_relics_sgrna_log_like_sizeE(hyper, data, region.ll.list, guide.efficiency)
+  out.sg.ll <- estimate_relics_sgrna_log_like_eSize(hyper, data, region.ll.list, guide.efficiency)
 
   -sum(out.sg.ll$total_guide_ll)
 
