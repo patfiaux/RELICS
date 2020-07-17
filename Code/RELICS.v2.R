@@ -48,6 +48,7 @@ RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.
   # check if hyper parameters are provided, otherwise estimate from data
   if(! 'hyper_pars' %in% names(analysis.parameters)){
 
+    print('Estimating initial hyperparameters ...')
     #labels for background
     background.labels <- c()
     if(analysis.parameters$background_label_specified){
@@ -76,7 +77,7 @@ RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.
 
   # if guide efficiency scores are provided, calculate guide efficiency and include in the model
   if(! is.null(data.setup$guide_efficiency_scores)){
-
+    
     if(! analysis.parameters$fixed_ge_coeff){
 
       temp.relics.params <- init_relics_param(analysis.parameters$hyper_pars, data.setup, analysis.parameters$local_max)
@@ -253,40 +254,39 @@ check_parameter_list <- function(input.parameter.list, data.file.split){
       out.parameter.list$fixed_ge_coeff <- input.parameter.list$fixed_ge_coeff
     }
 
-    # if(! 'fix_guideEfficiency' %in% par.given){
-    #   out.parameter.list$fix_guideEfficiency <- TRUE
-    #   # check if betas are provided, else give default
-    # } else {
-    #   out.parameter.list$fix_guideEfficiency <- input.parameter.list$fix_guideEfficiency
-    # }
-
-    # if(! 'ge_betas' %in% par.given){
-    #   print('Default guide efficiency betas are not yet implemented')
-    # } else {
-    #   out.parameter.list$ge_betas <- input.parameter.list$ge_betas
-    # }
-
     if(! 'ge_beta_estimation' %in% par.given){
       out.parameter.list$ge_beta_estimation <- FALSE
     } else {
       out.parameter.list$ge_beta_estimation <- input.parameter.list$ge_beta_estimation
     }
 
-    # #if the GE is fixed but there are multiple metics, then the alpha diff scaling has to be reestimated
-    # # this flag is used for first time estimation only
-    # if(out.parameter.list$fix_guideEfficiency & ncol(out.parameter.list$guide_efficiency_scores) < 2){
-    #   out.parameter.list$estimate_ge_alphaDiffScale <- FALSE
-    # } else { # if there are multiple scores the guide efficiency has to be roughly estimated from the 2+ scoring schemes
-    #   out.parameter.list$estimate_ge_alphaDiffScale <- TRUE
-    # }
-
-
-    # ge_beta_estimation (wether the scales have to be re-estimated)
-    # ToDo
-
   } else {
     out.parameter.list$guide_efficiency_scores <- NULL
     out.parameter.list$fixed_ge_coeff <- NULL
+  }
+  
+  # l2fc related parameters
+  if('l2fc_groups' %in% par.given){
+    out.parameter.list$l2fc_groups <- input.parameter.list$l2fc_groups
+    if('l2fc_slidWind' %in% par.given){
+      out.parameter.list$l2fc_slidWind <- input.parameter.list$l2fc_slidWind
+    } else {
+      out.parameter.list$l2fc_slidWind <- TRUE
+    }
+    
+    if(out.parameter.list$l2fc_slidWind){
+      if('l2fc_slidWind_guideNr' %in% par.given){
+        out.parameter.list$l2fc_slidWind_guideNr <- input.parameter.list$l2fc_slidWind_guideNr
+      } else {
+        out.parameter.list$l2fc_slidWind_guideNr <- 10
+      }
+      
+      if('l2fc_slidWind_maxGap' %in% par.given){
+        out.parameter.list$l2fc_slidWind_maxGap <- input.parameter.list$l2fc_slidWind_maxGap
+      } else {
+        out.parameter.list$l2fc_slidWind_maxGap <- 3000
+      }
+    }
   }
 
   minimum.parameters <- c()
@@ -496,13 +496,21 @@ read_analysis_parameters <- function(parameter.file.loc){
   }
 
 
-  # # boolean whether to simply use given guide efficiencies or trying to estimate a scaling
-  # if('fix_guideEfficiency' == parameter.id){
-  #   out.parameter.list$fix_guideEfficiency <- as.logical(strsplit(parameter,':')[[1]][2])
-  # }
-
-
-  # to do: ge_betas, ge_beta_estimation (this serves for estimation of the scaling factors, logical)
+  # l2fc parameters
+  if('l2fc_groups' == parameter.id){
+    out.parameter.list$l2fc_groups <- lapply(strsplit(strsplit(strsplit(parameter,':')[[1]][2],';')[[1]],','), as.numeric)
+    names(out.parameter.list$l2fc_groups) <- paste0('repl_',c(1:length(out.parameter.list$l2fc_groups)))
+  }
+  if('l2fc_slidWind' == parameter.id){
+    out.parameter.list$l2fc_slidWind <- as.logical(strsplit(parameter,':')[[1]][2])
+  }
+  if('l2fc_slidWind_guideNr' == parameter.id){
+    out.parameter.list$l2fc_slidWind_guideNr <- as.numeric(strsplit(parameter,':')[[1]][2])
+  }
+  if('l2fc_slidWind_maxGap' == parameter.id){
+    out.parameter.list$l2fc_slidWind_maxGap <- as.numeric(strsplit(parameter,':')[[1]][2])
+  }
+  
 
   return(out.parameter.list)
 }
@@ -545,6 +553,12 @@ set_up_RELICS_data <- function(input.parameter.list, data.file.split, guide.offs
     pool.idx <- 1
     for(i in 1:length(repl_pools.original)){
       repl_pools[[i]] <- c(pool.idx:(pool.idx + length(repl_pools.original[[i]]) - 1) )
+      
+      # adjust in case of l2fc
+      if(! is.null(input.parameter.list$l2fc_groups)){
+        input.parameter.list$l2fc_groups[[i]] <- repl_pools[[i]][match(input.parameter.list$l2fc_groups[[i]], repl_pools.original[[i]])]
+      }
+      
       pool.idx <- pool.idx + length(repl_pools.original[[i]])
     }
 
@@ -638,6 +652,19 @@ set_up_RELICS_data <- function(input.parameter.list, data.file.split, guide.offs
                            guide_info = sim.info)
 
   write.csv(sim.seg.info, file = paste0(file.save.dir, '_segmentInfo.csv'), row.names = F)
+  
+  # To Do: adding LFC
+  if(! is.null(input.parameter.list$l2fc_groups)){
+    
+    # plot combined lfc
+    # plot per-repl lfc
+    
+    # plot combined lfc sliding window
+    # plot per-repl lfc slinding window
+    
+    # l2fc_groups, 
+    compute_l2fc(input.parameter.list, file.save.dir, sim.counts, sim.info)
+  }
 
   if(save.files){
     write.csv(sim.seg.info, file = paste0(file.save.dir, '_segmentInfo.csv'), row.names = F)
@@ -648,6 +675,165 @@ set_up_RELICS_data <- function(input.parameter.list, data.file.split, guide.offs
   return(format.data.beta)
 
 }
+
+
+#' @title compute the log2 fold change of the input data
+#' @param par.list: list containing: $l2fc_groups, $l2fc_slidWind_guideNr, $l2fc_slidWind_maxGap, $l2fc_slidWind, and a score column
+#' @param out.dir: output directory
+#' @param input.counts: counts to compute log2 fold change from
+#' @param input.info: info data frame
+#' @return log2 flod change files (per replicate) written to specified locations.
+#' @export compute_l2fc()
+
+compute_l2fc <- function(par.list, out.dir, input.counts, input.info){
+  
+  out.bg <- list()
+  
+  out.l2fc.rs <- c()
+  out.l2fc.sw.rs <- c()
+  
+  out.df.template <- input.info[,c('chrom', 'start', 'end', 'label')]
+  
+  for(i in 1:length(par.list$l2fc_groups)){
+    
+    temp.denom <- input.counts[, par.list$l2fc_groups[[i]][1]]
+    temp.num <- input.counts[, par.list$l2fc_groups[[i]][2]]
+    
+    temp.l2fc <- log2( ((temp.num + 1) / sum(temp.num + 1)) / ( (temp.denom + 1) / sum(temp.denom + 1) ) )
+    out.l2fc.rs <- rbind(out.l2fc.rs, temp.l2fc)
+    
+    temp.out.df <- out.df.template
+    temp.out.df$l2fc <- temp.l2fc
+    
+    write.csv(temp.out.df, file = paste0(out.dir, '_l2fc_r', i,'.csv'), row.names = F)
+    
+    out.bg[[paste0('l2fc_r', i)]] <- temp.out.df
+    
+    if(par.list$l2fc_slidWind){
+      
+      # c('chrom', 'windowStart', 'windowEnd', 'label', 'windowScore')
+      temp.out.sw <- slide_window(temp.out.df, window.size = par.list$l2fc_slidWind_guideNr, 
+                                  max.window.range = par.list$l2fc_slidWind_maxGap, input.score.name = 'l2fc')
+      
+      out.l2fc.sw.rs <- rbind(out.l2fc.sw.rs, temp.out.sw$windowScore)
+      
+      write.csv(temp.out.sw, file = paste0(out.dir, '_l2fc_sW_r', i,'.csv'), row.names = F)
+      
+      out.bg[[paste0('l2fc_sW_r', i)]] <- temp.out.sw
+    }
+  }
+  
+  if(length(par.list$l2fc_groups) > 1){
+    
+    l2fc.rs.means <- colMeans(out.l2fc.rs)
+    temp.out.df <- out.df.template
+    temp.out.df$l2fc_avg <- l2fc.rs.means
+    write.csv(temp.out.df, file = paste0(out.dir, '_l2fc_avg.csv'), row.names = F)
+    out.bg[['l2fc_avg']] <- temp.out.df
+    
+    if(par.list$l2fc_slidWind){
+      l2fc.sw.rs.means <- colMeans(out.l2fc.sw.rs)
+      temp.out.sw <- temp.out.sw
+      temp.out.sw$l2fc_sw_avg <- l2fc.sw.rs.means
+      write.csv(temp.out.sw, file = paste0(out.dir, '_l2fc_sW_avg.csv'), row.names = F)
+      out.bg[['l2fc_sW_avg']] <- temp.out.sw
+    }
+    
+  }
+  
+  create_bedgraphs(out.bg, out.dir)
+  
+}
+
+#' @title merge overlapping information using a sliding window
+#' @param input.df: data frame containing: $chrom, $start, $end, $label, and a score column
+#' @param window.size: numeric, number of rows to be included in sliding
+#' @param max.window.range: max. distance between target sites
+#' @param input.label.hierarchy: order by which multiple labels are combined. By default priority is given to label with the least occurances
+#' @param input.score.name: name of the column containing the scores
+#' @return date frame containing $chrom, $start, $end, $label, and a score column
+#' @export slide_window()
+
+slide_window <- function(input.df, window.size, max.window.range = 3000,input.label.hierarchy = NULL, input.score.name = NULL){
+  
+  input.positions <- input.df
+  
+  input.positions.chroms <- split(input.positions, input.positions$chrom)
+  
+  out.df <- c()
+  
+  for(chr in 1:length(input.positions.chroms)){
+    
+    input.positions.ordered <- input.positions.chroms[[chr]][order(input.positions.chroms[[chr]]$start),]
+    
+    label.hierarchy <- c()
+    if(is.null(input.label.hierarchy)){
+      counted.lables <- table(input.positions.ordered$label)
+      
+      while(length(counted.lables) > 1){
+        max.lab.pos <- which(counted.lables == max(counted.lables)[1])[1]
+        max.lab.name <- names(counted.lables)[max.lab.pos]
+        
+        label.hierarchy<- c(label.hierarchy, max.lab.name)
+        
+        counted.lables <- counted.lables[-max.lab.pos]
+      }
+      
+      # then last part
+      label.hierarchy <- c(label.hierarchy, names(counted.lables))
+      
+    } else {
+      label.hierarchy <- input.label.hierarchy
+    }
+    
+    score.name <- 'guideScore'
+    if(! is.null(input.score.name)){
+      score.name <- input.score.name
+    }
+    
+    window.scores <- vector('numeric', length = nrow(input.positions.ordered))
+    window.start <- vector('numeric', length = nrow(input.positions.ordered))
+    window.end <- vector('numeric', length = nrow(input.positions.ordered))
+    window.label <- vector('character', length = nrow(input.positions.ordered))
+    
+    w <- 0 # i is window index
+    for(i in 1:(nrow(input.positions.ordered)-1) ){
+      temp.window.size <- min(window.size, nrow(input.positions.ordered) - i + 1)
+      window.range <- input.positions.ordered$end[i+temp.window.size-1] - input.positions.ordered$start[i]
+      if(window.range < max.window.range){
+        w <- w + 1
+        window.scores[w] <- mean(input.positions.ordered[[score.name]][i:(i+temp.window.size-1)])
+        window.start[w] <- input.positions.ordered$start[i]
+        window.end[w] <- input.positions.ordered$end[i+temp.window.size-1]
+        window.label[w] <- label.hierarchy[max(which(label.hierarchy %in% input.positions.ordered$label[i:(i+temp.window.size-1)]))[1]]
+        
+      } else {
+        for(j in 1:(temp.window.size-1)){
+          smaller.window.range <- input.positions.ordered$end[i+temp.window.size-1 - j] - input.positions.ordered$start[i]
+          if(smaller.window.range < max.window.range){
+            w <- w + 1
+            window.scores[w] <- mean(input.positions.ordered[[score.name]][i:(i+temp.window.size-1 - j)])
+            window.start[w] <- input.positions.ordered$start[i]
+            window.end[w] <- input.positions.ordered$end[i+temp.window.size-1 - j]
+            window.label[w] <- label.hierarchy[max(which(label.hierarchy %in% input.positions.ordered$label[i:(i+temp.window.size-1 - j)]))[1]]
+          }
+        }
+      }
+    }
+    
+    temp.out.df <- cbind.data.frame(rep(input.positions.ordered$chrom[1],w),
+                               window.start[1:w], window.end[1:w], window.label[1:w], window.scores[1:w], stringsAsFactors = F)
+    
+    out.df <- rbind(out.df, temp.out.df)
+    
+  }
+
+
+  colnames(out.df) <- c('chrom', 'start', 'end', 'label', 'windowScore')
+  
+  return(out.df)
+}
+
 
 #' @title Adapt an info file to a overlap matrix and corresponding data structures and filter the counts, return by replicate. Adapted for dual guide screens
 #' @param input.counts: data.frame, rows are guides, columns are pools
@@ -2847,7 +3033,15 @@ create_bedgraphs <- function(input.score.list, bg.name){
         temp.score.df$formatScores <- temp.score.df$guideScore
       } else if('score' %in% names(temp.score.df)){
         temp.score.df$formatScores <- temp.score.df$score
-      } else{
+      } else if('l2fc' %in% names(temp.score.df)){
+        temp.score.df$formatScores <- temp.score.df$l2fc
+      } else if('windowScore' %in% names(temp.score.df)){
+        temp.score.df$formatScores <- temp.score.df$windowScore
+      } else if('l2fc_avg' %in% names(temp.score.df)){
+        temp.score.df$formatScores <- temp.score.df$l2fc_avg
+      } else if('l2fc_sw_avg' %in% names(temp.score.df)){
+        temp.score.df$formatScores <- temp.score.df$l2fc_sw_avg
+      } else {
         print('failed to identify score column')
         break()
       }
