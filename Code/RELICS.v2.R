@@ -69,7 +69,7 @@ RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.
   if(return.init.hypers){
     # record alphas used for posterior calculation
     alpha.out.dir <- paste0(analysis.parameters$out_dir, '/', analysis.parameters$dataName)
-    record_alphas(background.alpha0, fs0.alpha1, alpha.out.dir, 'init', names(data.setup$data[[1]]))
+    record_alphas(background.alpha0, fs0.alpha1, alpha.out.dir, 'init', pool.names)
     break()
   }
 
@@ -116,7 +116,8 @@ RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.
                one.dispersion = analysis.parameters$one_dispersion,
                recompute.fs0 = analysis.parameters$recompute_fs0,
                local.max = analysis.parameters$local_max,
-               local.max.range = analysis.parameters$local_max_range)
+               local.max.range = analysis.parameters$local_max_range,
+               pool.names = analysis.parameters$pool_names)
 
 
 }
@@ -234,6 +235,9 @@ check_parameter_list <- function(input.parameter.list, data.file.split){
   }
   if(! 'dualToSingle' %in% par.given){
     out.parameter.list$dualToSingle <- FALSE
+  }
+  if(! 'pool_names' %in% par.given){
+    out.parameter.list$pool_names <- NULL
   }
 
   # guide efficiency related parameters
@@ -434,6 +438,10 @@ read_analysis_parameters <- function(parameter.file.loc){
     if('repl_groups' == parameter.id){
       out.parameter.list$repl_groups <- lapply(strsplit(strsplit(strsplit(parameter,':')[[1]][2],';')[[1]],','), as.numeric)
       names(out.parameter.list$repl_groups) <- paste0('repl_',c(1:length(out.parameter.list$repl_groups)))
+    }
+    if('pool_names' == parameter.id){
+      out.parameter.list$pool_names <- lapply(strsplit(strsplit(strsplit(parameter,':')[[1]][2],';')[[1]],','), as.numeric)
+      names(out.parameter.list$pool_names) <- paste0('repl_',c(1:length(out.parameter.list$pool_names)))
     }
     if('DataInputFileLoc' == parameter.id){
       out.parameter.list$DataInputFileLoc <- strsplit(parameter,':')[[1]][2]
@@ -1578,7 +1586,8 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
                      adjust.tol = TRUE,
                      one.dispersion = TRUE,
                      recompute.fs0,
-                     local.max, local.max.range){
+                     local.max, local.max.range,
+                     pool.names){
 
   final.layer.posterior <- list()
   final.layer.alpha0 <- list()
@@ -1805,7 +1814,7 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
                   sep = '\t', quote = F, row.names = F, col.names = F)
 
       # record alphas used for posterior calculation
-      record_alphas(final.layer.alpha0[[i]], final.layer.alpha1[[i]], out.dir, i, names(input.data$data[[1]]))
+      record_alphas(final.layer.alpha0[[i]], final.layer.alpha1[[i]], out.dir, i, pool.names)
 
       # record the per-layer contribution to the model
       write.csv(per.layer.ll.df, file = paste0(out.dir, '_k',i,'_perFS_LLcontributions.csv'), row.names = F)
@@ -1947,7 +1956,7 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
                       sep = '\t', quote = F, row.names = F, col.names = F)
 
           # record alphas used for posterior calculation
-          record_alphas(final.layer.alpha0[[i - 1]], final.layer.alpha1[[i - 1]], paste0(out.dir, '_final'), i - 1, names(input.data$data[[1]]))
+          record_alphas(final.layer.alpha0[[i - 1]], final.layer.alpha1[[i - 1]], paste0(out.dir, '_final'), i - 1, pool.names)
 
           # record the per-layer contribution to the model
           write.csv(final.per.layer.ll.out, file = paste0(out.dir, '_final_k',i - 1,'_perFS_LLcontributions.csv'), row.names = F)
@@ -2009,7 +2018,7 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
                       sep = '\t', quote = F, row.names = F, col.names = F)
 
           # record alphas used for posterior calculation
-          record_alphas(final.layer.alpha0[[i - 1]], final.layer.alpha1[[i - 1]], paste0(out.dir, '_recommendedFinal'), i - 1, names(input.data$data[[1]]))
+          record_alphas(final.layer.alpha0[[i - 1]], final.layer.alpha1[[i - 1]], paste0(out.dir, '_recommendedFinal'), i - 1, pool.names)
 
           # record the per-layer contribution to the model
           write.csv(final.per.layer.ll.out, file = paste0(out.dir, '_recommendedFinal_k',i - 1,'_perFS_LLcontributions.csv'), row.names = F)
@@ -2977,30 +2986,56 @@ plot_fs_stats <- function(input.layer.ll.df, layer.corr.df, out.dir, layer.nr, f
 #' @export record_alphas()
 
 record_alphas <- function(input.alpha0.list, input.alpha1.list, input.alpha.outDir, layer.nr, pool.names){
-
+  
+  out.alpha.df <- c()
+  
   total.rows <- length(input.alpha0.list) + length(input.alpha1.list)
   total.cols <- max(c( unlist(lapply(input.alpha0.list, function(x){length(x)})),
                        unlist(lapply(input.alpha1.list, function(x){length(x)}))))
-
-  alpha.matrix <- matrix(0, nrow = total.rows, ncol = total.cols + 1)
-
-  for(i in 1:length(input.alpha0.list)){
-    alpha.matrix[i, c(1:length(input.alpha0.list[[i]]))] <- round(input.alpha0.list[[i]] / sum(input.alpha0.list[[i]]), 3)
-    alpha.matrix[i, length(input.alpha0.list[[i]]) + 1] <- round(sum(input.alpha0.list[[i]]), 3)
-  }
-
-  for(j in (length(input.alpha0.list) + 1):total.rows){
-    alpha.matrix[j, c(1:length(input.alpha1.list[[j - length(input.alpha0.list)]]))] <- round(input.alpha1.list[[j - length(input.alpha0.list)]] / sum(input.alpha1.list[[j - length(input.alpha0.list)]]), 3)
-    alpha.matrix[j, length(input.alpha1.list[[j - length(input.alpha0.list)]]) + 1] <- round(sum(input.alpha1.list[[j - length(input.alpha0.list)]]), 3)
-  }
-
+  
   alpha.names <- c(paste(rep('alpha0', length(input.alpha0.list)), 'r', c(1:length(input.alpha0.list)), sep = '_'),
                    paste(rep('alpha1', length(input.alpha1.list)), 'r', c(1:length(input.alpha1.list)), sep = '_'))
+  
+  alpha.matrix <- matrix(0, nrow = total.rows, ncol = total.cols + 1)
+  
+  if(! is.null(pool.names)){
+    temp.pool.names <- unique(unlist(pool.names))
+    
+    for(i in 1:length(input.alpha0.list)){
+      alpha0.scores <- rep(0, length(length(temp.pool.names)))
+      alpha1.scores <- rep(0, length(length(temp.pool.names)))
+      
+      alpha0.scores[match(pool.names[[i]], temp.pool.names)] <- round(input.alpha0.list[[i]] / sum(input.alpha0.list[[i]]), 3)
+      alpha1.scores[match(pool.names[[i]], temp.pool.names)] <- round(input.alpha1.list[[i]] / sum(input.alpha1.list[[i]]), 3)
+      
+      alpha0.scores.wDisp <- c(alpha0.scores, round(sum(input.alpha0.list[[i]]), 3))
+      alpha1.scores.wDisp <- c(alpha1.scores, round(sum(input.alpha1.list[[i]]), 3))
+      
+      alpha.matrix[i,] <- alpha0.scores.wDisp
+      alpha.matrix[i + length(input.alpha0.list),] <- alpha1.scores.wDisp
+      
+      out.alpha.df <- cbind(alpha.names, alpha.matrix)
+      
+      colnames(out.alpha.df) <- c('alpha_type', temp.pool.names, 'dispersion')
 
-
-  out.alpha.df <- cbind(alpha.names, alpha.matrix)
-
-  colnames(out.alpha.df) <- c('alpha_type', pool.names[1:(length(pool.names) - 1)], 'dispersion')
+    }
+    
+  } else {
+    
+    for(i in 1:length(input.alpha0.list)){
+      alpha.matrix[i, c(1:length(input.alpha0.list[[i]]))] <- round(input.alpha0.list[[i]] / sum(input.alpha0.list[[i]]), 3)
+      alpha.matrix[i, length(input.alpha0.list[[i]]) + 1] <- round(sum(input.alpha0.list[[i]]), 3)
+    }
+    
+    for(j in (length(input.alpha0.list) + 1):total.rows){
+      alpha.matrix[j, c(1:length(input.alpha1.list[[j - length(input.alpha0.list)]]))] <- round(input.alpha1.list[[j - length(input.alpha0.list)]] / sum(input.alpha1.list[[j - length(input.alpha0.list)]]), 3)
+      alpha.matrix[j, length(input.alpha1.list[[j - length(input.alpha0.list)]]) + 1] <- round(sum(input.alpha1.list[[j - length(input.alpha0.list)]]), 3)
+    }
+    
+    out.alpha.df <- cbind(alpha.names, alpha.matrix)
+    
+    colnames(out.alpha.df) <- c('alpha_type', paste0('pool', c(1:(nrow(out.alpha.df) - 2))), 'dispersion')
+  }
 
   write.csv(out.alpha.df, file = paste0(input.alpha.outDir, '_k', layer.nr, '_alphas.csv'), row.names = F, quote = F)
 
