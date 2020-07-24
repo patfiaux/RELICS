@@ -1661,6 +1661,8 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
 
       out.guide.info$score <- out.guide.info$guide_ll
       to.bg.list$guide_ll <- out.guide.info
+      
+      browser()
 
       # total_effSize, repl_effSize
       abs.sum.effect.size <- record_sum_effectSizes(order.pps.lst$pp_ordered,
@@ -1688,7 +1690,7 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
       to.bg.list$abs_sumEffSize <- abs.sum.effect.size$total_effSize
       to.bg.list$sumEffSize <- sum.effect.size$total_effSize
 
-      write.csv(absProp.effect.size$fs_effSize_ID, file = paste0(out.dir, '_k', i, '_abs_sumEffSize.csv'), row.names = F)
+      write.csv(abs.sum.effect.size$fs_effSize_ID, file = paste0(out.dir, '_k', i, '_abs_sumEffSize.csv'), row.names = F)
       write.csv(sum.effect.size$fs_effSize_ID, file = paste0(out.dir, '_k', i, '_sumEffSize.csv'), row.names = F)
 
       # record posteriors
@@ -2010,14 +2012,14 @@ record_sum_effectSizes <- function(input.pp, input.min.rs.pp, hyper, data,
   fs.total.eff.size <- c()
   fs.eff.size.ID <- c()
 
-  for(f in 1:nrow(input.pp)){
+  for(e in 1:nrow(input.pp)){
 
-    temp.fs.idx <- which(input.pp[f,] > input.min.rs.pp)
+    temp.fs.idx <- which(input.pp[e,] > input.min.rs.pp)
 
-    fs.alpha1.eff.size[[f]] <- list()
+    fs.alpha1.eff.size[[e]] <- list()
 
     if(length(temp.fs.idx) > 0){
-      temp.pp <- input.pp[f,]
+      temp.pp <- input.pp[e,]
 
       temp.seg.info <- seg.info[temp.fs.idx,]
 
@@ -2066,15 +2068,15 @@ record_sum_effectSizes <- function(input.pp, input.min.rs.pp, hyper, data,
           alpha1s.adj <- alpha1s.norm * sum(temp.alpha0)
 
           if(abs.es){
-            fs.alpha1.eff.size[[f]][[i]] <- abs((alpha1s.adj / sum(alpha1s.adj)) - (temp.alpha0 / sum(temp.alpha0 )))
+            fs.alpha1.eff.size[[e]][[i]] <- abs((alpha1s.adj / sum(alpha1s.adj)) - (temp.alpha0 / sum(temp.alpha0 )))
           } else {
-            fs.alpha1.eff.size[[f]][[i]] <- (alpha1s.adj / sum(alpha1s.adj)) - (temp.alpha0 / sum(temp.alpha0 ))
+            fs.alpha1.eff.size[[e]][[i]] <- (alpha1s.adj / sum(alpha1s.adj)) - (temp.alpha0 / sum(temp.alpha0 ))
           }
         } else {
           if(abs.es){
-            fs.alpha1.eff.size[[f]][[i]] <- abs( (alpha1s / sum(alpha1s)) - (temp.alpha0 / sum(temp.alpha0)) )
+            fs.alpha1.eff.size[[e]][[i]] <- abs( (alpha1s / sum(alpha1s)) - (temp.alpha0 / sum(temp.alpha0)) )
           } else {
-            fs.alpha1.eff.size[[f]][[i]] <- (alpha1s / sum(alpha1s)) - (temp.alpha0 / sum(temp.alpha0))
+            fs.alpha1.eff.size[[e]][[i]] <- (alpha1s / sum(alpha1s)) - (temp.alpha0 / sum(temp.alpha0))
           }
         }
 
@@ -2094,29 +2096,37 @@ record_sum_effectSizes <- function(input.pp, input.min.rs.pp, hyper, data,
         all.pool.names <- unique(unlist(pool.names))
         temp.eff.list <- list()
         
-        for(r in 1:length(fs.alpha1.eff.size)){
-          temp.alphas <- fs.alpha1.eff.size[[r]]
-          for(a in 1:length(temp.alphas)){
-            temp.eff.list[[pool.names[[r]][p]]] <- c(temp.eff.list[[pool.names[[r]][p]]], temp.alphas[a])
+        # for all functional sequences found
+        for(fs in 1:length(fs.alpha1.eff.size)){
+          temp.repl.alphas <- fs.alpha1.eff.size[[fs]]
+          
+          if(length(temp.repl.alphas) > 0){
+            # for all replicates
+            for(r in 1:length(temp.repl.alphas)){
+              # for each pool / alpha
+              for(a in 1:length(temp.repl.alphas[[r]]))
+                temp.eff.list[[pool.names[[r]][a]]] <- c(temp.eff.list[[pool.names[[r]][a]]], temp.repl.alphas[[r]][a])
+            }
           }
         }
         
-        temp.total.avg.eff <- unlist(lapply(temp.eff.list, function(x){mean(x)}))
+        temp.total.eff <- unlist(lapply(temp.eff.list, function(x){mean(x)}))
+        temp.total.avg.eff <- sum(temp.total.eff)
         
       } else {
         if(length(unique(unlist(lapply(data, function(x){nrow(x)})))) != 1){
           print('Warning! Not sure how to combine per-pool effect sizes!')
         }
-        temp.eff.df <- do.call(rbind, fs.alpha1.eff.size[[f]])
+        temp.eff.df <- do.call(rbind, fs.alpha1.eff.size[[e]])
         temp.total.avg.eff <- sum(colSums(temp.eff.df) / nrow(temp.eff.df))
       }
       
       temp.eff.size.loc <- temp.seg.info[, c('chrom', 'start', 'end')]
-      temp.eff.size.loc$FS <- paste0('FS', f-1)
+      temp.eff.size.loc$FS <- paste0('FS', e-1)
       temp.eff.size.loc$score <- temp.total.avg.eff # preparing for bg format
       temp.eff.size.loc$converged <- as.character(did.converge)
 
-      fs.eff.size.ID <- rbind(fs.eff.size.ID, data.frame(FS = paste0('FS', f-1), FS_effSize = temp.total.avg.eff, stringsAsFactors = F))
+      fs.eff.size.ID <- rbind(fs.eff.size.ID, data.frame(FS = paste0('FS', e-1), FS_effSize = temp.total.avg.eff, stringsAsFactors = F))
 
       fs.total.eff.size <- rbind(fs.total.eff.size, temp.eff.size.loc)
     }
