@@ -1662,8 +1662,6 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
       out.guide.info$score <- out.guide.info$guide_ll
       to.bg.list$guide_ll <- out.guide.info
       
-      browser()
-
       # total_effSize, repl_effSize
       abs.sum.effect.size <- record_sum_effectSizes(order.pps.lst$pp_ordered,
                                                       input.min.rs.pp,
