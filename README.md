@@ -43,12 +43,12 @@ if (!requireNamespace("BiocManager", quietly = TRUE))
 ``` 
 IRanges (for handling genomic coordinates)
 ```r
-BiocManager::install("IRanges", version = "3.8")
+BiocManager::install("IRanges")
 ```
 
 GenomicRanges (for handling genomic coordinates)
 ```r
-BiocManager::install("GenomicRanges", version = "3.8")
+BiocManager::install("GenomicRanges")
 ```
 
 ## Input data format
