@@ -292,6 +292,45 @@ check_parameter_list <- function(input.parameter.list, data.file.split){
       }
     }
   }
+  
+  # type of area of effect. options are 'normal' (default), 'uniform', 'logistic' (need to implement)
+  if(! 'areaOfEffect_type' %in% par.given){
+    out.parameter.list$areaOfEffect_type <- 'normal'
+  }
+  
+  if(out.parameter.list$areaOfEffect_type == 'uniform'){
+    if(! 'crisprEffectRange' %in% par.given){
+      if(out.parameter.list$crisprSystem == 'CRISPRi' | out.parameter.list$crisprSystem == 'CRISPRa'){
+        out.parameter.list$crisprEffectRange <- 500
+      } else if(out.parameter.list$crisprSystem == 'Cas9'){
+        out.parameter.list$crisprEffectRange <- 10
+      } else if(out.parameter.list$crisprSystem == 'dualCRISPR'){
+        out.parameter.list$crisprEffectRange <- 0
+      } else {
+        print("Error: please specify a valid CRISPR system for the 'uniform' area of effect (Cas9, CRISPRi, CRISPRa, dualCRISPR)")
+        break()
+      }
+    }
+  }
+  
+  if(out.parameter.list$areaOfEffect_type == 'normal'){
+    if(! 'normal_areaOfEffect_sd' %in% par.given){
+      if(out.parameter.list$crisprSystem %in% c('CRISPRi', 'CRISPRa', 'dualCRISPRi', 'dualCRISPRa') ){
+        out.parameter.list$normal_areaOfEffect_sd <- 170
+        if(! 'crisprEffectRange' %in% par.given){
+          out.parameter.list$crisprEffectRange <- 415
+        }
+      } else if(out.parameter.list$crisprSystem %in% c('Cas9', 'dualCRISPR') ){
+        out.parameter.list$normal_areaOfEffect_sd <- 8.5
+        if(! 'crisprEffectRange' %in% par.given){
+          out.parameter.list$crisprEffectRange <- 21
+        }
+      } else {
+        print("Error: please specify a valid CRISPR system for the 'uniform' area of effect (Cas9, CRISPRi, CRISPRa, dualCRISPR)")
+        break()
+      }
+    }
+  }
 
   minimum.parameters <- c()
   if(data.file.split){
@@ -519,6 +558,13 @@ read_analysis_parameters <- function(parameter.file.loc){
     out.parameter.list$l2fc_slidWind_maxGap <- as.numeric(strsplit(parameter,':')[[1]][2])
   }
   
+  # area of effect parameters
+  if('areaOfEffect_type' == parameter.id){
+    out.parameter.list$areaOfEffect_type <- as.numeric(strsplit(parameter,':')[[1]][2])
+  }
+  if('normal_areaOfEffect_sd' == parameter.id){
+    out.parameter.list$normal_areaOfEffect_sd <- as.numeric(strsplit(parameter,':')[[1]][2])
+  }
 
   return(out.parameter.list)
 }
@@ -631,6 +677,11 @@ set_up_RELICS_data <- function(input.parameter.list, data.file.split, guide.offs
                                                                    sim.info.g2, labelHierarchy, min.seg.dist)
 
   } else {
+    
+    if(! 'sgTarget' %in% names(sim.info)){
+      sim.info$sgTarget <- round( (sim.info$start + sim.info$end) / 2)
+    }
+    
     # adjust the target positions according to CRISPRi
     sim.info$start <- sim.info$start - guide.offset
     sim.info$end <- sim.info$end + guide.offset
@@ -638,7 +689,22 @@ set_up_RELICS_data <- function(input.parameter.list, data.file.split, guide.offs
     # generate the guide-segment matrix and the per-segment labels
     # seg_info, guide_to_seg_lst, seg_to_guide_lst, counts
     sim.guide.seg.list <- adapt_data_to_regionFormat(sim.counts, repl_pools, sim.info, labelHierarchy, min.seg.dist)
-
+    
+  }
+  
+  guide.to.seg.lst <- sim.guide.seg.list$guide_to_seg_lst
+  
+  if(input.parameter.list$areaOfEffect_type == 'uniform'){
+    guide.to.seg.lst <- lapply(guide.to.seg.lst, function(x){
+      x$dist_to_seg <- rep(1, length(x$dist_to_seg))
+    })
+  } else if(input.parameter.list$areaOfEffect_type == 'normal'){
+    guide.to.seg.lst <- lapply(guide.to.seg.lst, function(x){
+      x$dist_to_seg <- dnorm(x$dist_to_seg, mean = 0, sd = input.parameter.list$normal_areaOfEffect_sd) / 
+        dnorm(0, mean = 0, sd = input.parameter.list$normal_areaOfEffect_sd)
+      
+      x$dist_to_seg[max(x$dist_to_seg)] <- 1
+    })
   }
 
   sim.seg.info <- sim.guide.seg.list$seg_info
@@ -653,7 +719,7 @@ set_up_RELICS_data <- function(input.parameter.list, data.file.split, guide.offs
                            fs0_idx = which(sim.seg.info$label %in% fs0.label),
                            segLabels = segment.labels,
                            seg_info = sim.seg.info,
-                           guide_to_seg_lst = sim.guide.seg.list$guide_to_seg_lst,
+                           guide_to_seg_lst = guide.to.seg.lst, #sim.guide.seg.list$guide_to_seg_lst,
                            seg_to_guide_lst = sim.guide.seg.list$seg_to_guide_lst,
                            next_guide_lst = next.guide.list,
                            guide_efficiency_scores = filtered.ges,
@@ -975,7 +1041,7 @@ create_targeting_guide_segment_matrix_forDualCRISPR <- function(input.targeting.
 
   guide.to.seg.overlaps <- rbind(g1.to.seg.overlaps, g2.to.seg.overlaps)
   guide.overlap.list <- split(guide.to.seg.overlaps, guide.to.seg.overlaps$queryHits)
-  guide.to.seg.list <- generate_guide_to_seg_list(guide.overlap.list)
+  guide.to.seg.list <- generate_guide_to_seg_list(guide.overlap.list) # generate_guide_to_seg_list(guide.overlap.list, input.targeting.info, region.df.filtered)
 
   # set the labels for each segment
   region.labels <- unlist(lapply(region.overlap.list, function(x){
@@ -1119,7 +1185,7 @@ create_targeting_guide_segment_matrix <- function(input.targeting.info, input.la
 
   guide.to.seg.overlaps <- as.data.frame(findOverlaps(score.ranges, region.ranges.filtered, type = 'any'))
   guide.overlap.list <- split(guide.to.seg.overlaps, guide.to.seg.overlaps$queryHits)
-  guide.to.seg.list <- generate_guide_to_seg_list(guide.overlap.list)
+  guide.to.seg.list <- generate_guide_to_seg_list(guide.overlap.list, input.targeting.info, region.df.filtered)
 
   # set the labels for each segment
   region.labels <- unlist(lapply(region.overlap.list, function(x){
@@ -1143,7 +1209,7 @@ create_targeting_guide_segment_matrix <- function(input.targeting.info, input.la
 #' @title Establish the mapping from segments to guides
 #' @param input.seg.overlaps: list: each element is the segment, containing the indexes of the guides with which it overlaps
 #' @param guide.idx: vector equivalent to the total number of guides
-#' @return list. each element corresponds to a segment, containg a list: guide_idx, nonGuide_idx
+#' @return list. each element corresponds to a segment, contains a list: guide_idx, nonGuide_idx
 #' @export generate_seg_to_guide_list()
 
 generate_seg_to_guide_list <- function(input.seg.overlaps, guide.idx){
@@ -1160,13 +1226,28 @@ generate_seg_to_guide_list <- function(input.seg.overlaps, guide.idx){
 
 #' @title Establish the mapping from guides to segments
 #' @param input.score.overlaps: list: each element is the guide, containing the indexes of the segments with which it overlaps
-#' @return list. each element is a guide, contaiing a vecotr of indices, indexing the segemnts overlapped by it
+#' @param input.info: info data frame. has to contain $start, $end, $sgTarget
+#' @param input.segments: data frame of segment coordinates
+#' @return list of lists. each element is a list: $seg_overlapped = containing a vector of indexes, indexing the segments overlapped by it. $dist_to_seg, distance of sgTarget to segment
 #' @export generate_guide_to_seg_list()
 
-generate_guide_to_seg_list <- function(input.guide.overlaps){
+generate_guide_to_seg_list <- function(input.guide.overlaps, input.info, input.segments){
 
   out.guide.to.seg.lst <- lapply(input.guide.overlaps, function(x){
-    x$subjectHits
+    #x$subjectHits
+    temp.guide <- input.info[x$queryHits[1],]
+    
+    temp.segments <- input.segments[x$subjectHits,,drop = F]
+    
+    dists.to.seg <- vector('numeric', length = length(x$subjectHits))
+    
+    for(i in 1:nrow(temp.segments)){
+      dists.to.seg[i] <- min(c(abs(temp.guide$sgTarget - temp.segments$start[i]), 
+                               abs(temp.guide$sgTarget - temp.segments$end[i])))
+    }
+    
+    list(seg_overlapped = x$subjectHits,
+         dist_to_seg = dists.to.seg)
   })
 
   return(out.guide.to.seg.lst)
@@ -1418,11 +1499,13 @@ compute_perGuide_fs_ll <- function(cumulative.pp, guide.seg.idx.lst, hyper.setup
 
 
   for(j in 1:n.sgrna) {
-    region.pp <- cumulative.pp[guide.seg.idx.lst[[j]] ]
+    region.pp <- cumulative.pp[guide.seg.idx.lst[[j]]$seg_overlapped]
+    
+    region.pp.distance.adj <- region.pp * guide.seg.idx.lst[[j]]$dist_to_seg
 
     # compute probability that number of regulatory regions overlapped by this sgRNA is 0 or >0, given posterior
     # probabilities, using poisson binomial probability mass function
-    p.k.eq.0 <- dpoibin(0, region.pp)
+    p.k.eq.0 <- dpoibin(0, region.pp.distance.adj)
     p.k.gt.0 <- 1-p.k.eq.0
 
     null.ll[j] <- log(p.k.eq.0)
@@ -2035,10 +2118,10 @@ record_sum_effectSizes <- function(input.pp, input.min.rs.pp, hyper, data,
         fs.data <- data[[i]][temp.fs.guide.idx,]
         fs.guide.efficiency <- guide.efficiency[temp.fs.guide.idx,]
 
-        # 2. use fs.data to get overpalling pp and calculate the per-guide ll given all the FS overlapping that guide
+        # 2. use fs.data to get overlapping pp and calculate the per-guide ll given all the FS overlapping that guide
         # Issue here is that I actually include more pp than the FS is long...
         temp.fs.guide.pp.idx <- sort(unique(unlist(lapply(guide.seg.idx.lst[temp.fs.guide.idx], function(x){
-          x
+          x$seg_overlapped
         }))))
 
         temp.guide.lls.list <- FS_only_guide_ll(temp.pp, guide.seg.idx.lst, temp.fs.guide.pp.idx, temp.fs.guide.idx)
@@ -2162,12 +2245,14 @@ FS_only_guide_ll <- function(cumulative.pp, guide.seg.idx.lst, fs.idx, guide.fs.
   both.counter <- 1
 
   for(j in 1:nr.fs.sgrna){
-
-    region.pp <- cumulative.pp[guide.seg.idx.lst[[guide.fs.idx[j] ]] ]
+    
+    region.pp <- cumulative.pp[guide.seg.idx.lst[[guide.fs.idx[j] ]]$seg_overlapped ]
+    
+    region.pp.distance.adj <- region.pp * guide.seg.idx.lst[[guide.fs.idx[j] ]]$dist_to_seg
 
     # compute probability that number of regulatory regions overlapped by this sgRNA is 0 or >0, given posterior
     # probabilities, using poisson binomial probability mass function
-    p.k.eq.0 <- dpoibin(0, region.pp)
+    p.k.eq.0 <- dpoibin(0, region.pp.distance.adj)
     p.k.gt.0 <- 1-p.k.eq.0
 
     null.ll[j] <- log(p.k.eq.0)
