@@ -703,7 +703,8 @@ set_up_RELICS_data <- function(input.parameter.list, data.file.split, guide.offs
       x$dist_to_seg <- dnorm(x$dist_to_seg, mean = 0, sd = input.parameter.list$normal_areaOfEffect_sd) / 
         dnorm(0, mean = 0, sd = input.parameter.list$normal_areaOfEffect_sd)
       
-      x$dist_to_seg[max(x$dist_to_seg)] <- 1
+      x$dist_to_seg[which(x$dist_to_seg == max(x$dist_to_seg))] <- 1
+      x
     })
   }
 
