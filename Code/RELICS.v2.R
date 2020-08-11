@@ -1309,57 +1309,125 @@ estimate_hyper_parameters <- function(data.par.list, analysis.par.list, input.re
 
   dirichlet.guide.ll <- compute_perGuide_fs_ll(fs.assignment, data.par.list$guide_to_seg_lst, hyper.setup = TRUE)
 
-  final.alpha <- list()
-  final.alpha$alpha0 <- list()
-  final.alpha$alpha1 <- list()
-
+  final.dirichlet.pars <- list()
+  final.dirichlet.pars$bkg_alpha <- list()
+  final.dirichlet.pars$FS_alpha <- list()
+  final.dirichlet.pars$bkg_dispersion <- list()
+  
+  # final.alpha$alpha0 <- list()
+  # final.alpha$alpha1 <- list()
+  
   for(i in 1:length(data.par.list$data)){
-    temp.drch.hypers <- list(alpha0 = rep(1 / length(input.repl.pools[[i]]), length(input.repl.pools[[i]])),
-                             alpha1 = rep(1 / length(input.repl.pools[[i]]), length(input.repl.pools[[i]])))
+    temp.drch.hypers <- list(bkg_alpha = rep(1 / length(input.repl.pools[[i]]), length(input.repl.pools[[i]])),
+                             FS_alpha = rep(1 / length(input.repl.pools[[i]]), length(input.repl.pools[[i]])))
+    
+    if(analysis.par.list$mean_var_type == 'radical'){
+      temp.drch.hypers$bkg_dispersion <- c(1, 0, 0)
+    } else if(analysis.par.list$mean_var_type == 'independent'){
+      temp.drch.hypers$bkg_dispersion <- c(1)
+    }
 
-    temp.hyper.params <- c(sqrt(temp.drch.hypers$alpha0), sqrt(temp.drch.hypers$alpha1))
-    temp.alpha0.idx <- c(1:length(temp.drch.hypers$alpha0))
-    temp.alpha1.idx <- c(1:length(temp.drch.hypers$alpha0)) + max(temp.alpha0.idx)
+    
+    # temp.hyper.params <- c(sqrt(temp.drch.hypers$alpha0), sqrt(temp.drch.hypers$alpha1))
+    # temp.alpha0.idx <- c(1:length(temp.drch.hypers$alpha0))
+    # temp.alpha1.idx <- c(1:length(temp.drch.hypers$alpha1)) + max(temp.alpha0.idx)
+     
+    temp.hyper.params <- c(sqrt(temp.drch.hypers$bkg_alpha), sqrt(temp.drch.hypers$FS_alpha), temp.drch.hypers$bkg_dispersion)
+    temp.bkg.idx <- c(1:length(temp.drch.hypers$bkg_alpha))
+    temp.fs.idx <- c(1:length(temp.drch.hypers$FS_alpha)) + max(temp.bkg.idx)
+    temp.disp.idx <- c(1:length(temp.drch.hypers$bkg_dispersion)) + max(temp.fs.idx)
 
     temp.res.drch <- c()
 
     if(one.dispersion){
-      temp.res.drch <- optim(temp.hyper.params, prior_dirichlet_ll_singleDisp, method= 'L-BFGS-B', #'BFGS', #"Nelder-Mead",
-                             data = data.par.list$data[[i]], region.ll.list = dirichlet.guide.ll,
-                             alpha0.idx = temp.alpha0.idx, alpha1.idx = temp.alpha1.idx,
-                             guide.efficiency = data.par.list$guide_efficiency)
+      temp.res.drch <- optim(temp.hyper.params, prior_dirichlet_parameters, method= 'L-BFGS-B',
+                             data = data.par.list$data[[i]], 
+                             region.ll.list = dirichlet.guide.ll,
+                             bkg.idx = temp.bkg.idx, 
+                             fs.idx = temp.fs.idx, 
+                             disp.idx = temp.disp.idx, 
+                             guide.efficiency = data.par.list$guide_efficiency, 
+                             mean.var.type = analysis.par.list$mean_var_type)
+      
+      # temp.res.drch <- optim(temp.hyper.params, prior_dirichlet_ll_singleDisp, method= 'L-BFGS-B', #'BFGS', #"Nelder-Mead",
+      #                        data = data.par.list$data[[i]], region.ll.list = dirichlet.guide.ll,
+      #                        alpha0.idx = temp.alpha0.idx, alpha1.idx = temp.alpha1.idx,
+      #                        guide.efficiency = data.par.list$guide_efficiency)
+      
+      final.dirichlet.pars$bkg_alpha[[i]] <- temp.res.drch$par[temp.bkg.idx]**2
+      final.dirichlet.pars$FS_alpha[[i]] <- temp.res.drch$par[temp.fs.idx]**2
+      final.dirichlet.pars$bkg_dispersion[[i]] <- temp.res.drch$par[temp.disp.idx]
 
-      temp.alpha0s <- temp.res.drch$par[temp.alpha0.idx]**2
-      temp.alpha1s <- temp.res.drch$par[temp.alpha1.idx]**2
-
-      temp.alpha1s.norm <- temp.alpha1s / sum(temp.alpha1s)
-      temp.alpha1s.adj <- temp.alpha1s.norm * sum(temp.alpha0s)
-
-      final.alpha$alpha0[[i]] <- temp.alpha0s
-      final.alpha$alpha1[[i]] <- temp.alpha1s.adj
+      # temp.alpha0s <- temp.res.drch$par[temp.alpha0.idx]**2
+      # temp.alpha1s <- temp.res.drch$par[temp.alpha1.idx]**2
+      # 
+      # temp.alpha1s.norm <- temp.alpha1s / sum(temp.alpha1s)
+      # temp.alpha1s.adj <- temp.alpha1s.norm * sum(temp.alpha0s)
+      # 
+      # final.alpha$alpha0[[i]] <- temp.alpha0s
+      # final.alpha$alpha1[[i]] <- temp.alpha1s.adj
 
       # final.alpha[[i]] <- round(temp.alpha1s.adj, 3)
     } else {
-      temp.res.drch <- optim(temp.hyper.params, prior_dirichlet_ll, method= 'L-BFGS-B', #'BFGS', #"Nelder-Mead",
-                             data = data.par.list$data[[i]], region.ll.list = dirichlet.guide.ll,
-                             alpha0.idx = temp.alpha0.idx, alpha1.idx = temp.alpha1.idx,
-                             guide.efficiency = data.par.list$guide_efficiency)
-
-      temp.alpha0s <- temp.res.drch$par[temp.alpha0.idx]**2
-      temp.alpha1s <- temp.res.drch$par[temp.alpha1.idx]**2
-
-      final.alpha$alpha0[[i]] <- temp.alpha0s
-      final.alpha$alpha1[[i]] <- temp.alpha1s
+      print('two-dispersion option currently disabled!')
+      break()
+      # temp.res.drch <- optim(temp.hyper.params, prior_dirichlet_ll, method= 'L-BFGS-B', #'BFGS', #"Nelder-Mead",
+      #                        data = data.par.list$data[[i]], region.ll.list = dirichlet.guide.ll,
+      #                        alpha0.idx = temp.alpha0.idx, alpha1.idx = temp.alpha1.idx,
+      #                        guide.efficiency = data.par.list$guide_efficiency)
+      # 
+      # temp.alpha0s <- temp.res.drch$par[temp.alpha0.idx]**2
+      # temp.alpha1s <- temp.res.drch$par[temp.alpha1.idx]**2
+      # 
+      # final.alpha$alpha0[[i]] <- temp.alpha0s
+      # final.alpha$alpha1[[i]] <- temp.alpha1s
 
     }
 
-
   }
 
-  final.alpha$L <- 1
+  # final.alpha$L <- 1
+  # return(final.alpha)
 
-  return(final.alpha)
+  final.dirichlet.pars$L <- 1
+  return(final.dirichlet.pars)
+}
 
+
+#' @title optimize the hyper parameters, only one dispersion across the two distributions
+#' @param hyper.param: hyperparameters
+#' @param data: data, consists of: $pool1, pool2... and $n
+#' @param region.ll.list: list containing the ll and the indexes of the null alternative and both
+#' @param bkg.idx: positions in the par vector of the background alphas
+#' @param fs.idx: positions in the par vector of the FS alphas
+#' @param disp.idx: positions in the par vector of the dispersion parameters
+#' @param guide.efficiency: data.frame of guide efficiences. Either vector of guide efficiency or NULL
+#' @param mean.var.type: type of mean-variance relationship
+#' @return sum of the -log likelihood across all guides
+#' @export prior_dirichlet_parameters()
+
+prior_dirichlet_parameters <- function(hyper.param, data, region.ll.list, bkg.idx, fs.idx, disp.idx, 
+                                       guide.efficiency, mean.var.type) {
+  
+  bkg.alpha <- hyper.param[bkg.idx]**2
+  fs.alpha <- hyper.param[fs.idx]**2
+  disp.alpha <- hyper.param[disp.idx]
+  
+  hyper <- list()
+  
+  if(mean.var.type == 'radical'){
+    temp.disp <- (disp.alpha[1] + disp.alpha[2] * data[,ncol(data)] + disp.alpha[3] * sqrt(data[,ncol(data)]))^2
+    hyper$alpha0 <- t(bkg.alpha %*% t(temp.disp) )
+    hyper$alpha1 <- t(fs.alpha %*% t(temp.disp) )
+  } else if(mean.var.type == 'independent'){
+    temp.disp <- disp.alpha[1]^2
+    hyper$alpha0 <- bkg.alpha * temp.disp
+    hyper$alpha1 <- fs.alpha * temp.disp
+  }
+
+  out.sg.ll <- estimate_relics_sgrna_log_like(hyper, data, region.ll.list, guide.efficiency)
+  
+  -sum(out.sg.ll$total_guide_ll)
 }
 
 
@@ -1442,6 +1510,7 @@ estimate_relics_sgrna_log_like <- function(hyper, data, region.ll.list, guide.ef
     alpha1.matrix <- matrix(0, ncol = length(hyper$alpha0), nrow = length(guide.efficiency))
 
     for(i in 1:length(guide.efficiency)){
+      # this cound be an issue if the dispersion is no longer identical...
       alpha1.matrix[i,] <- alpha0.matrix[i,] - alpha.diffs * guide.efficiency[i]
     }
 
