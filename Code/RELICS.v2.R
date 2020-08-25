@@ -413,6 +413,10 @@ check_parameter_list <- function(input.parameter.list, data.file.split){
       }
     }
   }
+  
+  if(out.parameter.list$crisprSystem == 'dualCRISPR' & (! 'deletionProb' %in% par.given)){
+    out.parameter.list$deletionProb <- 0.2
+  }
 
   if(missing.parameters){
     return(FALSE)
@@ -581,6 +585,10 @@ read_analysis_parameters <- function(parameter.file.loc){
   if('mean_var_type' == parameter.id){
     out.parameter.list$mean_var_type <- strsplit(parameter,':')[[1]][2]
   }
+  
+  if('deletionProb' == parameter.id){
+    out.parameter.list$deletionProb <- as.numeric(strsplit(parameter,':')[[1]][2])
+  }
 
   return(out.parameter.list)
 }
@@ -676,6 +684,8 @@ set_up_RELICS_data <- function(input.parameter.list, data.file.split, guide.offs
   sim.guide.seg.list <- c()
   
   print('Formatting data...')
+  
+  guide.to.seg.lst <- c()
 
   if(input.parameter.list$crisprSystem == 'dualCRISPR' & input.parameter.list$dualToSingle){
 
@@ -691,9 +701,11 @@ set_up_RELICS_data <- function(input.parameter.list, data.file.split, guide.offs
 
     sim.guide.seg.list <- adapt_data_to_regionFormat_forDualCRISPR(sim.counts, repl_pools, sim.info.g1,
                                                                    sim.info.g2, labelHierarchy, min.seg.dist)
-
-  } else {
     
+    guide.to.seg.lst <- sim.guide.seg.list$guide_to_seg_lst
+
+  } else if(input.parameter.list$crisprSystem %in% c('CRISPRi', 'CRISPRa', 'CRISPRcas9')){
+    # single guide setup
     if(! 'sgTarget' %in% names(sim.info)){
       sim.info$sgTarget <- round( (sim.info$start + sim.info$end) / 2)
     }
@@ -706,23 +718,58 @@ set_up_RELICS_data <- function(input.parameter.list, data.file.split, guide.offs
     # seg_info, guide_to_seg_lst, seg_to_guide_lst, counts
     sim.guide.seg.list <- adapt_data_to_regionFormat(sim.counts, repl_pools, sim.info, labelHierarchy, min.seg.dist)
     
-  }
-  
-  guide.to.seg.lst <- sim.guide.seg.list$guide_to_seg_lst
-  
-  if(input.parameter.list$areaOfEffect_type == 'uniform'){
-    guide.to.seg.lst <- lapply(guide.to.seg.lst, function(x){
-      x$dist_to_seg <- rep(1, length(x$dist_to_seg))
-      x
-    })
-  } else if(input.parameter.list$areaOfEffect_type == 'normal'){
-    guide.to.seg.lst <- lapply(guide.to.seg.lst, function(x){
-      x$dist_to_seg <- dnorm(x$dist_to_seg, mean = 0, sd = input.parameter.list$normal_areaOfEffect_sd) / 
-        dnorm(0, mean = 0, sd = input.parameter.list$normal_areaOfEffect_sd)
-      
-      x$dist_to_seg[which(x$dist_to_seg == max(x$dist_to_seg))] <- 1
-      x
-    })
+    guide.to.seg.lst <- sim.guide.seg.list$guide_to_seg_lst
+    
+    if(input.parameter.list$areaOfEffect_type == 'uniform'){
+      guide.to.seg.lst <- lapply(guide.to.seg.lst, function(x){
+        x$dist_to_seg <- rep(1, length(x$dist_to_seg))
+        x
+      })
+    } else if(input.parameter.list$areaOfEffect_type == 'normal'){
+      guide.to.seg.lst <- lapply(guide.to.seg.lst, function(x){
+        x$dist_to_seg <- dnorm(x$dist_to_seg, mean = 0, sd = input.parameter.list$normal_areaOfEffect_sd) / 
+          dnorm(0, mean = 0, sd = input.parameter.list$normal_areaOfEffect_sd)
+        
+        x$dist_to_seg[which(x$dist_to_seg == max(x$dist_to_seg))] <- 1
+        x
+      })
+    }
+    
+  } else if(input.parameter.list$crisprSystem == 'dualCRISPR'){
+    
+    if(! 'sg1_Target' %in% names(sim.info)){
+      sim.info$sg1_Target <- sim.info$start + input.parameter.list$crisprEffectRange
+    }
+    if(! 'sg2_Target' %in% names(sim.info)){
+      sim.info$sg2_Target <- sim.info$end - input.parameter.list$crisprEffectRange
+    }
+    
+    # no guide offset
+    
+    sim.guide.seg.list <- adapt_data_to_regionFormat(sim.counts, repl_pools, sim.info, labelHierarchy, min.seg.dist, is.dual.guide = T)
+    
+    guide.to.seg.lst <- sim.guide.seg.list$guide_to_seg_lst
+    
+    if(input.parameter.list$areaOfEffect_type == 'uniform'){
+      guide.to.seg.lst <- lapply(guide.to.seg.lst, function(x){
+        x$dist_to_seg <- rep(1, length(x$dist_to_seg))
+        x
+      })
+    } else if(input.parameter.list$areaOfEffect_type == 'normal'){
+      guide.to.seg.lst <- lapply(guide.to.seg.lst, function(x){
+        
+        min.dist <- dnorm(x$dist_to_seg, mean = 0, sd = input.parameter.list$normal_areaOfEffect_sd) / 
+          dnorm(0, mean = 0, sd = input.parameter.list$normal_areaOfEffect_sd)
+        
+        min.dist[x$sg_overl_idx] <- 1
+        
+        unif.prob.idx <- min.dist[x$sg_overl_idx[1]:x$sg_overl_idx[2]][which(min.dist[x$sg_overl_idx[1]:x$sg_overl_idx[2]] < input.parameter.list$deletionProb)] <- input.parameter.list$deletionProb
+        
+        x$dist_to_seg <- min.dist
+        
+        x
+      })
+    }
   }
 
   sim.seg.info <- sim.guide.seg.list$seg_info
@@ -1087,10 +1134,11 @@ create_targeting_guide_segment_matrix_forDualCRISPR <- function(input.targeting.
 #' @param input.info: data frame: each row contains chrom, start, end, a label
 #' @param input.label.hierarchy: ordering lof guide labels, left to right signifies ordering hor hierarchy to override in case of multiple labels overlapping
 #' @param min.seg.dist: minimum distance of a segment. Default = 100
+#' @param is.dual.guide, logical, whether screen type is dual CRISPR
 #' @return list: seg_info, guide_to_seg_lst, seg_to_guide_lst, counts (list, per replicate)
 #' @export adapt_data_to_regionFormat()
 
-adapt_data_to_regionFormat <- function(input.counts, replicate.list, input.info, input.label.hierarchy, min.seg.dist = 100){
+adapt_data_to_regionFormat <- function(input.counts, replicate.list, input.info, input.label.hierarchy, min.seg.dist = 100, is.dual.guide = FALSE){
 
   info.targeting.df <- c()
   counts.targeting.df <- c()
@@ -1103,7 +1151,7 @@ adapt_data_to_regionFormat <- function(input.counts, replicate.list, input.info,
   counts.targeting.df <- input.counts
 
   # first create guide-segment matrix for targeting guides: seg_info, guide_to_seg_lst, seg_to_guide_lst
-  targeting.gs.list <- create_targeting_guide_segment_matrix(info.targeting.df, input.label.hierarchy, min.seg.dist)
+  targeting.gs.list <- create_targeting_guide_segment_matrix(info.targeting.df, input.label.hierarchy, min.seg.dist, is.dual.guide)
 
   targeting.gs.list$counts <- list()
   for(i in 1:length(replicate.list)){
@@ -1123,10 +1171,12 @@ adapt_data_to_regionFormat <- function(input.counts, replicate.list, input.info,
 #' @param input.targeting.info: data.frame, start, end, chrom, label
 #' @param input.label.hierarchy: order in which labels are assigned to segments
 #' @param min.seg.dist: minimum distance of a segment. Default = 100
+#' @param is.dual.guide, logical, whether screen type is dual CRISPR
 #' @return list: seg_info, guide_to_seg_lst, seg_to_guide_lst
 #' @export create_targeting_guide_segment_matrix()
 
-create_targeting_guide_segment_matrix <- function(input.targeting.info, input.label.hierarchy, min.seg.dist = 100){
+create_targeting_guide_segment_matrix <- function(input.targeting.info, input.label.hierarchy, 
+                                                  min.seg.dist = 100, is.dual.guide = FALSE){
 
 
   info.chroms <- split(input.targeting.info, input.targeting.info$chrom)
@@ -1203,7 +1253,7 @@ create_targeting_guide_segment_matrix <- function(input.targeting.info, input.la
 
   guide.to.seg.overlaps <- as.data.frame(findOverlaps(score.ranges, region.ranges.filtered, type = 'any'))
   guide.overlap.list <- split(guide.to.seg.overlaps, guide.to.seg.overlaps$queryHits)
-  guide.to.seg.list <- generate_guide_to_seg_list(guide.overlap.list, input.targeting.info, region.df.filtered)
+  guide.to.seg.list <- generate_guide_to_seg_list(guide.overlap.list, input.targeting.info, region.df.filtered, is.dual.guide)
 
   # set the labels for each segment
   region.labels <- unlist(lapply(region.overlap.list, function(x){
@@ -1246,27 +1296,69 @@ generate_seg_to_guide_list <- function(input.seg.overlaps, guide.idx){
 #' @param input.score.overlaps: list: each element is the guide, containing the indexes of the segments with which it overlaps
 #' @param input.info: info data frame. has to contain $start, $end, $sgTarget
 #' @param input.segments: data frame of segment coordinates
+#' @param is.dual.guide, logical; whether the screen is single or dual guide
 #' @return list of lists. each element is a list: $seg_overlapped = containing a vector of indexes, indexing the segments overlapped by it. $dist_to_seg, distance of sgTarget to segment
 #' @export generate_guide_to_seg_list()
 
-generate_guide_to_seg_list <- function(input.guide.overlaps, input.info, input.segments){
-
-  out.guide.to.seg.lst <- lapply(input.guide.overlaps, function(x){
-    #x$subjectHits
-    temp.guide <- input.info[x$queryHits[1],]
+generate_guide_to_seg_list <- function(input.guide.overlaps, input.info, input.segments, is.dual.guide = FALSE){
+  
+  out.guide.to.seg.lst <- c()
+  
+  if(! is.dual.guide){
+    out.guide.to.seg.lst <- lapply(input.guide.overlaps, function(x){
+      #x$subjectHits
+      temp.guide <- input.info[x$queryHits[1],]
+      
+      temp.segments <- input.segments[x$subjectHits,,drop = F]
+      
+      dists.to.seg <- vector('numeric', length = length(x$subjectHits))
+      
+      for(i in 1:nrow(temp.segments)){
+        dists.to.seg[i] <- min(c(abs(temp.guide$sgTarget - temp.segments$start[i]), 
+                                 abs(temp.guide$sgTarget - temp.segments$end[i])))
+      }
+      
+      list(seg_overlapped = x$subjectHits,
+           dist_to_seg = dists.to.seg)
+    })
     
-    temp.segments <- input.segments[x$subjectHits,,drop = F]
+  } else {
     
-    dists.to.seg <- vector('numeric', length = length(x$subjectHits))
+    out.guide.to.seg.lst <- lapply(input.guide.overlaps, function(x){
+      temp.guide <- input.info[x$queryHits[1],]
+      
+      temp.segments <- input.segments[x$subjectHits,,drop = F]
+      
+      dists.to.seg <- vector('numeric', length = length(x$subjectHits))
+      g1.min.dist <- 1e6
+      g2.min.dist <- 1e6
+      sg.overl.idx <- vector('numeric', length = 2)
+      
+      for(i in 1:nrow(temp.segments)){
+        temp.g1.dist <- min(c(abs(temp.guide$sg1_Target - temp.segments$start[i]), 
+                                 abs(temp.guide$sg1_Target - temp.segments$end[i])))
+        temp.g2.dist <- min(c(abs(temp.guide$sg2_Target - temp.segments$start[i]), 
+                                 abs(temp.guide$sg2_Target - temp.segments$end[i])))
+        
+        dists.to.seg[i] <- min(temp.g1.dist, temp.g2.dist)
+        
+        if(temp.g1.dist < g1.min.dist){
+          g1.min.dist <- temp.g1.dist
+          sg.overl.idx[1] <- i
+        } 
+        if(temp.g2.dist < g2.min.dist){
+          g2.min.dist <- temp.g2.dist
+          sg.overl.idx[2] <- i
+        }
+      }
+      
+      list(seg_overlapped = x$subjectHits,
+           dist_to_seg = dists.to.seg,
+           sg_overl_idx = sg.overl.idx)
+    })
     
-    for(i in 1:nrow(temp.segments)){
-      dists.to.seg[i] <- min(c(abs(temp.guide$sgTarget - temp.segments$start[i]), 
-                               abs(temp.guide$sgTarget - temp.segments$end[i])))
-    }
     
-    list(seg_overlapped = x$subjectHits,
-         dist_to_seg = dists.to.seg)
-  })
+  }
 
   return(out.guide.to.seg.lst)
 }
