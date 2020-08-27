@@ -305,40 +305,6 @@ check_parameter_list <- function(input.parameter.list, data.file.split){
   if(! 'areaOfEffect_type' %in% par.given){
     out.parameter.list$areaOfEffect_type <- 'normal'
   }
-  
-  if(out.parameter.list$areaOfEffect_type == 'uniform'){
-    if(! 'crisprEffectRange' %in% par.given){
-      if(out.parameter.list$crisprSystem == 'CRISPRi' | out.parameter.list$crisprSystem == 'CRISPRa'){
-        out.parameter.list$crisprEffectRange <- 500
-      } else if(out.parameter.list$crisprSystem == 'Cas9'){
-        out.parameter.list$crisprEffectRange <- 10
-      } else if(out.parameter.list$crisprSystem == 'dualCRISPR'){
-        out.parameter.list$crisprEffectRange <- 0
-      } else {
-        print("Error: please specify a valid CRISPR system for the 'uniform' area of effect (Cas9, CRISPRi, CRISPRa, dualCRISPR)")
-        break()
-      }
-    }
-  }
-  
-  if(out.parameter.list$areaOfEffect_type == 'normal'){
-    if(! 'normal_areaOfEffect_sd' %in% par.given){
-      if(out.parameter.list$crisprSystem %in% c('CRISPRi', 'CRISPRa', 'dualCRISPRi', 'dualCRISPRa') ){
-        out.parameter.list$normal_areaOfEffect_sd <- 170
-        if(! 'crisprEffectRange' %in% par.given){
-          out.parameter.list$crisprEffectRange <- 415
-        }
-      } else if(out.parameter.list$crisprSystem %in% c('Cas9', 'dualCRISPR') ){
-        out.parameter.list$normal_areaOfEffect_sd <- 8.5
-        if(! 'crisprEffectRange' %in% par.given){
-          out.parameter.list$crisprEffectRange <- 21
-        }
-      } else {
-        print("Error: please specify a valid CRISPR system for the 'uniform' area of effect (Cas9, CRISPRi, CRISPRa, dualCRISPR)")
-        break()
-      }
-    }
-  }
 
   if(! 'mean_var_type' %in% par.given){
     out.parameter.list$mean_var_type <- 'radical'
@@ -350,7 +316,6 @@ check_parameter_list <- function(input.parameter.list, data.file.split){
   } else {
     minimum.parameters <- c('dataName','repl_groups', 'DataInputFileLoc', 'min_FS_nr', 'crisprSystem', 'FS0_label')
   }
-  # crisprSystem options: CRISPRcas9, CRISPRa, dualCRISPR
 
   par.given <- names(input.parameter.list)
   missing.parameters <- FALSE
@@ -392,24 +357,62 @@ check_parameter_list <- function(input.parameter.list, data.file.split){
       }
     }
 
-    # for the crisprSystem, check if effect range is given, else use default
+    # # for the crisprSystem, check if effect range is given, else use default
     if(minimum.parameters[i] == 'crisprSystem'){
-      if(! 'crisprEffectRange' %in% par.given){
-        if(input.parameter.list$crisprSystem == 'CRISPRi'){
-          out.parameter.list$crisprEffectRange <- 200
-        } else if(input.parameter.list$crisprSystem == 'CRISPRa'){
-          out.parameter.list$crisprEffectRange <- 200
-        } else if(input.parameter.list$crisprSystem == 'CRISPRcas9'){
-          out.parameter.list$crisprEffectRange <- 20
-        } else if(input.parameter.list$crisprSystem == 'dualCRISPR'){
-          out.parameter.list$crisprEffectRange <- 0
-        } else{
-          print(paste0('Please provide a valid CRISPR system: CRISPRi, CRISPRa, CRISPRcas9 or dualCRISPR'))
+      if(! out.parameter.list$crisprSystem %in% c('CRISPRi', 'CRISPRa', 'Cas9', 'CRISPRcas9', 'dualCRISPR')){
+          print(paste0('Please provide a valid CRISPR system: CRISPRi, CRISPRa, Cas9 (or CRISPRcas9) or dualCRISPR'))
           missing.parameters <- TRUE
         }
-      } else if(! out.parameter.list$crisprSystem %in% c('CRISPRi', 'CRISPRa', 'CRISPRcas9', 'dualCRISPR')){
-        print(paste0('Please provide a valid CRISPR system: CRISPRi, CRISPRa, CRISPRcas9 or dualCRISPR'))
-        missing.parameters <- TRUE
+    #   if(! 'crisprEffectRange' %in% par.given){
+    #     if(input.parameter.list$crisprSystem == 'CRISPRi'){
+    #       out.parameter.list$crisprEffectRange <- 200
+    #     } else if(input.parameter.list$crisprSystem == 'CRISPRa'){
+    #       out.parameter.list$crisprEffectRange <- 200
+    #     } else if(input.parameter.list$crisprSystem %in% c('CRISPRcas9', 'Cas9')){
+    #       out.parameter.list$crisprEffectRange <- 20
+    #     } else if(input.parameter.list$crisprSystem == 'dualCRISPR'){
+    #       out.parameter.list$crisprEffectRange <- 0
+    #     } else{
+    #       print(paste0('Please provide a valid CRISPR system: CRISPRi, CRISPRa, Cas9 (or CRISPRcas9), or dualCRISPR'))
+    #       missing.parameters <- TRUE
+    #     }
+    #   } else if(! out.parameter.list$crisprSystem %in% c('CRISPRi', 'CRISPRa', 'Cas9', 'CRISPRcas9', 'dualCRISPR')){
+    #     print(paste0('Please provide a valid CRISPR system: CRISPRi, CRISPRa, Cas9 (or CRISPRcas9) or dualCRISPR'))
+    #     missing.parameters <- TRUE
+    #   }
+    }
+  }
+  
+  if(out.parameter.list$areaOfEffect_type == 'uniform'){
+    if(! 'crisprEffectRange' %in% par.given){
+      if(out.parameter.list$crisprSystem == 'CRISPRi' | out.parameter.list$crisprSystem == 'CRISPRa'){
+        out.parameter.list$crisprEffectRange <- 500
+      } else if(out.parameter.list$crisprSystem %in% c('Cas9','CRISPRcas9') ){
+        out.parameter.list$crisprEffectRange <- 10
+      } else if(out.parameter.list$crisprSystem == 'dualCRISPR'){
+        out.parameter.list$crisprEffectRange <- 0
+      } else {
+        print("Error: please specify a valid CRISPR system for the 'uniform' area of effect (Cas9 (or CRISPRcas9), CRISPRi, CRISPRa, dualCRISPR)")
+        break()
+      }
+    }
+  }
+  
+  if(out.parameter.list$areaOfEffect_type == 'normal'){
+    if(! 'normal_areaOfEffect_sd' %in% par.given){
+      if(out.parameter.list$crisprSystem %in% c('CRISPRi', 'CRISPRa', 'dualCRISPRi', 'dualCRISPRa') ){
+        out.parameter.list$normal_areaOfEffect_sd <- 170
+        if(! 'crisprEffectRange' %in% par.given){
+          out.parameter.list$crisprEffectRange <- 415
+        }
+      } else if(out.parameter.list$crisprSystem %in% c('Cas9','CRISPRcas9', 'dualCRISPR') ){
+        out.parameter.list$normal_areaOfEffect_sd <- 8.5
+        if(! 'crisprEffectRange' %in% par.given){
+          out.parameter.list$crisprEffectRange <- 21
+        }
+      } else {
+        print("Error: please specify a valid CRISPR system for the 'uniform' area of effect (Cas9 (or CRISPRcas9), CRISPRi, CRISPRa, dualCRISPR)")
+        break()
       }
     }
   }
@@ -704,7 +707,7 @@ set_up_RELICS_data <- function(input.parameter.list, data.file.split, guide.offs
     
     guide.to.seg.lst <- sim.guide.seg.list$guide_to_seg_lst
 
-  } else if(input.parameter.list$crisprSystem %in% c('CRISPRi', 'CRISPRa', 'CRISPRcas9')){
+  } else if(input.parameter.list$crisprSystem %in% c('CRISPRi', 'CRISPRa', 'CRISPRcas9', 'Cas9')){
     # single guide setup
     if(! 'sgTarget' %in% names(sim.info)){
       sim.info$sgTarget <- round( (sim.info$start + sim.info$end) / 2)
