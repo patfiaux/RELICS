@@ -1707,10 +1707,15 @@ compute_perGuide_fs_ll <- function(cumulative.pp, guide.seg.idx.lst, hyper.setup
     region.pp <- cumulative.pp[guide.seg.idx.lst[[j]]$seg_overlapped]
     
     region.pp.distance.adj <- region.pp * guide.seg.idx.lst[[j]]$dist_to_seg
+    
+    p.k.eq.0 <- 0
+    
+    if(max(region.pp.distance.adj) < 1){
+      # compute probability that number of regulatory regions overlapped by this sgRNA is 0 or >0, given posterior
+      # probabilities, using poisson binomial probability mass function
+      p.k.eq.0 <- dpoibin(0, region.pp.distance.adj)
+    }
 
-    # compute probability that number of regulatory regions overlapped by this sgRNA is 0 or >0, given posterior
-    # probabilities, using poisson binomial probability mass function
-    p.k.eq.0 <- dpoibin(0, region.pp.distance.adj)
     p.k.gt.0 <- 1-p.k.eq.0
 
     null.ll[j] <- log(p.k.eq.0)
@@ -2502,7 +2507,10 @@ record_sum_effectSizes <- function(input.pp, input.min.rs.pp, hyper, data,
 
 FS_prop_eSize <- function(fs.alpha, alpha.zero, input.disp, data, region.ll.list, guide.efficiency) {
   
-  fs.alpha.adj <- c(1, fs.alpha**2) / sum(c(1, fs.alpha**2))
+  adj.alpha <- fs.alpha**2
+  adj.alpha[which(adj.alpha == 0)] <- 0.001
+  
+  fs.alpha.adj <- c(1, adj.alpha) / sum(c(1, adj.alpha))
   alpha.one <- t(fs.alpha.adj %*% t(input.disp) )
 
   hyper <- list(alpha0 = alpha.zero,
