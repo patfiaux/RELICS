@@ -1492,9 +1492,9 @@ estimate_hyper_parameters <- function(data.par.list, analysis.par.list, input.re
         final.alpha$alpha0[[i]] <- t(temp.bkg.alpha %*% t(temp.disp) )
         final.alpha$alpha1[[i]] <- t(temp.fs.alpha %*% t(temp.disp) )
       } else if(analysis.par.list$mean_var_type == 'independent'){
-        temp.disp <- temp.bkg.disp[1]^2
-        final.alpha$alpha0[[i]] <- temp.bkg.alpha * temp.disp
-        final.alpha$alpha1[[i]] <- temp.fs.alpha * temp.disp
+        temp.disp <- rep(temp.bkg.disp[1]^2, nrow(data.par.list$data[[i]]))
+        final.alpha$alpha0[[i]] <- t(temp.bkg.alpha %*% t(temp.disp) )
+        final.alpha$alpha1[[i]] <- t(temp.fs.alpha %*% t(temp.disp) )
       }
 
       # temp.alpha0s <- temp.res.drch$par[temp.alpha0.idx]**2
@@ -1721,6 +1721,8 @@ compute_perGuide_fs_ll <- function(cumulative.pp, guide.seg.idx.lst, hyper.setup
       # compute probability that number of regulatory regions overlapped by this sgRNA is 0 or >0, given posterior
       # probabilities, using poisson binomial probability mass function
       p.k.eq.0 <- dpoibin(0, region.pp.distance.adj)
+    } else if(max(region.pp.distance.adj) == 0){
+      p.k.eq.0 <- 1
     }
 
     p.k.gt.0 <- 1-p.k.eq.0
@@ -3945,7 +3947,6 @@ relics_estimate_pp <- function(param, hyper, data, known.reg,
 
     }
 
-    browser()
     delta.pps <- c()
     
     if(pp.calculation == 'v2'){
@@ -4110,13 +4111,22 @@ estimate_fs_AoE_pp <- function(hyper, in.data.list, in.data.totals, guide.to.seg
     
     initial.guide.ll <- sum(ddirmnom(in.data.list[[repl]][initial.guide.idx,],
                                      size = in.data.totals[[repl]][initial.guide.idx],
-                                     alpha = hyper$alpha1[[repl]], log = T) + log(initial.seg.dist))
+                                     alpha = hyper$alpha1[[repl]][initial.guide.idx,], log = T) + log(initial.seg.dist))
+    initial.guide.ll.bkg <- 0
+    init.with.bkg.idx <- which(initial.seg.dist < 1)
+    
+    if(length(init.with.bkg.idx) > 0){
+      initial.guide.ll.bkg <- sum(ddirmnom(in.data.list[[repl]][initial.guide.idx[init.with.bkg.idx],],
+                                           size = in.data.totals[[repl]][initial.guide.idx[init.with.bkg.idx]],
+                                           alpha = hyper$alpha0[[repl]][initial.guide.idx[init.with.bkg.idx],], log = T) + 
+                                    log(1 - initial.seg.dist[init.with.bkg.idx]))
+    }
     
     # initial.guide.ll <- sum(sg.ll.list[[repl]][initial.guide.idx,2])
     
     
     initial.nonGuide.ll <- sum(sg.ll.list[[repl]][initial.nonGuide.idx,1])
-    initial.segment.ll <- initial.segment.ll + initial.guide.ll + initial.nonGuide.ll + log(dgeom(1, geom.p) / geom.norm.factr)
+    initial.segment.ll <- initial.segment.ll + initial.guide.ll + initial.nonGuide.ll + log(dgeom(1, geom.p) / geom.norm.factr) + initial.guide.ll.bkg
   }
   
   segment.ll.list[[1]] <- initial.segment.ll
@@ -4142,13 +4152,24 @@ estimate_fs_AoE_pp <- function(hyper, in.data.list, in.data.totals, guide.to.seg
       }))
     
     for(repl in 1:length(sg.ll.list)){ # in.data.list
+      
       temp.guide.ll <- sum(ddirmnom(in.data.list[[repl]][temp.guide.idx,],
                                     size = in.data.totals[[repl]][temp.guide.idx],
-                                    alpha = hyper$alpha1[[repl]], log = T) + log(temp.seg.dist))
+                                    alpha = hyper$alpha1[[repl]][temp.guide.idx,], log = T) + log(temp.seg.dist))
+      temp.guide.ll.bkg <- 0
+      
+      temp.with.bkg.idx <- which(temp.seg.dist < 1)
+      
+      if(length(temp.with.bkg.idx) > 0){
+        temp.guide.ll.bkg <- sum(ddirmnom(in.data.list[[repl]][temp.guide.idx[temp.with.bkg.idx],],
+                                          size = in.data.totals[[repl]][temp.guide.idx[temp.with.bkg.idx]],
+                                          alpha = hyper$alpha1[[repl]][temp.guide.idx[temp.with.bkg.idx],], log = T) + 
+                                   log(1 - temp.seg.dist[temp.with.bkg.idx]))
+      }
       
       # temp.guide.ll <- sum(sg.ll.list[[repl]][temp.guide.idx,2])
       temp.nonGuide.ll <- sum(sg.ll.list[[repl]][temp.nonGuide.idx,1])
-      temp.segment.ll <- temp.segment.ll + temp.guide.ll + temp.nonGuide.ll + log(dgeom(1, geom.p) / geom.norm.factr)
+      temp.segment.ll <- temp.segment.ll + temp.guide.ll + temp.nonGuide.ll + log(dgeom(1, geom.p) / geom.norm.factr) + temp.guide.ll.bkg
     }
     segment.ll.list[[seg]] <- temp.segment.ll
     total.ll <- addlogs(total.ll, temp.segment.ll)
@@ -4175,13 +4196,24 @@ estimate_fs_AoE_pp <- function(hyper, in.data.list, in.data.totals, guide.to.seg
       for(repl in 1:length(sg.ll.list)){ # in.data.list
         temp.guide.ll <- sum(ddirmnom(in.data.list[[repl]][temp.guide.idx,],
                                       size = in.data.totals[[repl]][temp.guide.idx],
-                                      alpha = hyper$alpha1[[repl]], log = T) + log(temp.seg.dist))
+                                      alpha = hyper$alpha1[[repl]][temp.guide.idx,], log = T) + log(temp.seg.dist))
+        
+        temp.guide.ll.bkg <- 0
+        
+        temp.with.bkg.idx <- which(temp.seg.dist < 1)
+        
+        if(length(temp.with.bkg.idx) > 0){
+          temp.guide.ll.bkg <- sum(ddirmnom(in.data.list[[repl]][temp.guide.idx[temp.with.bkg.idx],],
+                                            size = in.data.totals[[repl]][temp.guide.idx[temp.with.bkg.idx]],
+                                            alpha = hyper$alpha1[[repl]][temp.guide.idx[temp.with.bkg.idx],], log = T) + 
+                                     log(1 - temp.seg.dist[temp.with.bkg.idx]))
+        }
         
         # temp.guide.ll <- sum(sg.ll.list[[repl]][temp.guide.idx,2])
         temp.nonGuide.ll <- sum(sg.ll.list[[repl]][temp.nonGuide.idx,1])
         
         # likelihood of this continous stretch of bins to contain a regulatory element
-        temp.stretch.ll <- temp.stretch.ll + temp.guide.ll + temp.nonGuide.ll + log(dgeom(1 + ns, geom.p) / geom.norm.factr)
+        temp.stretch.ll <- temp.stretch.ll + temp.guide.ll + temp.nonGuide.ll + log(dgeom(1 + ns, geom.p) / geom.norm.factr) + temp.guide.ll.bkg
         
       }
       
