@@ -78,6 +78,11 @@ RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.
     
     break()
   }
+  
+  plot_counts_vs_dispersion(data.setup$data, analysis.parameters$hyper_par_components, 
+                            paste0(analysis.parameters$out_dir, '/', analysis.parameters$dataName), 
+                            analysis.parameters$nr_disp_bins, analysis.parameters$mean_var_type,
+                            fs0.label = analysis.parameters$FS0_label, data.setup$guide_info)
 
   data.setup$fixed_ge_coeff <- analysis.parameters$fixed_ge_coeff
 
@@ -130,6 +135,129 @@ RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.
 
 
 }
+
+#' @title plot the relationship between the total counts and the dispersion
+#' @param input.hypers: list: hyper parameters
+#' @param input.data: list: each element is a replicate
+#' @param out.dir: directory to which the file is written
+#' @param mean.var.type: type of count-varaince relationship
+#' @param nr.bins: default 20, number of bins to divide the data into for estimating the hyper parameters
+#' @param fs0.label: label of the training guides
+#' @param guide.info: info file
+#' @return plot
+#' @export plot_counts_vs_dispersion()
+
+plot_counts_vs_dispersion <- function(input.data, input.hypers, out.dir, nr.bins = 20, mean.var.type,
+                                      fs0.label, guide.info){
+  
+  # identify guides used for training and not part of background calculation, remove them
+  fs0.label.idx <- which(guide.info$label %in% fs0.label)
+  
+  for(repl in 1:length(input.data)){
+    
+    temp.counts <- input.data[[repl]]
+    temp.counts <- temp.counts[-fs0.label.idx,]
+    
+    temp.total.counts <- temp.counts[,ncol(temp.counts)]
+    
+    temp.bkg.freq <- c(1, input.hypers$bkg_alpha[[repl]]) / sum(c(1,input.hypers$bkg_alpha[[repl]]) )
+    # temp.fs.freq <- input.hypers$hyper_par_components$FS_alpha / sum(input.hypers$hyper_par_components$FS_alpha)
+    
+    temp.bkg.disp <- input.hypers$bkg_dispersion[[repl]]
+    temp.disp <- c()
+    
+    if(mean.var.type == 'radical'){
+      temp.disp <- temp.bkg.disp[1] + temp.bkg.disp[2] * temp.total.counts + temp.bkg.disp[3] * sqrt(temp.total.counts)
+      temp.disp[which(temp.disp < 0.1)] <- 0.1
+    } else if(mean.var.type == 'exponential'){
+      temp.disp <- temp.bkg.disp[1] + temp.bkg.disp[2] * log(temp.total.counts)
+      # temp.disp <- temp.bkg.disp[1] + temp.bkg.disp[2] * temp.total.counts + temp.bkg.disp[3] * log(temp.total.counts + 1)
+      temp.disp[which(temp.disp < 0.1)] <- 0.1
+      temp.disp[which(is.na(temp.disp))] <- 0.1
+      temp.disp[which(temp.disp == Inf)] <- max(temp.disp[which(temp.disp < Inf)])
+    } else if(mean.var.type == 'independent'){
+      temp.disp <- rep(temp.bkg.disp[1]^2, length(temp.total.counts))
+    }
+
+    # sort counts and set up bins
+    temp.counts.sort <- temp.counts[order(temp.counts[,ncol(temp.counts)], decreasing = T),]
+    temp.bg.disp <- 20 # randomly start the bkg dispersion
+    
+    disp.groups <- nr.bins
+    guides.per.grp <- round(nrow(temp.counts.sort)/disp.groups)
+    guide.grouping <- rep(c(1:disp.groups), each = guides.per.grp)[1:nrow(temp.counts.sort)]
+
+    # for each bin of guides estimate a dispersion parameter
+    temp.repl.counts.groups <- split(temp.counts.sort, guide.grouping)
+    
+    temp.repl.group.disp <- unlist(lapply(temp.repl.counts.groups, function(x){
+      
+      temp.grp.disp <- sqrt(temp.bg.disp)
+      temp.res <- optim(temp.grp.disp, optim_guide_disp,
+                        input.hyper = temp.bkg.freq, 
+                        input.data = x, method= 'L-BFGS-B')
+      temp.res$par^2
+      
+    }))
+    
+    temp.repl.group.means <- unlist(lapply(temp.repl.counts.groups, function(x){
+      mean(x[,ncol(x)])
+    }))
+    
+    # compute the fit
+    vals <- seq(min(temp.total.counts):max(temp.total.counts))
+    if(mean.var.type == 'radical'){
+      mdl <- lm(temp.disp ~ temp.total.counts + sqrt(temp.total.counts))
+      fit <- mdl$coefficients[1] + mdl$coefficients[2]*vals + mdl$coefficients[3]*sqrt(vals)
+    } else if(mean.var.type == 'exponential'){
+      mdl <- lm(temp.disp ~ log(temp.total.counts + 1))
+      fit <- mdl$coefficients[1] + mdl$coefficients[2]*log(vals + 1)
+      
+      # mdl <- lm(temp.disp ~ temp.total.counts + log(temp.total.counts))
+      # fit <- mdl$coefficients[1] + mdl$coefficients[2] * vals + mdl$coefficients[3]*log(vals)
+    } else if(mean.var.type == 'independent'){
+      mdl <- lm(temp.disp ~ temp.total.counts)
+      fit <- rep(mdl$coefficients[1], length(vals))
+    }
+    
+    fit[fit < 0] <- 0
+    
+    pdf(paste0(out.dir, '_countsVSdispersion_repl', repl, '.pdf'), height = 3, width = 8)
+    par(mfrow = c(1,3))
+    plot(x = temp.repl.group.means, y = temp.repl.group.disp, xlab = 'mean bin count', ylab = 'bin dispersion', 
+         main = 'Bin dispersion estimate')
+    lines(x = vals, y = fit)
+    plot(x = log2(temp.repl.group.means + 1), y = log2(temp.repl.group.disp + 1), xlab = 'log2 mean bin count', ylab = 'log2 bin dispersion', 
+         main = 'log2 Bin dispersion estimate')
+    lines(log2(vals + 1), log2(fit + 1))
+    plot(x = log2(temp.total.counts + 1), y = log2(temp.disp + 1), xlab = 'log2 total guide counts', ylab = 'log2 guide dispersion', 
+         main = 'Per-guide dispersion estimate')
+    dev.off()
+    
+  }
+
+}
+
+
+#' @title optimize the dispersion for a set of dirichlet probabilities and data
+#' @param input.hyper: dirichlet probabilities
+#' @param input.data: data frame with guide counts
+#' @param par: parameter to optimize (dispersion)
+#' @return -log likelihood
+#' @export optim_guide_disp()
+
+optim_guide_disp <- function(par, input.hyper, input.data){
+  
+  temp.dir.hyper <- input.hyper * par^2
+  
+  out.ll <- ddirmnom(input.data[,c(1:(ncol(input.data) - 1))], 
+                     size = input.data[,ncol(input.data)], alpha = temp.dir.hyper, log = T)
+  
+  -sum(out.ll)
+}
+
+
+
 
 #' @title given hyper parameters and guide efficiency (optional), report the per-segment ll ratio
 #' @param input.hypers: list: hyper parameters
@@ -185,6 +313,9 @@ check_parameter_list <- function(input.parameter.list, data.file.split){
   # set default to TRUE. But if not background is provided, then switch to false
   out.parameter.list$background_label_specified <- TRUE
   
+  if(! 'nr_disp_bins' %in% par.given){
+    out.parameter.list$nr_disp_bins <- 20
+  }
   if(! 'pp_calculation' %in% par.given){
     out.parameter.list$pp_calculation <- 'v2' #TRUE
   }
@@ -446,6 +577,11 @@ read_analysis_parameters <- function(parameter.file.loc){
 
     parameter.id <- strsplit(parameter,':')[[1]][1]
     
+    nr_disp_bins
+    
+    if('nr_disp_bins' == parameter.id){
+      out.parameter.list$nr_disp_bins <- as.numeric(strsplit(parameter,':')[[1]][2])
+    }
     if('pp_calculation' == parameter.id){
       out.parameter.list$pp_calculation <- strsplit(parameter,':')[[1]][2]
     }
@@ -1444,6 +1580,8 @@ estimate_hyper_parameters <- function(data.par.list, analysis.par.list, input.re
     temp.bkg.disp <- c() 
     if(analysis.par.list$mean_var_type == 'radical'){
       temp.bkg.disp <- c(1, 0, 0)
+    } else if(analysis.par.list$mean_var_type == 'exponential'){
+      temp.bkg.disp <- c(1, 0)
     } else if(analysis.par.list$mean_var_type == 'independent'){
       temp.bkg.disp <- c(1)
     }
@@ -1491,22 +1629,20 @@ estimate_hyper_parameters <- function(data.par.list, analysis.par.list, input.re
         temp.disp[which(temp.disp < 0.1)] <- 0.1
         final.alpha$alpha0[[i]] <- t(temp.bkg.alpha %*% t(temp.disp) )
         final.alpha$alpha1[[i]] <- t(temp.fs.alpha %*% t(temp.disp) )
+      } else if(analysis.par.list$mean_var_type == 'exponential'){
+        temp.disp <- temp.bkg.disp[1] + temp.bkg.disp[2] * log(data.par.list$data[[i]][,ncol(data.par.list$data[[i]])])
+        # temp.disp <- temp.bkg.disp[1] + temp.bkg.disp[2] * data.par.list$data[[i]][,ncol(data.par.list$data[[i]])] + temp.bkg.disp[3] * log(data.par.list$data[[i]][,ncol(data.par.list$data[[i]])] + 1)
+        temp.disp[which(temp.disp < 0.1)] <- 0.1
+        temp.disp[which(is.na(temp.disp))] <- 0.1
+        temp.disp[which(temp.disp == Inf)] <- max(temp.disp[which(temp.disp < Inf)])
+        final.alpha$alpha0[[i]] <- t(temp.bkg.alpha %*% t(temp.disp) )
+        final.alpha$alpha1[[i]] <- t(temp.fs.alpha %*% t(temp.disp) )
       } else if(analysis.par.list$mean_var_type == 'independent'){
         temp.disp <- rep(temp.bkg.disp[1]^2, nrow(data.par.list$data[[i]]))
         final.alpha$alpha0[[i]] <- t(temp.bkg.alpha %*% t(temp.disp) )
         final.alpha$alpha1[[i]] <- t(temp.fs.alpha %*% t(temp.disp) )
       }
 
-      # temp.alpha0s <- temp.res.drch$par[temp.alpha0.idx]**2
-      # temp.alpha1s <- temp.res.drch$par[temp.alpha1.idx]**2
-      # 
-      # temp.alpha1s.norm <- temp.alpha1s / sum(temp.alpha1s)
-      # temp.alpha1s.adj <- temp.alpha1s.norm * sum(temp.alpha0s)
-      # 
-      # final.alpha$alpha0[[i]] <- temp.alpha0s
-      # final.alpha$alpha1[[i]] <- temp.alpha1s.adj
-
-      # final.alpha[[i]] <- round(temp.alpha1s.adj, 3)
     } else {
       print('two-dispersion option currently disabled!')
       break()
@@ -1558,6 +1694,14 @@ prior_dirichlet_parameters <- function(hyper.param, data, region.ll.list, bkg.id
   if(mean.var.type == 'radical'){
     temp.disp <- disp.alpha[1] + disp.alpha[2] * data[,ncol(data)] + disp.alpha[3] * sqrt(data[,ncol(data)])
     temp.disp[which(temp.disp < 0.1)] <- 0.1
+    hyper$alpha0 <- t(bkg.alpha %*% t(temp.disp) )
+    hyper$alpha1 <- t(fs.alpha %*% t(temp.disp) )
+  } else if(mean.var.type == 'exponential'){
+    temp.disp <- disp.alpha[1] + disp.alpha[2] * log(data[,ncol(data)])
+    # temp.disp <- disp.alpha[1] + disp.alpha[2] * data[,ncol(data)] + disp.alpha[3] * log(data[,ncol(data)] + 1)
+    temp.disp[which(temp.disp < 0.1)] <- 0.1
+    temp.disp[which(is.na(temp.disp))] <- 0.1
+    temp.disp[which(temp.disp == Inf)] <- max(temp.disp[which(temp.disp < Inf)])
     hyper$alpha0 <- t(bkg.alpha %*% t(temp.disp) )
     hyper$alpha1 <- t(fs.alpha %*% t(temp.disp) )
   } else if(mean.var.type == 'independent'){
@@ -2394,7 +2538,15 @@ record_sum_effectSizes <- function(input.pp, input.min.rs.pp, hyper, data,
         temp.alpha0 <- c()
         
         if(mean.var.type == 'radical'){
-          temp.disp <- (temp.bkg.disp[1] + temp.bkg.disp[2] * fs.data[,ncol(fs.data)] + temp.bkg.disp[3] * sqrt(fs.data[,ncol(fs.data)]))^2
+          temp.disp <- (temp.bkg.disp[1] + temp.bkg.disp[2] * fs.data[,ncol(fs.data)] + temp.bkg.disp[3] * sqrt(fs.data[,ncol(fs.data)]))
+          temp.disp[which(temp.disp < 0.1)] <- 0.1
+          temp.alpha0 <- t(temp.bkg.alpha %*% t(temp.disp) )
+        } else if(mean.var.type == 'exponential'){
+          temp.disp <- (temp.bkg.disp[1] + temp.bkg.disp[2] * log(fs.data[,ncol(fs.data)]))
+          # temp.disp <- (temp.bkg.disp[1] + temp.bkg.disp[2] * fs.data[,ncol(fs.data)] + temp.bkg.disp[3] * log(fs.data[,ncol(fs.data)] + 1))
+          temp.disp[which(temp.disp < 0.1)] <- 0.1
+          temp.disp[which(is.na(temp.disp))] <- 0.1
+          temp.disp[which(temp.disp == Inf)] <- max(temp.disp[which(temp.disp < Inf)])
           temp.alpha0 <- t(temp.bkg.alpha %*% t(temp.disp) )
         } else if(mean.var.type == 'independent'){
           temp.disp <- temp.bkg.disp[1]^2
@@ -3863,6 +4015,14 @@ recompute_hyper_parameters <- function(param, hyper, hyper.components, data, gui
         if(mean.var.type == 'radical'){
           temp.disp <- temp.bkg.disp[1] + temp.bkg.disp[2] * data[[i]][,ncol(data[[i]])] + temp.bkg.disp[3] * sqrt(data[[i]][,ncol(data[[i]])])
           temp.disp[which(temp.disp < 0.1)] <- 0.1
+          hyper$alpha0[[i]] <- t(temp.bkg.alpha %*% t(temp.disp) )
+          hyper$alpha1[[i]] <- t(temp.fs.alpha %*% t(temp.disp) )
+        } else if(mean.var.type == 'exponential'){
+          temp.disp <- temp.bkg.disp[1] + temp.bkg.disp[2] * log(data[[i]][,ncol(data[[i]])])
+          # temp.disp <- temp.bkg.disp[1] + temp.bkg.disp[2] * data[[i]][,ncol(data[[i]])] + temp.bkg.disp[3] * log(data[[i]][,ncol(data[[i]])])
+          temp.disp[which(temp.disp < 0.1)] <- 0.1
+          temp.disp[which(is.na(temp.disp))] <- 0.1
+          temp.disp[which(temp.disp == Inf)] <- max(temp.disp[which(temp.disp < Inf)])
           hyper$alpha0[[i]] <- t(temp.bkg.alpha %*% t(temp.disp) )
           hyper$alpha1[[i]] <- t(temp.fs.alpha %*% t(temp.disp) )
         } else if(mean.var.type == 'independent'){
