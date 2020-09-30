@@ -136,6 +136,31 @@ RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.
 
 }
 
+
+#' @title optimize the hyper parameters, only one dispersion across the two distributions. But only for the background guides
+#' @param hyper.param: hyperparameters
+#' @param data: data, consists of: $pool1, pool2... and $n
+#' @param bkg.idx: positions in the par vector of the background alphas
+#' @param disp.idx: positions in the par vector of the dispersion parameters
+#' @return sum of the -log likelihood across all guides
+#' @export prior_bkg_dirichlet_parameters()
+
+prior_bkg_dirichlet_parameters <- function(hyper.param, data, bkg.idx, disp.idx) {
+  
+  bkg.alpha <- c(1, hyper.param[bkg.idx]**2) / sum(c(1, hyper.param[bkg.idx]**2))
+  disp.alpha <- hyper.param[disp.idx]
+  
+  hyper <- list()
+
+  temp.disp <- disp.alpha[1]^2
+  hyper$alpha0 <- bkg.alpha * temp.disp
+
+  sgrna.null.log.like <- ddirmnom(data[,1:(ncol(data) - 1)], size = data[,ncol(data)], alpha = hyper$alpha0, log = T)
+  
+  -sum(sgrna.null.log.like)
+}
+
+
 #' @title plot the relationship between the total counts and the dispersion
 #' @param input.hypers: list: hyper parameters
 #' @param input.data: list: each element is a replicate
@@ -153,6 +178,8 @@ plot_counts_vs_dispersion <- function(input.data, input.hypers, out.dir, nr.bins
   # identify guides used for training and not part of background calculation, remove them
   fs0.label.idx <- which(guide.info$label %in% fs0.label)
   
+  out.est.hypers <- c()
+  
   for(repl in 1:length(input.data)){
     
     temp.counts <- input.data[[repl]]
@@ -160,7 +187,27 @@ plot_counts_vs_dispersion <- function(input.data, input.hypers, out.dir, nr.bins
     
     temp.total.counts <- temp.counts[,ncol(temp.counts)]
     
-    temp.bkg.freq <- c(1, input.hypers$bkg_alpha[[repl]]) / sum(c(1,input.hypers$bkg_alpha[[repl]]) )
+    ############
+    # compute the hyper parameters with just proportion and one dispersion
+    # only do so for background
+    temp.bkg.alpha <- rep(1, ncol(temp.counts) - 2)
+    temp.bkg.disp <- c(1)
+
+    temp.hyper.params <- c(temp.bkg.alpha, temp.bkg.disp)
+    temp.bkg.idx <- c(1:length(temp.bkg.alpha))
+    temp.disp.idx <- length(temp.hyper.params)
+    
+    temp.res.drch <- optim(temp.hyper.params, prior_bkg_dirichlet_parameters, method= 'L-BFGS-B',
+                           data = temp.counts, 
+                           bkg.idx = temp.bkg.idx, 
+                           disp.idx = temp.disp.idx)
+
+    temp.bkg.freq <- c(1, temp.res.drch$par[temp.bkg.idx]**2) / sum(c(1, temp.res.drch$par[temp.bkg.idx]**2))
+    temp.bkg.disp.optim <- temp.res.drch$par[temp.disp.idx]^2
+    
+    out.est.hypers <- rbind(out.est.hypers, c(temp.bkg.freq, temp.bkg.disp.optim))
+    
+    # temp.bkg.freq <- c(1, input.hypers$bkg_alpha[[repl]]) / sum(c(1,input.hypers$bkg_alpha[[repl]]) )
     # temp.fs.freq <- input.hypers$hyper_par_components$FS_alpha / sum(input.hypers$hyper_par_components$FS_alpha)
     
     temp.bkg.disp <- input.hypers$bkg_dispersion[[repl]]
@@ -177,8 +224,13 @@ plot_counts_vs_dispersion <- function(input.data, input.hypers, out.dir, nr.bins
       temp.disp[which(temp.disp == Inf)] <- max(temp.disp[which(temp.disp < Inf)])
     } else if(mean.var.type == 'independent'){
       temp.disp <- rep(temp.bkg.disp[1]^2, length(temp.total.counts))
+    } else if(mean.var.type == 'quadratic'){
+      temp.disp <- temp.bkg.disp[1] + temp.bkg.disp[2] * temp.total.counts + temp.bkg.disp[3] * temp.total.counts^2
+      temp.disp[which(temp.disp < 0.1)] <- 0.1
+      temp.disp[which(is.na(temp.disp))] <- 0.1
+      temp.disp[which(temp.disp == Inf)] <- max(temp.disp[which(temp.disp < Inf)])
     }
-
+    
     # sort counts and set up bins
     temp.counts.sort <- temp.counts[order(temp.counts[,ncol(temp.counts)], decreasing = T),]
     temp.bg.disp <- 20 # randomly start the bkg dispersion
@@ -218,6 +270,9 @@ plot_counts_vs_dispersion <- function(input.data, input.hypers, out.dir, nr.bins
     } else if(mean.var.type == 'independent'){
       mdl <- lm(temp.disp ~ temp.total.counts)
       fit <- rep(mdl$coefficients[1], length(vals))
+    } else if(mean.var.type == 'quadratic'){
+      mdl <- lm(temp.disp ~ temp.total.counts + temp.total.counts^2)
+      fit <- mdl$coefficients[1] + mdl$coefficients[2]*vals + mdl$coefficients[3]*vals^2
     }
     
     fit[fit < 0] <- 0
@@ -235,7 +290,9 @@ plot_counts_vs_dispersion <- function(input.data, input.hypers, out.dir, nr.bins
     dev.off()
     
   }
-
+  
+  write.csv(out.est.hypers, file = paste0(out.dir, '_countsVSdispersion_hyperEst.csv'), row.names = F)
+  
 }
 
 
@@ -1578,7 +1635,7 @@ estimate_hyper_parameters <- function(data.par.list, analysis.par.list, input.re
     #                          FS_alpha = rep(1 / length(input.repl.pools[[i]]), length(input.repl.pools[[i]])))
     
     temp.bkg.disp <- c() 
-    if(analysis.par.list$mean_var_type == 'radical'){
+    if(analysis.par.list$mean_var_type == 'radical' | analysis.par.list$mean_var_type == 'quadratic' ){
       temp.bkg.disp <- c(1, 0, 0)
     } else if(analysis.par.list$mean_var_type == 'exponential'){
       temp.bkg.disp <- c(1, 0)
@@ -1600,10 +1657,11 @@ estimate_hyper_parameters <- function(data.par.list, analysis.par.list, input.re
     temp.disp.idx <- c(1:length(temp.bkg.disp)) + max(temp.fs.idx)
 
     temp.res.drch <- c()
+    repl.data <- data.par.list$data[[i]]
 
     if(one.dispersion){
       temp.res.drch <- optim(temp.hyper.params, prior_dirichlet_parameters, method= 'L-BFGS-B',
-                             data = data.par.list$data[[i]], 
+                             data = repl.data, 
                              region.ll.list = dirichlet.guide.ll,
                              bkg.idx = temp.bkg.idx, 
                              fs.idx = temp.fs.idx, 
@@ -1625,12 +1683,12 @@ estimate_hyper_parameters <- function(data.par.list, analysis.par.list, input.re
       final.dirichlet.pars$bkg_dispersion[[i]] <- temp.bkg.disp
       
       if(analysis.par.list$mean_var_type == 'radical'){
-        temp.disp <- temp.bkg.disp[1] + temp.bkg.disp[2] * data.par.list$data[[i]][,ncol(data.par.list$data[[i]])] + temp.bkg.disp[3] * sqrt(data.par.list$data[[i]][,ncol(data.par.list$data[[i]])])
+        temp.disp <- temp.bkg.disp[1] + temp.bkg.disp[2] * repl.data[,ncol(repl.data)] + temp.bkg.disp[3] * sqrt(repl.data[,ncol(repl.data)])
         temp.disp[which(temp.disp < 0.1)] <- 0.1
         final.alpha$alpha0[[i]] <- t(temp.bkg.alpha %*% t(temp.disp) )
         final.alpha$alpha1[[i]] <- t(temp.fs.alpha %*% t(temp.disp) )
       } else if(analysis.par.list$mean_var_type == 'exponential'){
-        temp.disp <- temp.bkg.disp[1] + temp.bkg.disp[2] * log(data.par.list$data[[i]][,ncol(data.par.list$data[[i]])])
+        temp.disp <- temp.bkg.disp[1] + temp.bkg.disp[2] * log(repl.data[,ncol(repl.data)])
         # temp.disp <- temp.bkg.disp[1] + temp.bkg.disp[2] * data.par.list$data[[i]][,ncol(data.par.list$data[[i]])] + temp.bkg.disp[3] * log(data.par.list$data[[i]][,ncol(data.par.list$data[[i]])] + 1)
         temp.disp[which(temp.disp < 0.1)] <- 0.1
         temp.disp[which(is.na(temp.disp))] <- 0.1
@@ -1638,7 +1696,14 @@ estimate_hyper_parameters <- function(data.par.list, analysis.par.list, input.re
         final.alpha$alpha0[[i]] <- t(temp.bkg.alpha %*% t(temp.disp) )
         final.alpha$alpha1[[i]] <- t(temp.fs.alpha %*% t(temp.disp) )
       } else if(analysis.par.list$mean_var_type == 'independent'){
-        temp.disp <- rep(temp.bkg.disp[1]^2, nrow(data.par.list$data[[i]]))
+        temp.disp <- rep(temp.bkg.disp[1]^2, nrow(repl.data))
+        final.alpha$alpha0[[i]] <- t(temp.bkg.alpha %*% t(temp.disp) )
+        final.alpha$alpha1[[i]] <- t(temp.fs.alpha %*% t(temp.disp) )
+      } else if(analysis.par.list$mean_var_type == 'quadratic'){
+        temp.disp <- temp.bkg.disp[1] + temp.bkg.disp[2] * repl.data[,ncol(repl.data)] + temp.bkg.disp[3] * repl.data[,ncol(repl.data)]^2
+        temp.disp[which(temp.disp < 0.1)] <- 0.1
+        temp.disp[which(is.na(temp.disp))] <- 0.1
+        temp.disp[which(temp.disp == Inf)] <- max(temp.disp[which(temp.disp < Inf)])
         final.alpha$alpha0[[i]] <- t(temp.bkg.alpha %*% t(temp.disp) )
         final.alpha$alpha1[[i]] <- t(temp.fs.alpha %*% t(temp.disp) )
       }
@@ -1708,7 +1773,17 @@ prior_dirichlet_parameters <- function(hyper.param, data, region.ll.list, bkg.id
     temp.disp <- disp.alpha[1]^2
     hyper$alpha0 <- bkg.alpha * temp.disp
     hyper$alpha1 <- fs.alpha * temp.disp
+  } else if(mean.var.type == 'quadratic'){
+    temp.disp <- disp.alpha[1] + disp.alpha[2] * data[,ncol(data)] + disp.alpha[3] * data[,ncol(data)]^2
+    temp.disp[which(temp.disp < 0.1)] <- 0.1
+    temp.disp[which(is.na(temp.disp))] <- 0.1
+    temp.disp[which(temp.disp == Inf)] <- max(temp.disp[which(temp.disp < Inf)])
+    hyper$alpha0 <- t(bkg.alpha %*% t(temp.disp) )
+    hyper$alpha1 <- t(fs.alpha %*% t(temp.disp) )
   }
+  
+  
+  
 
   out.sg.ll <- estimate_relics_sgrna_log_like(hyper, data, region.ll.list, guide.efficiency)
   
@@ -2551,6 +2626,12 @@ record_sum_effectSizes <- function(input.pp, input.min.rs.pp, hyper, data,
         } else if(mean.var.type == 'independent'){
           temp.disp <- temp.bkg.disp[1]^2
           temp.alpha0 <- temp.bkg.alpha * temp.disp
+        } else if(mean.var.type == 'quadratic'){
+          temp.disp <- temp.bkg.disp[1] + temp.bkg.disp[2] * fs.data[,ncol(fs.data)] + temp.bkg.disp[3] * fs.data[,ncol(fs.data)]^2
+          temp.disp[which(temp.disp < 0.1)] <- 0.1
+          temp.disp[which(is.na(temp.disp))] <- 0.1
+          temp.disp[which(temp.disp == Inf)] <- max(temp.disp[which(temp.disp < Inf)])
+          temp.alpha0 <- t(temp.bkg.alpha %*% t(temp.disp) )
         }
 
         # temp.alpha0 <- hyper$alpha0[[i]]
@@ -4027,6 +4108,13 @@ recompute_hyper_parameters <- function(param, hyper, hyper.components, data, gui
           hyper$alpha1[[i]] <- t(temp.fs.alpha %*% t(temp.disp) )
         } else if(mean.var.type == 'independent'){
           temp.disp <- rep(temp.bkg.disp[1]^2, nrow(data[[i]]))
+          hyper$alpha0[[i]] <- t(temp.bkg.alpha %*% t(temp.disp) )
+          hyper$alpha1[[i]] <- t(temp.fs.alpha %*% t(temp.disp) )
+        } else if(mean.var.type == 'quadratic'){
+          temp.disp <- temp.bkg.disp[1] + temp.bkg.disp[2] * data[[i]][,ncol(data[[i]])] + temp.bkg.disp[3] * data[[i]][,ncol(data[[i]])]^2
+          temp.disp[which(temp.disp < 0.1)] <- 0.1
+          temp.disp[which(is.na(temp.disp))] <- 0.1
+          temp.disp[which(temp.disp == Inf)] <- max(temp.disp[which(temp.disp < Inf)])
           hyper$alpha0[[i]] <- t(temp.bkg.alpha %*% t(temp.disp) )
           hyper$alpha1[[i]] <- t(temp.fs.alpha %*% t(temp.disp) )
         }
