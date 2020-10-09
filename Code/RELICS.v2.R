@@ -271,7 +271,8 @@ plot_counts_vs_dispersion <- function(input.data, input.hypers, out.dir, nr.bins
       mdl <- lm(temp.disp ~ temp.total.counts)
       fit <- rep(mdl$coefficients[1], length(vals))
     } else if(mean.var.type == 'quadratic'){
-      mdl <- lm(temp.disp ~ temp.total.counts + temp.total.counts^2)
+      squared.counts <- temp.total.counts^2
+      mdl <- lm(temp.disp ~ temp.total.counts + squared.counts)
       fit <- mdl$coefficients[1] + mdl$coefficients[2]*vals + mdl$coefficients[3]*vals^2
     }
     
@@ -610,7 +611,7 @@ check_parameter_list <- function(input.parameter.list, data.file.split){
   }
   
   if(out.parameter.list$crisprSystem == 'dualCRISPR' & (! 'deletionProb' %in% par.given)){
-    out.parameter.list$deletionProb <- 0.2
+    out.parameter.list$deletionProb <- 0.1
   }
 
   if(missing.parameters){
@@ -1753,7 +1754,7 @@ prior_dirichlet_parameters <- function(hyper.param, data, region.ll.list, bkg.id
   bkg.alpha <- c(1, hyper.param[bkg.idx]**2) / sum(c(1, hyper.param[bkg.idx]**2))
   fs.alpha <- c(1, hyper.param[fs.idx]**2) / sum(c(1, hyper.param[fs.idx]**2))
   disp.alpha <- hyper.param[disp.idx]
-  
+
   hyper <- list()
   
   if(mean.var.type == 'radical'){
@@ -1781,12 +1782,9 @@ prior_dirichlet_parameters <- function(hyper.param, data, region.ll.list, bkg.id
     hyper$alpha0 <- t(bkg.alpha %*% t(temp.disp) )
     hyper$alpha1 <- t(fs.alpha %*% t(temp.disp) )
   }
-  
-  
-  
 
   out.sg.ll <- estimate_relics_sgrna_log_like(hyper, data, region.ll.list, guide.efficiency)
-  
+
   -sum(out.sg.ll$total_guide_ll)
 }
 
