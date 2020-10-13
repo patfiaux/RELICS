@@ -4704,19 +4704,49 @@ estimate_fs_AoE_pp_v2 <- function(hyper, in.data.list, in.data.totals, guide.to.
       dpoibin(0, temp.dist.to.seg)
     }))
     
+    # p.fs.idx <- which(temp.seg.poi.bkg < 1)
+    # p.bkg.idx <- which(temp.seg.poi.bkg > 0)
+
     for(repl in 1:length(sg.ll.list)){ # in.data.list
       
-      temp.guide.ll <- sum(ddirmnom(in.data.list[[repl]][temp.guide.idx,],
-                                    size = in.data.totals[[repl]][temp.guide.idx],
-                                    alpha = hyper$alpha1[[repl]][temp.guide.idx,], log = T) + 
-                             log(1 - temp.seg.poi.bkg) ) # dpoibin(0, temp.seg.dist)
+      temp.guide.ll <- vector('numeric', length = length(temp.seg.poi.bkg))
       
+      for(i in 1:length(temp.seg.poi.bkg)){
+        temp.guide.ll[i] <- addlogs(sg.ll.list[[repl]][temp.guide.idx[i],2]+log(1 - temp.seg.poi.bkg[i]),
+                                    sg.ll.list[[repl]][temp.guide.idx[i],1] +log(temp.seg.poi.bkg[i]))
+        # temp.guide.ll <- sum(temp.guide.ll,
+        #                      addlogs(ddirmnom(in.data.list[[repl]][temp.guide.idx[i],],
+        #                                       size = in.data.totals[[repl]][temp.guide.idx[i]],
+        #                                       alpha = hyper$alpha1[[repl]][temp.guide.idx[i],], log = T) +
+        #                                log(1 - temp.seg.poi.bkg[i]),
+        #                              ddirmnom(in.data.list[[repl]][temp.guide.idx[i],],
+        #                                       size = in.data.totals[[repl]][temp.guide.idx[i]],
+        #                                       alpha = hyper$alpha0[[repl]][temp.guide.idx[i],], log = T) +
+        #                                log(temp.seg.poi.bkg[i]) ) )
+      }
+
+      # temp.fs.ll <- sum(ddirmnom(in.data.list[[repl]][temp.guide.idx[p.fs.idx],],
+      #                            size = in.data.totals[[repl]][temp.guide.idx[p.fs.idx]],
+      #                            alpha = hyper$alpha1[[repl]][temp.guide.idx[p.fs.idx],], log = T) + 
+      #                     log(1 - temp.seg.poi.bkg[p.fs.idx]) )
+      # 
+      # temp.bkg.ll <- sum(ddirmnom(in.data.list[[repl]][temp.guide.idx[p.bkg.idx],],
+      #                             size = in.data.totals[[repl]][temp.guide.idx[p.bkg.idx]],
+      #                             alpha = hyper$alpha0[[repl]][temp.guide.idx[p.bkg.idx],], log = T) + 
+      #                      log(temp.seg.poi.bkg[p.bkg.idx]) )
+
       
-      
-      temp.guide.ll.bkg <- sum(ddirmnom(in.data.list[[repl]][temp.guide.idx,],
-                                        size = in.data.totals[[repl]][temp.guide.idx],
-                                        alpha = hyper$alpha0[[repl]][temp.guide.idx,], log = T) + 
-                                 log(temp.seg.poi.bkg) ) # temp.seg.poi.bkg
+      # temp.guide.ll <- sum(ddirmnom(in.data.list[[repl]][temp.guide.idx,],
+      #                               size = in.data.totals[[repl]][temp.guide.idx],
+      #                               alpha = hyper$alpha1[[repl]][temp.guide.idx,], log = T) +
+      #                        log(1 - temp.seg.poi.bkg) ) # dpoibin(0, temp.seg.dist)
+      # 
+      # 
+      # 
+      # temp.guide.ll.bkg <- sum(ddirmnom(in.data.list[[repl]][temp.guide.idx,],
+      #                                   size = in.data.totals[[repl]][temp.guide.idx],
+      #                                   alpha = hyper$alpha0[[repl]][temp.guide.idx,], log = T) +
+      #                            log(temp.seg.poi.bkg) ) # temp.seg.poi.bkg
       
       # temp.with.bkg.idx <- which(temp.seg.dist < 1)
       # 
@@ -4730,7 +4760,9 @@ estimate_fs_AoE_pp_v2 <- function(hyper, in.data.list, in.data.totals, guide.to.
       # temp.guide.ll <- sum(sg.ll.list[[repl]][temp.guide.idx,2])
       temp.nonGuide.ll <- sum(sg.ll.list[[repl]][temp.nonGuide.idx,1])
       # temp.nonGuide.ll <- sum(sg.ll.list[[repl]][temp.nonGuide.idx])
-      temp.segment.ll <- temp.segment.ll + addlogs(temp.guide.ll, temp.guide.ll.bkg) + temp.nonGuide.ll + log(dgeom(1, geom.p) / geom.norm.factr)
+      # temp.segment.ll <- temp.segment.ll + addlogs(temp.guide.ll, temp.guide.ll.bkg) + temp.nonGuide.ll + log(dgeom(1, geom.p) / geom.norm.factr)
+      # temp.segment.ll <- temp.segment.ll + addlogs(temp.fs.ll, temp.bkg.ll) + temp.nonGuide.ll + log(dgeom(1, geom.p) / geom.norm.factr)
+      temp.segment.ll <- temp.segment.ll + sum(temp.guide.ll) + temp.nonGuide.ll + log(dgeom(1, geom.p) / geom.norm.factr)
     }
     segment.ll.list[[seg]] <- temp.segment.ll
     total.ll <- addlogs(total.ll, temp.segment.ll)
@@ -4761,16 +4793,47 @@ estimate_fs_AoE_pp_v2 <- function(hyper, in.data.list, in.data.totals, guide.to.
         dpoibin(0, temp.dist.to.seg)
       }))
       
+      # p.fs.idx <- which(temp.seg.poi.bkg < 1)
+      # p.bkg.idx <- which(temp.seg.poi.bkg > 0)
+      
       for(repl in 1:length(sg.ll.list)){ # in.data.list
-        temp.guide.ll <- sum(ddirmnom(in.data.list[[repl]][temp.guide.idx,],
-                                      size = in.data.totals[[repl]][temp.guide.idx],
-                                      alpha = hyper$alpha1[[repl]][temp.guide.idx,], log = T) + 
-                               log(1 - temp.seg.poi.bkg) ) # temp.seg.poi.bkg
         
-        temp.guide.ll.bkg <- sum(ddirmnom(in.data.list[[repl]][temp.guide.idx,],
-                                          size = in.data.totals[[repl]][temp.guide.idx],
-                                          alpha = hyper$alpha0[[repl]][temp.guide.idx,], log = T) + 
-                                   log(temp.seg.poi.bkg) ) # temp.seg.poi.bkg
+        temp.guide.ll <- vector('numeric', length = length(temp.seg.poi.bkg))
+
+        for(i in 1:length(temp.seg.poi.bkg)){
+          temp.guide.ll[i] <- addlogs(sg.ll.list[[repl]][temp.guide.idx[i],2]+log(1 - temp.seg.poi.bkg[i]),
+                                      sg.ll.list[[repl]][temp.guide.idx[i],1] +log(temp.seg.poi.bkg[i]))
+          # temp.guide.ll <- sum(temp.guide.ll,
+          #                      addlogs(ddirmnom(in.data.list[[repl]][temp.guide.idx[i],],
+          #                                       size = in.data.totals[[repl]][temp.guide.idx[i]],
+          #                                       alpha = hyper$alpha1[[repl]][temp.guide.idx[i],], log = T) +
+          #                                log(1 - temp.seg.poi.bkg[i]),
+          #                              ddirmnom(in.data.list[[repl]][temp.guide.idx[i],],
+          #                                       size = in.data.totals[[repl]][temp.guide.idx[i]],
+          #                                       alpha = hyper$alpha0[[repl]][temp.guide.idx[i],], log = T) +
+          #                                log(temp.seg.poi.bkg[i]) ) )
+        }
+        
+        # 
+        # temp.fs.ll <- sum(ddirmnom(in.data.list[[repl]][temp.guide.idx[p.fs.idx],],
+        #                            size = in.data.totals[[repl]][temp.guide.idx[p.fs.idx]],
+        #                            alpha = hyper$alpha1[[repl]][temp.guide.idx[p.fs.idx],], log = T) + 
+        #                     log(1 - temp.seg.poi.bkg[p.fs.idx]) )
+        # 
+        # temp.bkg.ll <- sum(ddirmnom(in.data.list[[repl]][temp.guide.idx[p.bkg.idx],],
+        #                             size = in.data.totals[[repl]][temp.guide.idx[p.bkg.idx]],
+        #                             alpha = hyper$alpha0[[repl]][temp.guide.idx[p.bkg.idx],], log = T) + 
+        #                      log(temp.seg.poi.bkg[p.bkg.idx]) )
+        
+        # temp.guide.ll <- sum(ddirmnom(in.data.list[[repl]][temp.guide.idx,],
+        #                               size = in.data.totals[[repl]][temp.guide.idx],
+        #                               alpha = hyper$alpha1[[repl]][temp.guide.idx,], log = T) +
+        #                        log(1 - temp.seg.poi.bkg) ) # temp.seg.poi.bkg
+        # 
+        # temp.guide.ll.bkg <- sum(ddirmnom(in.data.list[[repl]][temp.guide.idx,],
+        #                                   size = in.data.totals[[repl]][temp.guide.idx],
+        #                                   alpha = hyper$alpha0[[repl]][temp.guide.idx,], log = T) +
+        #                            log(temp.seg.poi.bkg) ) # temp.seg.poi.bkg
         
         # temp.with.bkg.idx <- which(temp.seg.dist < 1)
         # 
@@ -4786,7 +4849,9 @@ estimate_fs_AoE_pp_v2 <- function(hyper, in.data.list, in.data.totals, guide.to.
         # temp.nonGuide.ll <- sum(sg.ll.list[[repl]][temp.nonGuide.idx])
         
         # likelihood of this continous stretch of bins to contain a regulatory element
-        temp.stretch.ll <- temp.stretch.ll + addlogs(temp.guide.ll, temp.guide.ll.bkg) + temp.nonGuide.ll + log(dgeom(1 + ns, geom.p) / geom.norm.factr)
+        # temp.stretch.ll <- temp.stretch.ll + addlogs(temp.guide.ll, temp.guide.ll.bkg) + temp.nonGuide.ll + log(dgeom(1 + ns, geom.p) / geom.norm.factr)
+        # temp.stretch.ll <- temp.stretch.ll + addlogs(temp.fs.ll, temp.bkg.ll) + temp.nonGuide.ll + log(dgeom(1 + ns, geom.p) / geom.norm.factr)
+        temp.stretch.ll <- temp.stretch.ll + sum(temp.guide.ll) + temp.nonGuide.ll + log(dgeom(1 + ns, geom.p) / geom.norm.factr)
         
       }
       
