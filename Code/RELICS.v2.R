@@ -45,6 +45,26 @@ RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.
                                    save.files = analysis.parameters$save_input_files,
                                    min.seg.dist = analysis.parameters$seg_dist)
 
+  
+  # # if no spline has yet been specified, identify the optimal one
+  # # To Do 5-fold crossvalidation
+  # repl.splines <- c() # spline df for each replicate
+  # if(analysis.parameters$estimateSpline){
+  #   print('not implemented yet')
+  #   # repl.splines <- identify_splines()
+  #   break()
+  # } else {
+  #   repl.spline.df <- analysis.parameters$repl_spline_df
+    # repl.disp <- disp_from_spline(repl.spline.df, data.setup$data, 
+    #                               paste0(analysis.parameters$out_dir, '/', analysis.parameters$dataName), 
+    #                               analysis.parameters$nr_disp_bins, 
+    #                               analysis.parameters$FS0_label)
+    # analysis.parameters$repl_disp <- repl.disp 
+  # }
+  
+  # 
+  
+  
   # check if hyper parameters are provided, otherwise estimate from data
   if(! 'hyper_pars' %in% names(analysis.parameters)){
 
@@ -56,55 +76,65 @@ RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.
     } else {
       background.labels <- analysis.parameters$labelHierarchy[-which(analysis.parameters$labelHierarchy %in% analysis.parameters$FS0_label)]
     }
-
-    fs0.alphas <- estimate_hyper_parameters(data.setup,
-                                            analysis.parameters,
-                                            input.repl.pools = analysis.parameters$repl_groups,
-                                            fs0.label = analysis.parameters$FS0_label,
-                                            analysis.parameters$one_dispersion)
+    
+    fs0.alphas <-
+    if(analysis.parameters$model_dispersion){
+      fs0.alphas <- estimate_dirichlet_proportions(data.setup,
+                                                   analysis.parameters,
+                                                   input.repl.pools = analysis.parameters$repl_groups,
+                                                   fs0.label = analysis.parameters$FS0_label)
+    } else {
+      fs0.alphas <- estimate_hyper_parameters(data.setup,
+                                              analysis.parameters,
+                                              input.repl.pools = analysis.parameters$repl_groups,
+                                              fs0.label = analysis.parameters$FS0_label,
+                                              analysis.parameters$one_dispersion)
+    }
 
     analysis.parameters$hyper_pars <- fs0.alphas$hyper_pars
     analysis.parameters$hyper_par_components <- fs0.alphas$hyper_par_components
   }
 
-  if(return.init.hypers){
-    # record alphas used for posterior calculation
-    alpha.out.dir <- paste0(analysis.parameters$out_dir, '/', analysis.parameters$dataName)
-    # record_alphas(fs0.alphas$alpha0, fs0.alphas$alpha1, alpha.out.dir, 'init', analysis.parameters$pool_names)
-    record_hyper_components(input.bkg.alpha = fs0.alphas$hyper_par_components$bkg_alpha, 
-                            input.fs.alpha = fs0.alphas$hyper_par_components$FS_alpha, 
-                            input.bkg.disp = fs0.alphas$hyper_par_components$bkg_dispersion,
-                            alpha.out.dir, 'init', analysis.parameters$pool_names)
-    
-    break()
-  }
+  # To Do: need to find better way to deal with estimated hyperparameters
+  # if(return.init.hypers){
+  #   # record alphas used for posterior calculation
+  #   alpha.out.dir <- paste0(analysis.parameters$out_dir, '/', analysis.parameters$dataName)
+  #   # record_alphas(fs0.alphas$alpha0, fs0.alphas$alpha1, alpha.out.dir, 'init', analysis.parameters$pool_names)
+  #   record_hyper_components(input.bkg.alpha = fs0.alphas$hyper_par_components$bkg_alpha, 
+  #                           input.fs.alpha = fs0.alphas$hyper_par_components$FS_alpha, 
+  #                           input.bkg.disp = fs0.alphas$hyper_par_components$bkg_dispersion,
+  #                           alpha.out.dir, 'init', analysis.parameters$pool_names)
+  #   
+  #   break()
+  # }
   
-  plot_counts_vs_dispersion(data.setup$data, analysis.parameters$hyper_par_components, 
-                            paste0(analysis.parameters$out_dir, '/', analysis.parameters$dataName), 
-                            analysis.parameters$nr_disp_bins, analysis.parameters$mean_var_type,
-                            fs0.label = analysis.parameters$FS0_label, data.setup$guide_info)
+  # plot_counts_vs_dispersion(data.setup$data, analysis.parameters$hyper_par_components, 
+  #                           paste0(analysis.parameters$out_dir, '/', analysis.parameters$dataName), 
+  #                           analysis.parameters$nr_disp_bins, analysis.parameters$mean_var_type,
+  #                           fs0.label = analysis.parameters$FS0_label, data.setup$guide_info)
 
   data.setup$fixed_ge_coeff <- analysis.parameters$fixed_ge_coeff
 
-  # if guide efficiency scores are provided, calculate guide efficiency and include in the model
-  if(! is.null(data.setup$guide_efficiency_scores)){
-    
-    if(! analysis.parameters$fixed_ge_coeff){
-
-      temp.relics.params <- init_relics_param(analysis.parameters$hyper_pars, data.setup, analysis.parameters$local_max)
-
-      ge.list <- recompute_ge_coefficients(temp.relics.params,
-                                           analysis.parameters$hyper_pars,
-                                           data.setup$data,
-                                           data.setup$guide_to_seg_lst,
-                                           data.setup$guide_efficiency_scores,
-                                           c(0, rep(1, ncol(data.setup$guide_efficiency_scores))))
-
-      data.setup$guide_efficiency <- ge.list$guide_efficiency
-      data.setup$ge_coeff <- ge.list$ge_coeff
-    }
-
-  }
+  # To Do: adjust the guide efficiency to work with 
+  # # if guide efficiency scores are provided, calculate guide efficiency and include in the model
+  # if(! is.null(data.setup$guide_efficiency_scores)){
+  #   
+  #   if(! analysis.parameters$fixed_ge_coeff){
+  # 
+  #     temp.relics.params <- init_relics_param(analysis.parameters$hyper_pars, data.setup, analysis.parameters$local_max)
+  # 
+  #     ge.list <- recompute_ge_coefficients(temp.relics.params,
+  #                                          analysis.parameters$hyper_pars,
+  #                                          data.setup$data,
+  #                                          data.setup$guide_to_seg_lst,
+  #                                          data.setup$guide_efficiency_scores,
+  #                                          c(0, rep(1, ncol(data.setup$guide_efficiency_scores))))
+  # 
+  #     data.setup$guide_efficiency <- ge.list$guide_efficiency
+  #     data.setup$ge_coeff <- ge.list$ge_coeff
+  #   }
+  # 
+  # }
 
   # plot the per-segment ll-ratio
   out.pars <- list(out_dir = paste0(analysis.parameters$out_dir, '/', analysis.parameters$dataName),
@@ -136,6 +166,103 @@ RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.
 
 }
 
+
+#' @title obtain the splines for each replicate to generate the dispersions
+#' @param repl.spline.df: number of dgrees of freedom used for the spline, per replicate
+#' @param input.data: list: each element is a replicate
+#' @param out.dir: directory to which the file is written
+#' @param nr.bins: default 20, number of bins to divide the data into for estimating the hyper parameters
+#' @param fs0.label: label of the training guides
+#' @return sum of the -log likelihood across all guides
+#' @export disp_from_spline()
+
+disp_from_spline <- function(repl.spline.df, input.data, out.dir, nr.bins = 20, fs0.label) {
+  
+  repl.guide.disp <- list()
+  
+  for(i in 1:length(input.data)){
+    # counts from a replicate. The last column has to be the total of all counts
+    temp.counts <- input.data[[i]]
+    
+    # remove the FS0 labeled data.
+    temp.counts <- temp.counts[-fs0.label.idx,]
+    temp.total.counts <- temp.counts[,ncol(temp.counts)]
+    
+    # estimate the sorting proportions
+    # but only for the background. 
+    # Due to identifiability we only need to specify n-1 sorting proportions, where n is the number of pools
+    temp.bkg.alpha <- rep(1, ncol(temp.counts) - 2)
+    temp.bkg.disp <- c(1)
+    temp.hyper.params <- c(temp.bkg.alpha, temp.bkg.disp)
+    temp.bkg.idx <- c(1:length(temp.bkg.alpha))
+    temp.disp.idx <- length(temp.hyper.params)
+    temp.res.drch <- optim(temp.hyper.params, prior_bkg_dirichlet_parameters, method= 'L-BFGS-B',
+                           data = temp.counts, 
+                           bkg.idx = temp.bkg.idx, 
+                           disp.idx = temp.disp.idx)		
+    
+    # Extract the obtained hyperparameters
+    temp.bkg.freq <- c(1, temp.res.drch$par[temp.bkg.idx]**2) / sum(c(1, temp.res.drch$par[temp.bkg.idx]**2))
+    temp.bkg.disp.optim <- temp.res.drch$par[temp.disp.idx]^2
+    
+    # now estimate the dispersion for each of the bins
+    # the guides are ordered and then placed into bins
+    # the assumption is that with increasing counts in the bins the dispersion will change too
+    temp.counts.sort <- temp.counts[order(temp.counts[,ncol(temp.counts)], decreasing = T),]
+    temp.bg.disp <- temp.bkg.disp.optim # start the bkg dispersion where the optimizer above left off
+    disp.groups <- 100 # number of dispersion groups
+    guides.per.grp <- round(nrow(temp.counts.sort)/disp.groups)
+    guide.grouping <- rep(c(1:disp.groups), each = guides.per.grp)[1:nrow(temp.counts.sort)]
+    temp.repl.counts.groups <- split(temp.counts.sort, guide.grouping)
+    
+    # for each bin, find the optimal dispersion
+    temp.repl.group.disp <- unlist(lapply(temp.repl.counts.groups, function(x){
+      temp.grp.disp <- sqrt(temp.bg.disp)
+      temp.res <- optim(temp.grp.disp, optim_guide_disp,
+                        input.hyper = temp.bkg.freq, 
+                        input.data = x, method= 'L-BFGS-B')
+      temp.res$par^2
+    }))
+    
+    # extract the mean counts of each bin
+    temp.repl.group.means <- unlist(lapply(temp.repl.counts.groups, function(x){
+      mean(x[,ncol(x)])
+    }))
+    
+    # now we can plot the estimated dispersions for each bin
+    pdf(paste0(out.dir, '_countsVSdispersion_repl', repl, '.pdf'), height = 3, width = 8)
+    plot(x = temp.repl.group.means, y = temp.repl.group.disp, xlab = 'mean bin count', ylab = 'bin dispersion', main = 'Bin dispersion estimate')
+    
+    # the df parameter stands for degrees of freedom
+    # it refers to the number of data points that is spaces around the range of all data points to fit the spline
+    # the two corner cases (max and min) are already given. And then it fits another df-1 knots to fitting the data
+    data.df <- data.frame(disp = temp.repl.group.disp, counts = temp.repl.group.means, stringsAsFactors = F)
+    spline.mdl.1 <- lm(disp ~ bs(counts, df = repl.spline.df[[i]]), data = data.df)
+    repl.spline.mdls[[i]] <- spline.mdl.1
+    
+    # Now that you have the spline models established, we have to see how well it actually does
+    # The predict model uses the models established above to compute what the expected 
+    # dispersion is given the range of all possible counts we have in the data.
+    # Because the spline models use the same variable names we first have to set up another data frame with the name 'counts' as the column
+    vals.df <- data.frame(counts = temp.total.counts, stringsAsFactors = F)
+    spline.mdl.1.predict <- predict(spline.mdl.1, vals.df) 
+    
+    # With the predictions we can see how well they actually get modeled
+    points(x = temp.total.counts, y = spline.mdl.1.predict, col = 'red') 
+    dev.off()
+    
+    # cap the dispersion predictions at the highest mean value
+    max.mean.pos <- which(temp.repl.group.means == max(temp.repl.group.means))
+    spline.mdl.1.predict.capped <- spline.mdl.1.predict
+    spline.mdl.1.predict.capped[which(spline.mdl.1.predict > max(temp.total.counts))] <- temp.repl.group.disp[max.mean.pos]
+    
+    repl.guide.disp[[i]] <- list(repl_disp = spline.mdl.1.predict.capped,
+                                 repl_spline_mdl = spline.mdl.1)
+    
+  }
+ 
+  return(repl.guide.disp)
+}
 
 #' @title optimize the hyper parameters, only one dispersion across the two distributions. But only for the background guides
 #' @param hyper.param: hyperparameters
@@ -315,8 +442,6 @@ optim_guide_disp <- function(par, input.hyper, input.data){
 }
 
 
-
-
 #' @title given hyper parameters and guide efficiency (optional), report the per-segment ll ratio
 #' @param input.hypers: list: hyper parameters
 #' @param input.data: list: $seg_to_guide_lst, $guide_efficiency_scores (and $guide_efficiency if former not NULL)
@@ -371,6 +496,12 @@ check_parameter_list <- function(input.parameter.list, data.file.split){
   # set default to TRUE. But if not background is provided, then switch to false
   out.parameter.list$background_label_specified <- TRUE
   
+  if(! 'model_dispersion' %in% par.given){
+    out.parameter.list$model_dispersion <- TRUE
+  }
+  if(! 'estimateSpline' %in% par.given){
+    out.parameter.list$estimateSpline <- TRUE
+  }
   if(! 'nr_disp_bins' %in% par.given){
     out.parameter.list$nr_disp_bins <- 20
   }
@@ -635,8 +766,16 @@ read_analysis_parameters <- function(parameter.file.loc){
 
     parameter.id <- strsplit(parameter,':')[[1]][1]
     
-    nr_disp_bins
-    
+    if('model_dispersion' == parameter.id){
+      out.parameter.list$model_dispersion <- as.logical(strsplit(parameter,':')[[1]][2])
+    }
+    if('repl_spline_df' == parameter.id){
+      out.parameter.list$repl_spline_df <- lapply(strsplit(strsplit(strsplit(parameter,':')[[1]][2],';')[[1]],','), as.numeric)
+      names(out.parameter.list$repl_spline_df) <- paste0('df_repl_',c(1:length(out.parameter.list$repl_groups)))
+    }
+    if('estimateSpline' == parameter.id){
+      out.parameter.list$estimateSpline <- as.logical(strsplit(parameter,':')[[1]][2])
+    }
     if('nr_disp_bins' == parameter.id){
       out.parameter.list$nr_disp_bins <- as.numeric(strsplit(parameter,':')[[1]][2])
     }
@@ -1331,7 +1470,6 @@ create_targeting_guide_segment_matrix_forDualCRISPR <- function(input.targeting.
 }
 
 
-
 #' @title Adapt an info file to a overlap matrix and corresponding data structures and filter the counts, return by replicate
 #' @param input.counts: data.frame, rows are guides, columns are pools
 #' @param replicate.list: each element is a replicate
@@ -1589,6 +1727,112 @@ generate_next_guide_list <- function(input.seg.to.guide.list){
   return(out.next.guide.list)
 
 }
+
+
+#' @title estimate the dirichlet sorting proportions (dispersions are already provided)
+#' @param data.par.list: list, contains the elements of the processed and formatted data
+#' @param analysis.par.list: list, contains all analysis flags
+#' @param input.repl.pools: list, each element is a set of columns which correspond to a replicate
+#' @param fs0.label: label used for generating FS0
+#' @return list of lists: $hyper_pars $hyper_par_components: hyper parameter estimates for each replicate per list element, $bkg_alpha, $FS_alpha, $bkg_dispersion
+#' @export estimate_dirichlet_proportions()
+
+estimate_dirichlet_proportions <- function(data.par.list, analysis.par.list, input.repl.pools,  fs0.label){
+  
+  # most basic implementation of GE
+  if(! is.null(data.par.list$guide_efficiency_scores)){
+    if(! analysis.par.list$fixed_ge_coeff){
+      logit.ge <- apply(data.par.list$guide_efficiency_scores, 2, function(x){
+        log(x / (1 - x))
+      })
+      data.par.list$guide_efficiency <- 1 / (1 + exp(-(logit.ge %*% rep(1, ncol(data.par.list$guide_efficiency_scores)))))
+    } else {
+      data.par.list$guide_efficiency <- data.par.list$guide_efficiency_scores
+    }
+  }
+  
+  # make sure all guides are considered to be the same category
+  fs.assignment <- rep(0, nrow(data.par.list$seg_info))
+  fs.assignment[which(data.par.list$seg_info$label %in% fs0.label)] <- 1
+  
+  dirichlet.guide.ll <- compute_perGuide_fs_ll(fs.assignment, data.par.list$guide_to_seg_lst, hyper.setup = TRUE)
+  
+  final.dirichlet.pars <- list()
+  final.dirichlet.pars$bkg_alpha <- list()
+  final.dirichlet.pars$FS_alpha <- list()
+  final.dirichlet.pars$dispersion <- list()
+
+  final.alpha <- list()
+  final.alpha$alpha0 <- list()
+  final.alpha$alpha1 <- list()
+  
+  for(i in 1:length(data.par.list$data)){
+
+    temp.bkg.alpha <- rep(1, length(input.repl.pools[[i]]) - 1)
+    temp.fs.alpha <- rep(1, length(input.repl.pools[[i]]) - 1)
+
+    temp.hyper.params <- c(temp.bkg.alpha, temp.fs.alpha) #, temp.bkg.disp)
+    temp.bkg.idx <- c(1:length(temp.bkg.alpha))
+    temp.fs.idx <- c(1:length(temp.fs.alpha)) + max(temp.bkg.idx)
+
+    temp.res.drch <- c()
+    repl.data <- data.par.list$data[[i]]
+    temp.repl.disp <- analysis.par.list[[i]]$repl_disp
+    
+    temp.res.drch <- optim(temp.hyper.params, prior_dirichlet_proportions, method= 'L-BFGS-B',
+                           data = repl.data, 
+                           region.ll.list = dirichlet.guide.ll,
+                           bkg.idx = temp.bkg.idx, 
+                           fs.idx = temp.fs.idx, 
+                           guide.efficiency = data.par.list$guide_efficiency, 
+                           repl.disp = temp.repl.disp)
+    
+    temp.bkg.alpha <- c(1, temp.res.drch$par[temp.bkg.idx]**2) / sum(c(1, temp.res.drch$par[temp.bkg.idx]**2))
+    temp.fs.alpha <- c(1, temp.res.drch$par[temp.fs.idx]**2) / sum(c(1, temp.res.drch$par[temp.fs.idx]**2))
+    
+    final.dirichlet.pars$bkg_alpha[[i]] <- temp.res.drch$par[temp.bkg.idx]**2
+    final.dirichlet.pars$FS_alpha[[i]] <- temp.res.drch$par[temp.fs.idx]**2
+    final.dirichlet.pars$dispersion[[i]] <- temp.repl.disp
+
+    final.alpha$alpha0[[i]] <- t(temp.bkg.alpha %*% t(temp.repl.disp) )
+    final.alpha$alpha1[[i]] <- t(temp.fs.alpha %*% t(temp.repl.disp) )
+
+  }
+  
+  final.alpha$L <- 1
+
+  out.list <- list(hyper_pars = final.alpha,
+                   hyper_par_components = final.dirichlet.pars)
+  return(out.list)
+}
+
+
+#' @title optimize the dirichlet hyper parameter proportions, dispersion is given
+#' @param hyper.param: hyperparameters
+#' @param data: data, consists of: $pool1, pool2... and $n
+#' @param region.ll.list: list containing the ll and the indexes of the null alternative and both
+#' @param bkg.idx: positions in the par vector of the background alphas
+#' @param fs.idx: positions in the par vector of the FS alphas
+#' @param guide.efficiency: data.frame of guide efficiences. Either vector of guide efficiency or NULL
+#' @param repl.disp: per-guide dispersion based on total counts
+#' @return sum of the -log likelihood across all guides
+#' @export prior_dirichlet_proportions()
+
+prior_dirichlet_proportions <- function(hyper.param, data, region.ll.list, bkg.idx, fs.idx, 
+                                       guide.efficiency, repl.disp) {
+  
+  bkg.alpha <- c(1, hyper.param[bkg.idx]**2) / sum(c(1, hyper.param[bkg.idx]**2))
+  fs.alpha <- c(1, hyper.param[fs.idx]**2) / sum(c(1, hyper.param[fs.idx]**2))
+
+  hyper <- list()
+  hyper$alpha0 <- t(bkg.alpha %*% t(repl.disp) )
+  hyper$alpha1 <- t(fs.alpha %*% t(repl.disp) )
+
+  out.sg.ll <- estimate_relics_sgrna_log_like(hyper, data, region.ll.list, guide.efficiency)
+  
+  -sum(out.sg.ll$total_guide_ll)
+}
+
 
 
 #' @title extract hyper parameters given a label for multiple replicates
@@ -2080,6 +2324,7 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
   }
 
   for(i in 1:final.layer.nr){
+    browser()
     print(paste0('Computing FS: ', i))
     layer.time <- proc.time()
     layer.data <- relics_compute_FS_k(input.param = relics.param,
@@ -2245,10 +2490,14 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
 
       # record alphas used for posterior calculation
       # record_alphas(final.layer.alpha0[[i]], final.layer.alpha1[[i]], out.dir, i, pool.names)
-      record_hyper_components(input.bkg.alpha = final.bkg.hyper[[i]], 
-                              input.fs.alpha = final.fs.hyper[[i]], 
-                              input.bkg.disp = final.bkg.disp[[i]],
-                              out.dir, i, pool.names)
+      # record_hyper_components(input.bkg.alpha = final.bkg.hyper[[i]], 
+      #                         input.fs.alpha = final.fs.hyper[[i]], 
+      #                         input.bkg.disp = final.bkg.disp[[i]],
+      #                         out.dir, i, pool.names)
+      record_hyperparameters(input.bkg.alpha = final.bkg.hyper[[i]], 
+                             input.fs.alpha = final.fs.hyper[[i]], 
+                             input.bkg.disp = input.hypers$hyper_par_components$dispersion, #final.bkg.disp[[i]],
+                             out.dir, i, pool.names)
 
       # record the per-layer contribution to the model
       write.csv(per.layer.ll.df, file = paste0(out.dir, '_k',i,'_perFS_LLcontributions.csv'), row.names = F)
@@ -2376,10 +2625,14 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
 
           # record alphas used for posterior calculation
           # record_alphas(final.layer.alpha0[[i - 1]], final.layer.alpha1[[i - 1]], paste0(out.dir, '_final'), i - 1, pool.names)
-          record_hyper_components(input.bkg.alpha = final.bkg.hyper[[i - 1]], 
-                                  input.fs.alpha = final.fs.hyper[[i - 1]], 
-                                  input.bkg.disp = final.bkg.disp[[i - 1]],
-                                  paste0(out.dir, '_final'), i - 1, pool.names)
+          # record_hyper_components(input.bkg.alpha = final.bkg.hyper[[i - 1]], 
+          #                         input.fs.alpha = final.fs.hyper[[i - 1]], 
+          #                         input.bkg.disp = final.bkg.disp[[i - 1]],
+          #                         paste0(out.dir, '_final'), i - 1, pool.names)
+          record_hyperparameters(input.bkg.alpha = final.bkg.hyper[[i - 1]], 
+                                 input.fs.alpha = final.fs.hyper[[i - 1]], 
+                                 input.bkg.disp = input.hypers$hyper_par_components$dispersion, #final.bkg.disp[[i - 1]],
+                                 paste0(out.dir, '_final'), i - 1, pool.names)
 
           # record the per-layer contribution to the model
           write.csv(final.per.layer.ll.out, file = paste0(out.dir, '_final_k',i - 1,'_perFS_LLcontributions.csv'), row.names = F)
@@ -2442,10 +2695,14 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
 
           # record alphas used for posterior calculation
           # record_alphas(final.layer.alpha0[[i - 1]], final.layer.alpha1[[i - 1]], paste0(out.dir, '_recommendedFinal'), i - 1, pool.names)
-          record_hyper_components(input.bkg.alpha = final.bkg.hyper[[i - 1]], 
-                                  input.fs.alpha = final.fs.hyper[[i - 1]], 
-                                  input.bkg.disp = final.bkg.disp[[i - 1]],
-                                  paste0(out.dir, '_recommendedFinal'), i - 1, pool.names)
+          # record_hyper_components(input.bkg.alpha = final.bkg.hyper[[i - 1]], 
+          #                         input.fs.alpha = final.fs.hyper[[i - 1]], 
+          #                         input.bkg.disp = final.bkg.disp[[i - 1]],
+          #                         paste0(out.dir, '_recommendedFinal'), i - 1, pool.names)
+          record_hyperparameters(input.bkg.alpha = final.bkg.hyper[[i - 1]], 
+                                 input.fs.alpha = final.fs.hyper[[i - 1]], 
+                                 input.bkg.disp = input.hypers$hyper_par_components$dispersion, #final.bkg.disp[[i - 1]],
+                                 paste0(out.dir, '_recommendedFinal'), i - 1, pool.names)
 
           # record the per-layer contribution to the model
           write.csv(final.per.layer.ll.out, file = paste0(out.dir, '_recommendedFinal_k',i - 1,'_perFS_LLcontributions.csv'), row.names = F)
@@ -2605,33 +2862,37 @@ record_sum_effectSizes <- function(input.pp, input.min.rs.pp, hyper, data,
         
         temp.bkg.alpha <- c(1, hyper.components$bkg_alpha[[i]]) / sum(c(1, hyper.components$bkg_alpha[[i]]))
         temp.fs.alpha <- sqrt(hyper.components$FS_alpha[[i]])
-        temp.bkg.disp <- hyper.components$bkg_dispersion[[i]]
         
-        temp.disp <- c()
-        temp.alpha0 <- c()
+        temp.disp <- hyper.components$dispersion[[i]]
+        temp.alpha0 <- t(temp.bkg.alpha %*% t(temp.disp) )
         
-        if(mean.var.type == 'radical'){
-          temp.disp <- (temp.bkg.disp[1] + temp.bkg.disp[2] * fs.data[,ncol(fs.data)] + temp.bkg.disp[3] * sqrt(fs.data[,ncol(fs.data)]))
-          temp.disp[which(temp.disp < 0.1)] <- 0.1
-          temp.alpha0 <- t(temp.bkg.alpha %*% t(temp.disp) )
-        } else if(mean.var.type == 'exponential'){
-          temp.disp <- (temp.bkg.disp[1] + temp.bkg.disp[2] * log(fs.data[,ncol(fs.data)]))
-          # temp.disp <- (temp.bkg.disp[1] + temp.bkg.disp[2] * fs.data[,ncol(fs.data)] + temp.bkg.disp[3] * log(fs.data[,ncol(fs.data)] + 1))
-          temp.disp[which(temp.disp < 0.1)] <- 0.1
-          temp.disp[which(is.na(temp.disp))] <- 0.1
-          temp.disp[which(temp.disp == Inf)] <- max(temp.disp[which(temp.disp < Inf)])
-          temp.alpha0 <- t(temp.bkg.alpha %*% t(temp.disp) )
-        } else if(mean.var.type == 'independent'){
-          temp.disp <- temp.bkg.disp[1]^2
-          temp.alpha0 <- temp.bkg.alpha * temp.disp
-        } else if(mean.var.type == 'quadratic'){
-          temp.disp <- temp.bkg.disp[1] + temp.bkg.disp[2] * fs.data[,ncol(fs.data)] + temp.bkg.disp[3] * fs.data[,ncol(fs.data)]^2
-          temp.disp[which(temp.disp < 0.1)] <- 0.1
-          temp.disp[which(is.na(temp.disp))] <- 0.1
-          temp.disp[which(temp.disp == Inf)] <- max(temp.disp[which(temp.disp < Inf)])
-          temp.alpha0 <- t(temp.bkg.alpha %*% t(temp.disp) )
-        }
-
+        # temp.bkg.disp <- hyper.components$bkg_dispersion[[i]]
+        # 
+        # temp.disp <- c()
+        # temp.alpha0 <- c()
+        # 
+        # if(mean.var.type == 'radical'){
+        #   temp.disp <- (temp.bkg.disp[1] + temp.bkg.disp[2] * fs.data[,ncol(fs.data)] + temp.bkg.disp[3] * sqrt(fs.data[,ncol(fs.data)]))
+        #   temp.disp[which(temp.disp < 0.1)] <- 0.1
+        #   temp.alpha0 <- t(temp.bkg.alpha %*% t(temp.disp) )
+        # } else if(mean.var.type == 'exponential'){
+        #   temp.disp <- (temp.bkg.disp[1] + temp.bkg.disp[2] * log(fs.data[,ncol(fs.data)]))
+        #   # temp.disp <- (temp.bkg.disp[1] + temp.bkg.disp[2] * fs.data[,ncol(fs.data)] + temp.bkg.disp[3] * log(fs.data[,ncol(fs.data)] + 1))
+        #   temp.disp[which(temp.disp < 0.1)] <- 0.1
+        #   temp.disp[which(is.na(temp.disp))] <- 0.1
+        #   temp.disp[which(temp.disp == Inf)] <- max(temp.disp[which(temp.disp < Inf)])
+        #   temp.alpha0 <- t(temp.bkg.alpha %*% t(temp.disp) )
+        # } else if(mean.var.type == 'independent'){
+        #   temp.disp <- temp.bkg.disp[1]^2
+        #   temp.alpha0 <- temp.bkg.alpha * temp.disp
+        # } else if(mean.var.type == 'quadratic'){
+        #   temp.disp <- temp.bkg.disp[1] + temp.bkg.disp[2] * fs.data[,ncol(fs.data)] + temp.bkg.disp[3] * fs.data[,ncol(fs.data)]^2
+        #   temp.disp[which(temp.disp < 0.1)] <- 0.1
+        #   temp.disp[which(is.na(temp.disp))] <- 0.1
+        #   temp.disp[which(temp.disp == Inf)] <- max(temp.disp[which(temp.disp < Inf)])
+        #   temp.alpha0 <- t(temp.bkg.alpha %*% t(temp.disp) )
+        # }
+        # 
         # temp.alpha0 <- hyper$alpha0[[i]]
         # temp.alpha1 <- sqrt(hyper$alpha1[[i]])
 
@@ -3423,6 +3684,82 @@ plot_fs_stats <- function(input.layer.ll.df, layer.corr.df, out.dir, layer.nr, f
 }
 
 
+#' @title Record the hyper parameters for the background and the functional sorting probabilities, dispersions separately
+#' @param input.bkg.alpha: list of the background alphas resulting the max log-lik. for that FS
+#' @param input.fs.alpha: list of the FS alphas resulting the max log-lik. for that FS
+#' @param input.bkg.disp: list of the background dispersion parameters resulting the max log-lik. for that FS
+#' @param input.alpha.outDir: directory to which the alphas are to be written
+#' @param layer.nr: number of functional sequences recorded
+#' @param pool.names: names of the pools given, includes the total column ($n)
+#' @return .csv file
+#' @export record_hyperparameters()
+
+record_hyperparameters <- function(input.bkg.alpha, input.fs.alpha, input.bkg.disp,
+                                    input.alpha.outDir, layer.nr, pool.names){
+  
+  out.alpha.df <- c()
+  
+  total.rows <- length(input.bkg.alpha) + length(input.fs.alpha)
+  total.cols <- max(c( unlist(lapply(input.bkg.alpha, function(x){length(x) + 1})),
+                       unlist(lapply(input.fs.alpha, function(x){length(x) + 1}))))
+  
+  alpha.names <- c(paste(rep('background', length(input.bkg.alpha)), 'r', c(1:length(input.bkg.alpha)), sep = '_'),
+                   paste(rep('FS', length(input.fs.alpha)), 'r', c(1:length(input.fs.alpha)), sep = '_'))
+  
+  alpha.matrix <- matrix(0, nrow = total.rows, ncol = total.cols) # + length(input.bkg.disp[[1]]))
+  
+  if(! is.null(pool.names)){
+    temp.pool.names <- unique(unlist(pool.names))
+    
+    for(i in 1:length(input.bkg.alpha)){
+      alpha0.scores <- rep(0, length(length(temp.pool.names)))
+      alpha1.scores <- rep(0, length(length(temp.pool.names)))
+      
+      temp.bkg.alpha <- c(1,input.bkg.alpha[[i]]) / sum(c(1, input.bkg.alpha[[i]]))
+      temp.fs.alpha <- c(1,input.fs.alpha[[i]]) / sum(c(1, input.fs.alpha[[i]]))
+      
+      alpha0.scores[match(pool.names[[i]], temp.pool.names)] <- round(temp.bkg.alpha, 3)
+      alpha1.scores[match(pool.names[[i]], temp.pool.names)] <- round(temp.fs.alpha, 3)
+      
+      alpha.matrix[i,] <- alpha0.scores
+      alpha.matrix[i + length(input.bkg.alpha),] <- alpha1.scores
+      
+      # alpha0.scores.wDisp <- c(alpha0.scores, round(input.bkg.disp[[i]], 3))
+      # alpha1.scores.wDisp <- c(alpha1.scores, round(input.bkg.disp[[i]], 3))
+      
+      # alpha.matrix[i,] <- alpha0.scores.wDisp
+      # alpha.matrix[i + length(input.bkg.alpha),] <- alpha1.scores.wDisp
+      
+      out.alpha.df <- cbind(alpha.names, alpha.matrix)
+      
+      colnames(out.alpha.df) <- c('hyperPar_type', temp.pool.names) #, paste0(rep('dispersion', length(input.bkg.disp[[1]])), '_', c(1:length(input.bkg.disp[[1]]))) )
+      
+    }
+    
+  } else {
+    
+    for(i in 1:length(input.bkg.alpha)){
+      temp.bkg.alpha <- c(1,input.bkg.alpha[[i]]) / sum(c(1, input.bkg.alpha[[i]]))
+      alpha.matrix[i, c(1:length(temp.bkg.alpha))] <- round(temp.bkg.alpha, 3)
+      # alpha.matrix[i, (length(temp.bkg.alpha) + 1):ncol(alpha.matrix)] <- round(input.bkg.disp[[i]], 3)
+    }
+    
+    for(j in (length(input.bkg.alpha) + 1):total.rows){
+      temp.fs.alpha <- c(1,input.fs.alpha[[j - length(input.bkg.alpha)]]) / sum(c(1, input.fs.alpha[[j - length(input.bkg.alpha)]]))
+      alpha.matrix[j, c(1:length(temp.fs.alpha))] <- round(temp.fs.alpha, 3)
+      # alpha.matrix[j, (length(temp.fs.alpha) + 1):ncol(alpha.matrix)] <- round(input.bkg.disp[[j - length(input.bkg.alpha)]], 3)
+    }
+    
+    out.alpha.df <- cbind(alpha.names, alpha.matrix)
+    
+    colnames(out.alpha.df) <- c('hyperPar_type', paste0('pool', c(1:(nrow(out.alpha.df) - 2)))) #, paste0(rep('dispersion', length(input.bkg.disp[[1]])), '_', c(1:length(input.bkg.disp[[1]]))))
+  }
+  
+  write.csv(out.alpha.df, file = paste0(input.alpha.outDir, '_k', layer.nr, '_hyperPars.csv'), row.names = F, quote = F)
+  
+  
+}
+
 #' @title Record the hyper parameters for the background and the functional sorting probabilities
 #' @param input.bkg.alpha: list of the background alphas resulting the max log-lik. for that FS
 #' @param input.fs.alpha: list of the FS alphas resulting the max log-lik. for that FS
@@ -4196,19 +4533,18 @@ relics_estimate_pp <- function(param, hyper, data, known.reg,
     # sgrna.log.like.list <- guide_ll_calculation(pp, data, guide.to.seg.lst, hyper, guide.efficiency)
 
     delta.pps <- c()
-    if(pp.calculation == 'v3'){
-      seg.ll.list <- seg_ll_calculation(pp, data, seg.to.guide.lst, hyper, guide.efficiency, guide.to.seg.lst)
-      
-      delta.pps <- estimate_seg_fs_AoE_pp(hyper, data.mat.list, data.total.list, guide.to.seg.lst,
-                                      seg.to.guide.lst, next.guide.lst, nr.segs, geom.p, 
-                                      seg.ll.list$out_seg_ll, seg.ll.list$out_seg_pp_ll)
-      
-    } else if(pp.calculation == 'v2'){
-      delta.pps <- estimate_fs_AoE_pp(hyper, data.mat.list, data.total.list, guide.to.seg.lst,
-                                      seg.to.guide.lst, next.guide.lst, nr.segs, geom.p, sgrna.log.like.list)
-    } else if(pp.calculation == 'v4'){
+    if(pp.calculation == 'v4'){
       delta.pps <- estimate_fs_AoE_pp_v2(hyper, data.mat.list, data.total.list, guide.to.seg.lst,
-                                      seg.to.guide.lst, next.guide.lst, nr.segs, geom.p, sgrna.log.like.list)
+                                         seg.to.guide.lst, next.guide.lst, nr.segs, geom.p, sgrna.log.like.list)
+    # } else if(pp.calculation == 'v2'){
+    #   delta.pps <- estimate_fs_AoE_pp(hyper, data.mat.list, data.total.list, guide.to.seg.lst,
+    #                                   seg.to.guide.lst, next.guide.lst, nr.segs, geom.p, sgrna.log.like.list)
+    # } else if(pp.calculation == 'v3'){
+    #   seg.ll.list <- seg_ll_calculation(pp, data, seg.to.guide.lst, hyper, guide.efficiency, guide.to.seg.lst)
+    #   
+    #   delta.pps <- estimate_seg_fs_AoE_pp(hyper, data.mat.list, data.total.list, guide.to.seg.lst,
+    #                                       seg.to.guide.lst, next.guide.lst, nr.segs, geom.p, 
+    #                                       seg.ll.list$out_seg_ll, seg.ll.list$out_seg_pp_ll)
     } else {
       delta.pps <- estimate_fs_pp(#hyper, data.mat.list, data.total.list,
         seg.to.guide.lst, next.guide.lst, nr.segs, geom.p, sgrna.log.like.list)
@@ -4712,8 +5048,8 @@ estimate_fs_AoE_pp_v2 <- function(hyper, in.data.list, in.data.totals, guide.to.
       temp.guide.ll <- vector('numeric', length = length(temp.seg.poi.bkg))
       
       for(i in 1:length(temp.seg.poi.bkg)){
-        temp.guide.ll[i] <- addlogs(sg.ll.list[[repl]][temp.guide.idx[i],2]+log(1 - temp.seg.poi.bkg[i]),
-                                    sg.ll.list[[repl]][temp.guide.idx[i],1] +log(temp.seg.poi.bkg[i]))
+        temp.guide.ll[i] <- addlogs(sg.ll.list[[repl]][temp.guide.idx[i],2] + log(1 - temp.seg.poi.bkg[i]),
+                                    sg.ll.list[[repl]][temp.guide.idx[i],1] + log(temp.seg.poi.bkg[i]))
         # temp.guide.ll <- sum(temp.guide.ll,
         #                      addlogs(ddirmnom(in.data.list[[repl]][temp.guide.idx[i],],
         #                                       size = in.data.totals[[repl]][temp.guide.idx[i]],
@@ -4801,8 +5137,8 @@ estimate_fs_AoE_pp_v2 <- function(hyper, in.data.list, in.data.totals, guide.to.
         temp.guide.ll <- vector('numeric', length = length(temp.seg.poi.bkg))
 
         for(i in 1:length(temp.seg.poi.bkg)){
-          temp.guide.ll[i] <- addlogs(sg.ll.list[[repl]][temp.guide.idx[i],2]+log(1 - temp.seg.poi.bkg[i]),
-                                      sg.ll.list[[repl]][temp.guide.idx[i],1] +log(temp.seg.poi.bkg[i]))
+          temp.guide.ll[i] <- addlogs(sg.ll.list[[repl]][temp.guide.idx[i],2] + log(1 - temp.seg.poi.bkg[i]),
+                                      sg.ll.list[[repl]][temp.guide.idx[i],1] + log(temp.seg.poi.bkg[i]))
           # temp.guide.ll <- sum(temp.guide.ll,
           #                      addlogs(ddirmnom(in.data.list[[repl]][temp.guide.idx[i],],
           #                                       size = in.data.totals[[repl]][temp.guide.idx[i]],
