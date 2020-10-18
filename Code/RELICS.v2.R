@@ -2027,6 +2027,18 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
 }
 
 
+#' @title Initializing function for the results list
+#' @param input.pp.list: list of PP results
+#' @param input.results.list: lest, each element keeps track of results from a number of FS identified
+#' @param analysis.parameters: list containing all the analysis parameters
+#' @param input.data: list containing the counts
+#' @param relics.hyper: list, RELICS hyperparameters, alpha0 and alpha1, each list of df, one for each repl
+#' @param hyper.components: hyperpparameter components (alpha0 and alpha1 proportions and dispersions)
+#' @param file.extension: extension for files, either '', '_final', or '_recommendedFinal'
+#' @param fs.iter: current FS interation
+#' @return list
+#' @export initialize_results_list()
+
 initialize_results_list <- function(){
   
   results.list <- list()
@@ -2053,6 +2065,19 @@ initialize_results_list <- function(){
   return(results.list)
   
 }
+
+
+#' @title Wrapper function for recording hyperparameters
+#' @param input.pp.list: list of PP results
+#' @param input.results.list: lest, each element keeps track of results from a number of FS identified
+#' @param analysis.parameters: list containing all the analysis parameters
+#' @param input.data: list containing the counts
+#' @param relics.hyper: list, RELICS hyperparameters, alpha0 and alpha1, each list of df, one for each repl
+#' @param hyper.components: hyperpparameter components (alpha0 and alpha1 proportions and dispersions)
+#' @param file.extension: extension for files, either '', '_final', or '_recommendedFinal'
+#' @param fs.iter: current FS interation
+#' @return list with updated input.results.list
+#' @export hyperparameter_recording()
 
 process_fs_pp <- function(input.pp.list, input.results.list, analysis.parameters, input.data, fs.iter, relics.hyper, hyper.components){
   
@@ -2108,6 +2133,17 @@ process_fs_pp <- function(input.pp.list, input.results.list, analysis.parameters
   return(input.results.list)
 }
 
+
+#' @title Wrapper function for recording all results for an FS iteration
+#' @param input.results.list: lest, each element keeps track of results from a number of FS identified
+#' @param input.data: list containing the counts
+#' @param analysis.parameters: list containing all the analysis parameters
+#' @param hyper.components: hyperpparameter components (alpha0 and alpha1 proportions and dispersions)
+#' @param file.extension: extension for files, either '', '_final', or '_recommendedFinal'
+#' @param fs.iter: current FS interation
+#' @return csv and bedgraphs of the current FS iteration
+#' @export record_results()
+
 record_results <- function(input.results.list, fs.iter, input.data, analysis.parameters, file.extension, hyper.components){
   
   #posteriors, alpha0, alpha1, bkg_hyper, fs_hyper, bkg_disp, fs_ll, per_fs_ll, correlation, ge_coeff, model_ll, ll_ratio
@@ -2142,6 +2178,16 @@ record_results <- function(input.results.list, fs.iter, input.data, analysis.par
   
 }
 
+
+#' @title Wrapper function for recording hyperparameters
+#' @param input.results.list: lest, each element keeps track of results from a number of FS identified
+#' @param analysis.parameters: list containing all the analysis parameters
+#' @param hyper.components: hyperpparameter components (alpha0 and alpha1 proportions and dispersions)
+#' @param file.extension: extension for files, either '', '_final', or '_recommendedFinal'
+#' @param fs.iter: current FS interation
+#' @return csv for all current hyperparameters
+#' @export hyperparameter_recording()
+
 hyperparameter_recording <- function(input.results.list, fs.iter, hyper.components, analysis.parameters, file.extension){
   
   record.bkg.hyper <- input.results.list$bkg_hyper[[fs.iter]]
@@ -2162,6 +2208,16 @@ hyperparameter_recording <- function(input.results.list, fs.iter, hyper.componen
   }
   
 }
+
+
+#' @title Wrapper function for recording of the various result tracks (correlation, ll_progression_, FS_location...)
+#' @param input.results.list: lest, each element keeps track of results from a number of FS identified
+#' @param input.data: list containing the counts
+#' @param analysis.parameters: list containing all the analysis parameters
+#' @param file.extension: extension for files, either '', '_final', or '_recommendedFinal'
+#' @param fs.iter: current FS interation
+#' @return csv of the various result tracks
+#' @export data_ll_recording()
 
 data_ll_recording <- function(input.results.list, fs.iter, input.data, file.extension, analysis.parameters){
   
@@ -2204,6 +2260,16 @@ data_ll_recording <- function(input.results.list, fs.iter, input.data, file.exte
   }
   
 }
+
+
+#' @title Wrapper function for recording effect bedgraph tracks for the PP and log-likelihoods
+#' @param input.results.list: lest, each element keeps track of results from a number of FS identified
+#' @param input.data: list containing the counts
+#' @param analysis.parameters: list containing all the analysis parameters
+#' @param file.extension: extension for files, either '', '_final', or '_recommendedFinal'
+#' @param fs.iter: current FS interation
+#' @return bedgraphs of the PP and guide ll
+#' @export bedgraph_recording()
 
 bedgraph_recording <- function(input.results.list, input.data, fs.iter, analysis.parameters, file.extension){
   
@@ -2248,6 +2314,17 @@ bedgraph_recording <- function(input.results.list, input.data, fs.iter, analysis
   create_bedgraphs(to.bg.list, paste0(out.dir, file.extension, '_k', fs.iter) )
 }
 
+
+#' @title Wrapper function for recording effect size of FS
+#' @param input.results.list: lest, each element keeps track of results from a number of FS identified
+#' @param input.data: list containing the counts
+#' @param analysis.parameters: list containing all the analysis parameters
+#' @param hyper.components: hyperpparameter components (alpha0 and alpha1 proportions and dispersions)
+#' @param file.extension: extension for files, either '', '_final', or '_recommendedFinal'
+#' @param fs.iter: current FS interation
+#' @return csv and bedgraphs of the effect sizes for all FS identified 
+#' @export effect_size_recording()
+
 effect_size_recording <- function(input.results.list, input.data, analysis.parameters, hyper.components, file.extension, fs.iter){
   
   record.posteriors <- input.results.list$posteriors[[fs.iter]]
@@ -2289,7 +2366,6 @@ effect_size_recording <- function(input.results.list, input.data, analysis.param
   to.bg.list$sumEffSize <- sum.effect.size$total_effSize
   create_bedgraphs(to.bg.list, paste0(out.dir, file.extension, '_k', fs.iter) )
 }
-
 
 
 #' @title records the sum of (absolute) effect sizes across all pools (avg across replicates) for each FS
@@ -3150,7 +3226,7 @@ record_hyperparameters <- function(input.bkg.alpha, input.fs.alpha, input.bkg.di
   alpha.names <- c(paste(rep('background', length(input.bkg.alpha)), 'r', c(1:length(input.bkg.alpha)), sep = '_'),
                    paste(rep('FS', length(input.fs.alpha)), 'r', c(1:length(input.fs.alpha)), sep = '_'))
   
-  alpha.matrix <- matrix(0, nrow = total.rows, ncol = total.cols) # + length(input.bkg.disp[[1]]))
+  alpha.matrix <- matrix(0, nrow = total.rows, ncol = total.cols)
   
   if(! is.null(pool.names)){
     temp.pool.names <- unique(unlist(pool.names))
@@ -3167,16 +3243,11 @@ record_hyperparameters <- function(input.bkg.alpha, input.fs.alpha, input.bkg.di
       
       alpha.matrix[i,] <- alpha0.scores
       alpha.matrix[i + length(input.bkg.alpha),] <- alpha1.scores
-      
-      # alpha0.scores.wDisp <- c(alpha0.scores, round(input.bkg.disp[[i]], 3))
-      # alpha1.scores.wDisp <- c(alpha1.scores, round(input.bkg.disp[[i]], 3))
-      
-      # alpha.matrix[i,] <- alpha0.scores.wDisp
-      # alpha.matrix[i + length(input.bkg.alpha),] <- alpha1.scores.wDisp
+
       
       out.alpha.df <- cbind(alpha.names, alpha.matrix)
       
-      colnames(out.alpha.df) <- c('hyperPar_type', temp.pool.names) #, paste0(rep('dispersion', length(input.bkg.disp[[1]])), '_', c(1:length(input.bkg.disp[[1]]))) )
+      colnames(out.alpha.df) <- c('hyperPar_type', temp.pool.names)
       
     }
     
@@ -3185,23 +3256,23 @@ record_hyperparameters <- function(input.bkg.alpha, input.fs.alpha, input.bkg.di
     for(i in 1:length(input.bkg.alpha)){
       temp.bkg.alpha <- c(1,input.bkg.alpha[[i]]) / sum(c(1, input.bkg.alpha[[i]]))
       alpha.matrix[i, c(1:length(temp.bkg.alpha))] <- round(temp.bkg.alpha, 3)
-      # alpha.matrix[i, (length(temp.bkg.alpha) + 1):ncol(alpha.matrix)] <- round(input.bkg.disp[[i]], 3)
     }
     
     for(j in (length(input.bkg.alpha) + 1):total.rows){
       temp.fs.alpha <- c(1,input.fs.alpha[[j - length(input.bkg.alpha)]]) / sum(c(1, input.fs.alpha[[j - length(input.bkg.alpha)]]))
       alpha.matrix[j, c(1:length(temp.fs.alpha))] <- round(temp.fs.alpha, 3)
-      # alpha.matrix[j, (length(temp.fs.alpha) + 1):ncol(alpha.matrix)] <- round(input.bkg.disp[[j - length(input.bkg.alpha)]], 3)
     }
     
     out.alpha.df <- cbind(alpha.names, alpha.matrix)
     
-    colnames(out.alpha.df) <- c('hyperPar_type', paste0('pool', c(1:(nrow(out.alpha.df) - 2)))) #, paste0(rep('dispersion', length(input.bkg.disp[[1]])), '_', c(1:length(input.bkg.disp[[1]]))))
+    colnames(out.alpha.df) <- c('hyperPar_type', paste0('pool', c(1:(nrow(out.alpha.df) - 2))))
   }
   
   write.csv(out.alpha.df, file = paste0(input.alpha.outDir, '_k', layer.nr, '_hyperPars.csv'), row.names = F, quote = F)
   
-  
+  disp.df <- do.call(cbind, input.bkg.disp)
+  colnames(disp.df) <- paste0('repl_', c(1:length(input.bkg.disp)))
+  write.csv(disp.df, file = paste0(input.alpha.outDir, '_k', layer.nr, '_replDispersions.csv'), row.names = F, quote = F)
 }
 
 #' @title Record the hyper parameters for the background and the functional sorting probabilities
