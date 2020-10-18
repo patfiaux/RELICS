@@ -112,15 +112,6 @@ RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.
 
   analysis.parameters <- read_parameters(input.parameter.list, input.parameter.file, data.file.split)
 
-  # if(!is.null(input.parameter.list)){
-  #   print('Using provided parameter list')
-  #   analysis.parameters <- check_parameter_list(input.parameter.list, data.file.split)
-  # } else {
-  #   print('Reading in provided parameter file')
-  #   analysis.parameters <- read_analysis_parameters(input.parameter.file)
-  #   analysis.parameters <- check_parameter_list(analysis.parameters, data.file.split)
-  # }
-
   data.setup <- set_up_RELICS_data(analysis.parameters, data.file.split,
                                    guide.offset = analysis.parameters$crisprEffectRange,
                                    repl_pools = analysis.parameters$repl_groups,
@@ -134,76 +125,8 @@ RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.
   
   # # obtain hyperparameters()
   analysis.parameters <- compute_hyperparameters(analysis.parameters, data.setup)
-  # # # if no spline has yet been specified, identify the optimal one
-  # # # To Do 5-fold crossvalidation
-  # repl.splines <- c() # spline df for each replicate
-  # if(analysis.parameters$estimateSpline){
-  #   print('not implemented yet')
-  #   # repl.splines <- identify_splines()
-  #   break()
-  # } else {
-  #   repl.spline.df <- analysis.parameters$repl_spline_df
-  #   repl.disp <- disp_from_spline(repl.spline.df, data.setup$data,
-  #                                 paste0(analysis.parameters$out_dir, '/', analysis.parameters$dataName),
-  #                                 analysis.parameters$nr_disp_bins,
-  #                                 analysis.parameters$FS0_label, 
-  #                                 data.setup$guide_info)
-  #   analysis.parameters$repl_disp <- repl.disp
-  # }
-  # 
-
-  # check if hyper parameters are provided, otherwise estimate from data
-  if(! 'hyper_pars' %in% names(analysis.parameters)){
-
-    # print('Estimating initial hyperparameters ...')
-    # #labels for background
-    # background.labels <- c()
-    # if(analysis.parameters$background_label_specified){
-    #   background.labels <- analysis.parameters$background_label
-    # } else {
-    #   background.labels <- analysis.parameters$labelHierarchy[-which(analysis.parameters$labelHierarchy %in% analysis.parameters$FS0_label)]
-    # }
-    
-    # fs0.alphas <- c()
-    # if(analysis.parameters$model_dispersion){
-    #   fs0.alphas <- estimate_dirichlet_proportions(data.setup,
-    #                                                analysis.parameters,
-    #                                                input.repl.pools = analysis.parameters$repl_groups,
-    #                                                fs0.label = analysis.parameters$FS0_label)
-    # } else {
-    #   fs0.alphas <- estimate_hyper_parameters(data.setup,
-    #                                           analysis.parameters,
-    #                                           input.repl.pools = analysis.parameters$repl_groups,
-    #                                           fs0.label = analysis.parameters$FS0_label,
-    #                                           analysis.parameters$one_dispersion)
-    # }
-    # 
-    # analysis.parameters$hyper_pars <- fs0.alphas$hyper_pars
-    # analysis.parameters$hyper_par_components <- fs0.alphas$hyper_par_components
-  }
-
-  # To Do: need to find better way to deal with estimated hyperparameters
-  # if(return.init.hypers){
-  #   # record alphas used for posterior calculation
-  #   alpha.out.dir <- paste0(analysis.parameters$out_dir, '/', analysis.parameters$dataName)
-  #   # record_alphas(fs0.alphas$alpha0, fs0.alphas$alpha1, alpha.out.dir, 'init', analysis.parameters$pool_names)
-  #   record_hyper_components(input.bkg.alpha = fs0.alphas$hyper_par_components$bkg_alpha, 
-  #                           input.fs.alpha = fs0.alphas$hyper_par_components$FS_alpha, 
-  #                           input.bkg.disp = fs0.alphas$hyper_par_components$bkg_dispersion,
-  #                           alpha.out.dir, 'init', analysis.parameters$pool_names)
-  #   
-  #   break()
-  # }
-  
-  # plot_counts_vs_dispersion(data.setup$data, analysis.parameters$hyper_par_components, 
-  #                           paste0(analysis.parameters$out_dir, '/', analysis.parameters$dataName), 
-  #                           analysis.parameters$nr_disp_bins, analysis.parameters$mean_var_type,
-  #                           fs0.label = analysis.parameters$FS0_label, data.setup$guide_info)
 
   data.setup$fixed_ge_coeff <- analysis.parameters$fixed_ge_coeff
-  
-  
-
   # To Do: adjust the guide efficiency to work with new dispersion method
   # # if guide efficiency scores are provided, calculate guide efficiency and include in the model
   # if(! is.null(data.setup$guide_efficiency_scores)){
@@ -358,6 +281,7 @@ disp_from_spline <- function(repl.spline.df, input.data, out.dir, nr.bins = 20, 
   return(repl.guide.disp)
 }
 
+
 #' @title optimize the hyper parameters, only one dispersion across the two distributions. But only for the background guides
 #' @param hyper.param: hyperparameters
 #' @param data: data, consists of: $pool1, pool2... and $n
@@ -455,8 +379,17 @@ check_parameter_list <- function(input.parameter.list, data.file.split){
   out.parameter.list$background_label_specified <- TRUE
   
   if(! 'model_dispersion' %in% par.given){
-    out.parameter.list$model_dispersion <- TRUE
+    if(! 'mean_var_type' %in% par.given){
+      out.parameter.list$mean_var_type <- 'spline'
+      out.parameter.list$model_dispersion <- TRUE
+    } else {
+      out.parameter.list$model_dispersion <- FALSE
+    }
   }
+  if(out.parameter.list$model_dispersion & !out.parameter.list$mean_var_type == 'spline'){
+    out.parameter.list$mean_var_type <- 'spline'
+  }
+  
   if(! 'estimateSpline' %in% par.given){
     out.parameter.list$estimateSpline <- TRUE
   }
@@ -469,9 +402,6 @@ check_parameter_list <- function(input.parameter.list, data.file.split){
   if(! 'out_dir' %in% par.given){
     out.parameter.list$out_dir <- getwd()
   }
-  # if(! 'adjust_tol' %in% par.given){
-  #   out.parameter.list$adjust_tol <- FALSE #TRUE
-  # }
   if(! 'convergence_tol' %in% par.given){
     out.parameter.list$convergence_tol <- 0.1
   }
@@ -496,11 +426,7 @@ check_parameter_list <- function(input.parameter.list, data.file.split){
   if(! 'geom_p' %in% par.given){
     #probability of success for geometric distribution
     out.parameter.list$geom_p <- 0.1
-    #geom.norm.factr <- pgeom(nr.segs, geom.p)
   }
-  # if(! 'seg_length_dir' %in% par.given){
-  #   out.parameter.list$seg_length_dir <- 'continous-norm'
-  # }
   if(! 'fs_correlation_cutoff' %in% par.given){
     out.parameter.list$fs_correlation_cutoff <- 0.1
   }
@@ -587,10 +513,6 @@ check_parameter_list <- function(input.parameter.list, data.file.split){
   if(! 'areaOfEffect_type' %in% par.given){
     out.parameter.list$areaOfEffect_type <- 'normal'
   }
-
-  if(! 'mean_var_type' %in% par.given){
-    out.parameter.list$mean_var_type <- 'radical'
-  }
   
   minimum.parameters <- c()
   if(data.file.split){
@@ -645,23 +567,6 @@ check_parameter_list <- function(input.parameter.list, data.file.split){
           print(paste0('Please provide a valid CRISPR system: CRISPRi, CRISPRa, Cas9 (or CRISPRcas9) or dualCRISPR'))
           missing.parameters <- TRUE
         }
-    #   if(! 'crisprEffectRange' %in% par.given){
-    #     if(input.parameter.list$crisprSystem == 'CRISPRi'){
-    #       out.parameter.list$crisprEffectRange <- 200
-    #     } else if(input.parameter.list$crisprSystem == 'CRISPRa'){
-    #       out.parameter.list$crisprEffectRange <- 200
-    #     } else if(input.parameter.list$crisprSystem %in% c('CRISPRcas9', 'Cas9')){
-    #       out.parameter.list$crisprEffectRange <- 20
-    #     } else if(input.parameter.list$crisprSystem == 'dualCRISPR'){
-    #       out.parameter.list$crisprEffectRange <- 0
-    #     } else{
-    #       print(paste0('Please provide a valid CRISPR system: CRISPRi, CRISPRa, Cas9 (or CRISPRcas9), or dualCRISPR'))
-    #       missing.parameters <- TRUE
-    #     }
-    #   } else if(! out.parameter.list$crisprSystem %in% c('CRISPRi', 'CRISPRa', 'Cas9', 'CRISPRcas9', 'dualCRISPR')){
-    #     print(paste0('Please provide a valid CRISPR system: CRISPRi, CRISPRa, Cas9 (or CRISPRcas9) or dualCRISPR'))
-    #     missing.parameters <- TRUE
-    #   }
     }
   }
   
@@ -1626,7 +1531,6 @@ prior_dirichlet_proportions <- function(hyper.param, data, region.ll.list, bkg.i
 }
 
 
-
 #' @title estimate the hyperparamters for the dirichlet proportions and dispersion (dispersion assumed to be independent of the counts)
 #' @param data.par.list: list, contains the elements of the processed and formatted data
 #' @param analysis.par.list: list, contains all analysis flags
@@ -1895,7 +1799,6 @@ estimate_relics_sgrna_log_like <- function(hyper, data, region.ll.list, guide.ef
 #' @return list: null_only_idx, null_only_lls, alt_only_idx, alt_only_lls, both_idx, both_lls (last one is a df)
 #' @export compute_perGuide_fs_ll()
 
-
 compute_perGuide_fs_ll <- function(cumulative.pp, guide.seg.idx.lst, hyper.setup = FALSE){
 
   n.sgrna <- length(guide.seg.idx.lst)
@@ -1966,6 +1869,7 @@ compute_perGuide_fs_ll <- function(cumulative.pp, guide.seg.idx.lst, hyper.setup
 
 }
 
+
 #' @title Run RELICS. Iteratively detect FS until convergence is reached
 #' @param input.data: list: $guide_to_seg_lst, $data, $fs0_idx, $overlapMat, $guide_to_seg_lst, $seg_to_guide_lst
 #' @param final.layer.nr: number of layers to go up to
@@ -2011,31 +1915,9 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
                      mean.var.type,
                      pp.calculation,
                      analysis.parameters){
-# 
-#   final.layer.posterior <- list()
-#   final.layer.alpha0 <- list()
-#   final.layer.alpha1 <- list()
-#   
-#   final.bkg.hyper <- list()
-#   final.fs.hyper <- list()
-#   final.bkg.disp <- list()
-#   
-#   final.layer.ll <- c()
-#   final.per.layer.ll <- list()
-#   layer.corr.df <- c()
-#   layer.corr.df.list <- list()
-#   final.all.layers.ll <- list() # record the overal model ll progression
-#   ge.coeff.list <- list()
   
   #posteriors, alpha0, alpha1, bkg_hyper, fs_hyper, bkg_disp, fs_ll, per_fs_ll, correlation, ge_coeff, model_ll, ll_ratio
   fs.result.lists <- initialize_results_list()
-  # fs.result.lists$ge_coeff[[1]] <- input.data$ge_coeff
-  # final.fs.ll.rt <- list()
-
-  # can be removed
-  # no.convergence.layer <- c() # during what layers whas there no convergence
-  # no.convergence.lls <- c() #model ll when convergence was not reached
-  # no.convergence.bool <- c() # boolean to keep track if convergence was reached
 
   relics.hyper <- input.hypers #c()
   hyper.components <- input.hyper.components
@@ -2044,46 +1926,9 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
 
   coverg.tol <- rep(input.convergence.tol, final.layer.nr)
 
-  # if(adjust.tol){
-  # 
-  #   first.third.stop <- round(0.3 * final.layer.nr)
-  #   second.third.stop <- round(0.7 * final.layer.nr)
-  # 
-  #   if(length(unique(c(1, first.third.stop, second.third.stop, final.layer.nr))) < 4){
-  #     print('problem with adjutable tolerance!')
-  #   }
-  #   coverg.tol[1:first.third.stop] <- 0.05
-  #   coverg.tol[(first.third.stop + 1):second.third.stop] <- 0.01
-  #   coverg.tol[(second.third.stop + 1): final.layer.nr] <- 0.001
-  # }
-  
-  # input.data = data.setup,
-  # final.layer.nr = analysis.parameters$min_FS_nr,
-  # out.dir = paste0(analysis.parameters$out_dir, '/', analysis.parameters$dataName),
-  # input.hypers = analysis.parameters$hyper_pars,
-  # input.hyper.components = analysis.parameters$hyper_par_components,
-  # fix.hypers = analysis.parameters$fix_hypers,
-  # nr.segs = analysis.parameters$nr_segs,
-  # geom.p = analysis.parameters$geom_p,
-  # fs.correlation.cutoff = analysis.parameters$fs_correlation_cutoff,
-  # input.min.rs.pp = analysis.parameters$min_fs_pp,
-  # auto.stop = analysis.parameters$auto_stop,
-  # record.all.fs = record.all.fs,
-  # input.convergence.tol = analysis.parameters$convergence_tol,
-  # # adjust.tol = analysis.parameters$adjust_tol,
-  # one.dispersion = analysis.parameters$one_dispersion,
-  # recompute.fs0 = analysis.parameters$recompute_fs0,
-  # local.max = analysis.parameters$local_max,
-  # local.max.range = analysis.parameters$local_max_range,
-  # pool.names = analysis.parameters$pool_names,
-  # mean.var.type = analysis.parameters$mean_var_type,
-  # pp.calculation = analysis.parameters$pp_calculation,
-  # analysis.parameters = analysis.parameters
-
   for(i in 1:final.layer.nr){
     print(paste0('Computing FS: ', i))
     
-    # layer.data
     fs.data <- relics_compute_FS_k(input.param = relics.param,
                                       input.hyper = relics.hyper,
                                       input.data.list = input.data,
@@ -2096,446 +1941,40 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
     
     fs.result.lists <- process_fs_pp(fs.data, fs.result.lists, analysis.parameters, input.data, i, relics.hyper, hyper.components)
 
-    # layer.size <- length(layer.data$posterior_trace_list)
-    # 
-    # layer.posteriors <- layer.data$posterior_trace_list[[layer.size]]
-    # layer.posteriors[layer.posteriors > 1] <- 1
-    # 
-    # fs.ll.rt <- list()
-    # if(local.max){
-    #   fs.ll.rt <- layer.data$fs_ll_rt_trace[[layer.size]]
-    # }
-    # 
-    # # order the layers according to their model contributions
-    # order.pps.lst <- order_pps(layer.posteriors, layer.data$ll_tract[[layer.size]],
-    #                            input.data, layer.data$alpha0[[layer.size]], layer.data$alpha1[[layer.size]],
-    #                            input.data$guide_efficiency, local.max, fs.ll.rt)
-    # 
-    # final.layer.posterior[[i]] <- order.pps.lst$pp_ordered
-    # final.layer.alpha0[[i]] <- layer.data$alpha0[[layer.size]]
-    # final.layer.alpha1[[i]] <- layer.data$alpha1[[layer.size]]
-    # 
-    # final.bkg.hyper[[i]] <- hyper.components$bkg_alpha
-    # final.fs.hyper[[i]] <- hyper.components$FS_alpha
-    # final.bkg.disp[[i]] <- hyper.components$bkg_dispersion
-    # 
-    # final.layer.ll <- c(final.layer.ll, layer.data$ll_tract[[layer.size]])
-    # final.fs.ll.rt[[i]] <- order.pps.lst$fs_ll_rt_ordered
-    # 
-    # #$nr_rs, $rs_prob, $training_overlap, $prct_overlap
-    # pp.stat.lst <- pps_stats(order.pps.lst$pp_ordered, input.min.rs.pp)
-    # 
-    # # record the per-layer contribution to the model
-    # per.layer.ll.contribution <- order.pps.lst$layer_ll_ordered
-    # per.layer.ll.df <- data.frame(FS = c('total_model_ll', paste0('k_', c(1:(length(per.layer.ll.contribution)))) ),
-    #                               ll = c(layer.data$ll_tract[[layer.size]], per.layer.ll.contribution),
-    #                               nr_fs = c(0, pp.stat.lst$nr_rs),
-    #                               stringsAsFactors = F)
-    # final.per.layer.ll[[i]] <- per.layer.ll.df
-    # #per.layer.ll.df$layer_Iteration <- rep(as.character(i), nrow(per.layer.ll.df))
-
-
     # prep the parameters for the next iteration (both the posteriors and hypers)
     relics.hyper$L <- relics.hyper$L + 1
     relics.param$delta.pp <- rbind(fs.result.lists$posteriors[[i]], rep(0, ncol(relics.param$delta.pp)))
     if(local.max){
       relics.param$ll_rt <- rbind(fs.result.lists$ll_ratio[[i]], rep(0, ncol(relics.param$delta.pp)))
     }
-    # relics.param$delta.pp <- rbind(order.pps.lst$pp_ordered, rep(0, ncol(relics.param$delta.pp)))
-    # # relics.hyper$alpha0 <- layer.data$alpha0[[layer.size]]
-    # # relics.hyper$alpha1 <- layer.data$alpha1[[layer.size]]
-    # 
-    # if(local.max){
-    #   relics.param$ll_rt <- rbind(order.pps.lst$fs_ll_rt_ordered, rep(0, ncol(relics.param$delta.pp)))
-    # }
-
-    # can be removed
-    # if there was an issue with convergence, then record it
-    # no.convergence.bool <- c(no.convergence.bool, layer.data$max_iter_reached)
-    # if(layer.data$max_iter_reached){
-    #   no.convergence.layer <- c(no.convergence.layer, i) # during what layers whas there no convergence
-    #   no.convergence.lls <- c(no.convergence.lls, layer.data$ll_tract[[layer.size]])
-    # }
-
-    # # # record the PP correlations and overlaps
-    # layer.corrs <- pps_corr(order.pps.lst$pp_ordered, i)
-    # layer.corr.df <- rbind(layer.corr.df, layer.corrs)
-    # layer.corr.df.list[[i]] <- layer.corr.df
-
-    # # record sum of posteriors as bedgraph
-    # total.per.seg.posterior <- colSums(order.pps.lst$pp_ordered)
-    # total.per.seg.posterior[which(total.per.seg.posterior > 1)] <- 1
-    # out.bedgraph <- input.data$seg_info
-    # out.bedgraph$score <- total.per.seg.posterior
-    # to.bg.list <- list(total_pp = out.bedgraph)
-    # 
-    # if(local.max){
-    #   to.bg.list$total_ll <- input.data$seg_info
-    #   to.bg.list$total_ll$score <- colSums(order.pps.lst$fs_ll_rt_ordered)
-    # }
-    # 
-    # # record the segments with FS probabilities above the threshold.
-    # all.seg.fs.df <- extract_fs_locations(order.pps.lst$pp_ordered, input.data$seg_info, input.min.rs.pp)
-
-    # # record the overal model ll progression
-    # all.layers.ll <- data.frame(FS = c(1:length(final.layer.ll)),
-    #                             FS_ll = final.layer.ll,
-    #                             stringsAsFactors = F)
-    # final.all.layers.ll[[i]] <- all.layers.ll
-
+   
     if(record.all.fs){
       
       record_results(fs.result.lists, i, input.data, analysis.parameters, '', hyper.components)
 
-      # dirichlet.guide.ll <- compute_perGuide_fs_ll(order.pps.lst$pp_ordered, input.data$guide_to_seg_lst)
-      # total.per.guide.ll <- 0
-      # for(repl in 1:length(input.data$data)){
-      #   temp.hypers <- list(alpha0 = relics.hyper$alpha0[[repl]], alpha1 = relics.hyper$alpha1[[repl]])
-      #   temp.sgRNa.ll <- estimate_relics_sgrna_log_like(temp.hypers,
-      #                                                   input.data$data[[repl]],
-      #                                                   dirichlet.guide.ll,
-      #                                                   input.data$guide_efficiency, return.model.ll = TRUE)
-      # 
-      #   total.per.guide.ll <- total.per.guide.ll + (-2 * (temp.sgRNa.ll$null_only_ll - temp.sgRNa.ll$alt_only_ll) )
-      # }
-      # 
-      # data.info.names <- colnames(input.data$guide_info)
-      # out.guide.info <- cbind(input.data$guide_info, total.per.guide.ll)
-      # colnames(out.guide.info) <- c(data.info.names, 'guide_ll')
-      # 
-      # write.csv(out.guide.info, file = paste0(out.dir, '_k',i,'_guide_ll_info.csv'), row.names = F)
-      # 
-      # out.guide.info$score <- out.guide.info$guide_ll
-      # to.bg.list$guide_ll <- out.guide.info
-      # 
-      # # total_effSize, repl_effSize
-      # abs.sum.effect.size <- record_sum_effectSizes(order.pps.lst$pp_ordered,
-      #                                                 input.min.rs.pp,
-      #                                                 relics.hyper,
-      #                                                 input.data$data,
-      #                                                 input.data$guide_to_seg_lst,
-      #                                                 input.data$seg_to_guide_lst,
-      #                                                 input.data$guide_efficiency,
-      #                                                 one.dispersion,
-      #                                                 input.data$seg_info,
-      #                                              abs.es = TRUE, pool.names = pool.names,
-      #                                              mean.var.type, hyper.components)
-      # 
-      # sum.effect.size <- record_sum_effectSizes(order.pps.lst$pp_ordered,
-      #                                           input.min.rs.pp,
-      #                                           relics.hyper,
-      #                                           input.data$data,
-      #                                           input.data$guide_to_seg_lst,
-      #                                           input.data$seg_to_guide_lst,
-      #                                           input.data$guide_efficiency,
-      #                                           one.dispersion,
-      #                                           input.data$seg_info,
-      #                                           abs.es = FALSE, pool.names = pool.names,
-      #                                           mean.var.type, hyper.components)
-      # 
-      # to.bg.list$abs_sumEffSize <- abs.sum.effect.size$total_effSize
-      # to.bg.list$sumEffSize <- sum.effect.size$total_effSize
-      # 
-      # write.csv(abs.sum.effect.size$fs_effSize_ID, file = paste0(out.dir, '_k', i, '_abs_sumEffSize.csv'), row.names = F)
-      # write.csv(sum.effect.size$fs_effSize_ID, file = paste0(out.dir, '_k', i, '_sumEffSize.csv'), row.names = F)
-      # 
-      # # record posteriors
-      # write.csv(order.pps.lst$pp_ordered, file = paste0(out.dir, '_k',i,'.csv'), row.names = F)
-      # 
-      # if(local.max){
-      #   write.csv(order.pps.lst$fs_ll_rt_ordered, file = paste0(out.dir, '_k',i,'_llRt.csv'), row.names = F)
-      # }
-      # 
-      # # record bedgraph
-      # create_bedgraphs(to.bg.list, paste0(out.dir, '_k',i) )
-      # 
-      # # save FS locations
-      # write.table(all.seg.fs.df, file = paste0(out.dir, '_k',i,'_FS_locations.bed'),
-      #             sep = '\t', quote = F, row.names = F, col.names = F)
-      # 
-      # # record alphas used for posterior calculation
-      # # record_alphas(final.layer.alpha0[[i]], final.layer.alpha1[[i]], out.dir, i, pool.names)
-      # # record_hyper_components(input.bkg.alpha = final.bkg.hyper[[i]], 
-      # #                         input.fs.alpha = final.fs.hyper[[i]], 
-      # #                         input.bkg.disp = final.bkg.disp[[i]],
-      # #                         out.dir, i, pool.names)
-      # record_hyperparameters(input.bkg.alpha = final.bkg.hyper[[i]], 
-      #                        input.fs.alpha = final.fs.hyper[[i]], 
-      #                        input.bkg.disp = input.hyper.components$dispersion, #final.bkg.disp[[i]],
-      #                        out.dir, i, pool.names)
-      # 
-      # # record the per-layer contribution to the model
-      # write.csv(per.layer.ll.df, file = paste0(out.dir, '_k',i,'_perFS_LLcontributions.csv'), row.names = F)
-      # 
-      # # model ll progression
-      # write.csv(all.layers.ll, file = paste0(out.dir, '_k',i,'_ll_progression.csv'), row.names = F)
-      # 
-      # # record the per-layer correlations
-      # write.layer.corrs <- data.frame(FSpair_1 = layer.corrs$layer_1, FSpair_2 = layer.corrs$layer_2,
-      #                                 corr = layer.corrs$corr, nr_FS_compared = layer.corrs$layer_Iteration, stringsAsFactors = F)
-      # write.csv(write.layer.corrs, file = paste0(out.dir, '_k',i,'_correlations.csv'), row.names = F)
-      # 
-      # # guide efficiency vars:
-      # if(! is.null(input.data$fixed_ge_coeff) && ! input.data$fixed_ge_coeff){
-      #   ge.coff.df <- data.frame(ge_coeff = c('beta0', paste0('beta', 1:ncol(input.data$guide_efficiency_scores))),
-      #                            ge_coeff_scores = round(input.data$ge_coeff, 3))
-      #   write.csv(ge.coff.df, file = paste0(out.dir, '_k',i,'_ge_coeff.csv'), row.names = F)
-      # }
-
     }
 
-    
-    
-    # plot the outputs
     if(i > 1){
 
-      # if(record.all.fs){
-      #   display_relics_fs_as_tiff(final.layer.posterior[[i]],
-      #                          input.data$segLabels,
-      #                          paste0(out.dir, '_k_', i),
-      #                          input.min.rs.pp,
-      #                          input.data$seg_info)
-      # 
-      #   # plot the ll progression and mark layers where convergence failed
-      #   # plot the correlation between PP
-      #   plot_fs_stats(all.layers.ll, layer.corr.df, out.dir, i, fs.correlation.cutoff)
-      # }
-      
       fs.correlation.cutoff.list <- determine_FS_nr_cutoff(fs.result.lists$correlation, analysis.parameters$fs_correlation_cutoff)
-      # fs.correlation.cutoff.list <- determine_FS_nr_cutoff(layer.corrs, fs.correlation.cutoff)
 
       if(fs.correlation.cutoff.list$need_to_stop){
         print(fs.correlation.cutoff.list$why_to_stop)
         
         if(auto.stop){
           record_results(fs.result.lists, i, input.data, analysis.parameters, '_final', hyper.components)
+          break()
         } else {
           print(paste0('Recommend stopping RELICS 2'))
           print('Continuing to run because auto.stop was set to FALSE')
           record_results(fs.result.lists, i, input.data, analysis.parameters, '_recommendedFinal', hyper.components)
         }
-        
-        # record_results(fs.result.lists, i, input.data, analysis.parameters, '_final', hyper.components)
-        # 
-        # final.pp.out <- final.layer.posterior[[i - 1]]
-        # all.layers.ll.out <- final.all.layers.ll[[i - 1]]
-        # final.per.layer.ll.out <- final.per.layer.ll[[i - 1]]
-        # final.ll.rt.out <- final.fs.ll.rt[[i - 1]]
-        # 
-        # # record sum of posteriors as bedgraph
-        # total.per.seg.posterior <- colSums(final.pp.out)
-        # total.per.seg.posterior[which(total.per.seg.posterior > 1)] <- 1
-        # out.bedgraph <- input.data$seg_info
-        # out.bedgraph$score <- total.per.seg.posterior
-        # to.bg.list <- list(total_pp = out.bedgraph)
-        # 
-        # if(local.max){
-        #   to.bg.list$total_ll <- input.data$seg_info
-        #   to.bg.list$total_ll$score <- colSums(final.ll.rt.out)
-        # }
-        # 
-        # # record the segments with FS probabilities above the threshold.
-        # all.seg.fs.df.final <- extract_fs_locations(final.pp.out, input.data$seg_info, input.min.rs.pp)
-        # 
-        # final.alpha0s <- final.layer.alpha0[[i - 1]]
-        # final.alpha1s <- final.layer.alpha1[[i - 1]]
-        # final.hypers <- list(alpha0 = final.alpha0s, alpha1 = final.alpha1s)
-        # 
-        # abs.sum.effect.size <- record_sum_effectSizes(final.pp.out,
-        #                                              input.min.rs.pp,
-        #                                              final.hypers,
-        #                                              input.data$data,
-        #                                              input.data$guide_to_seg_lst,
-        #                                              input.data$seg_to_guide_lst,
-        #                                              input.data$guide_efficiency,
-        #                                              one.dispersion,
-        #                                              input.data$seg_info,
-        #                                              abs.es = TRUE, pool.names = pool.names,
-        #                                              mean.var.type, hyper.components)
-        # 
-        # sum.effect.size <- record_sum_effectSizes(final.pp.out,
-        #                                               input.min.rs.pp,
-        #                                               final.hypers,
-        #                                               input.data$data,
-        #                                               input.data$guide_to_seg_lst,
-        #                                               input.data$seg_to_guide_lst,
-        #                                               input.data$guide_efficiency,
-        #                                               one.dispersion,
-        #                                               input.data$seg_info,
-        #                                               abs.es = FALSE, pool.names = pool.names,
-        #                                           mean.var.type, hyper.components)
-        # 
-        # to.bg.list$abs_sumEffSize <- abs.sum.effect.size$total_effSize
-        # to.bg.list$sumEffSize <- sum.effect.size$total_effSize
-        # 
-        # write.csv(abs.sum.effect.size$fs_effSize_ID, file = paste0(out.dir, '_final_k', i - 1, '_abs_sumEffSize.csv'), row.names = F)
-        # write.csv(sum.effect.size$fs_effSize_ID, file = paste0(out.dir, '_final_k', i - 1, '_sumEffSize.csv'), row.names = F)
-        # 
-        #  dirichlet.guide.ll <- compute_perGuide_fs_ll(final.pp.out, input.data$guide_to_seg_lst)
-        #  total.per.guide.ll <- 0
-        #  for(repl in 1:length(input.data$data)){
-        #    temp.hypers <- list(alpha0 = final.hypers$alpha0[[repl]], alpha1 = final.hypers$alpha1[[repl]])
-        #    temp.sgRNa.ll <- estimate_relics_sgrna_log_like(temp.hypers,
-        #                                                    input.data$data[[repl]],
-        #                                                    dirichlet.guide.ll,
-        #                                                    input.data$guide_efficiency, return.model.ll = TRUE)
-        # 
-        #    total.per.guide.ll <- total.per.guide.ll + (-2 * (temp.sgRNa.ll$null_only_ll - temp.sgRNa.ll$alt_only_ll) )
-        #  }
-        # 
-        #  data.info.names <- colnames(input.data$guide_info)
-        #  out.guide.info <- cbind(input.data$guide_info, total.per.guide.ll)
-        #  colnames(out.guide.info) <- c(data.info.names, 'guide_ll')
-        # 
-        #  out.guide.info$score <- out.guide.info$guide_ll
-        #  to.bg.list$guide_ll <- out.guide.info
-
-        # if(auto.stop){
-        # 
-        #   write.csv(out.guide.info, file = paste0(out.dir, '_final_k', i - 1,'_guide_ll_info.csv'), row.names = F)
-        # 
-        #   # record bedgraph
-        #   create_bedgraphs(to.bg.list, paste0(out.dir, '_final_k', i - 1) )
-        # 
-        #   # save FS locations
-        #   write.table(all.seg.fs.df.final, file = paste0(out.dir, '_final_k', i - 1,'_FS_locations.bed'),
-        #               sep = '\t', quote = F, row.names = F, col.names = F)
-        # 
-        #   # record alphas used for posterior calculation
-        #   # record_alphas(final.layer.alpha0[[i - 1]], final.layer.alpha1[[i - 1]], paste0(out.dir, '_final'), i - 1, pool.names)
-        #   # record_hyper_components(input.bkg.alpha = final.bkg.hyper[[i - 1]], 
-        #   #                         input.fs.alpha = final.fs.hyper[[i - 1]], 
-        #   #                         input.bkg.disp = final.bkg.disp[[i - 1]],
-        #   #                         paste0(out.dir, '_final'), i - 1, pool.names)
-        #   record_hyperparameters(input.bkg.alpha = final.bkg.hyper[[i - 1]], 
-        #                          input.fs.alpha = final.fs.hyper[[i - 1]], 
-        #                          input.bkg.disp = input.hypers$hyper_par_components$dispersion, #final.bkg.disp[[i - 1]],
-        #                          paste0(out.dir, '_final'), i - 1, pool.names)
-        # 
-        #   # record the per-layer contribution to the model
-        #   write.csv(final.per.layer.ll.out, file = paste0(out.dir, '_final_k',i - 1,'_perFS_LLcontributions.csv'), row.names = F)
-        # 
-        #   # model ll progression
-        #   write.csv(all.layers.ll.out, file = paste0(out.dir, '_final_k',i - 1,'_ll_progression.csv'), row.names = F)
-        # 
-        #   # record posteriors
-        #   write.csv(final.pp.out, file = paste0(out.dir, '_final_k', i - 1,'.csv'), row.names = F)
-        # 
-        #   if(local.max){
-        #     write.csv(final.ll.rt.out, file = paste0(out.dir, 'final_k', i-1, '_llRt.csv'), row.names = F)
-        #   }
-        # 
-        #   # record all correlations
-        #   write.layer.corrs.df <- data.frame(FSpair_1 = layer.corr.df$layer_1, FSpair_2 = layer.corr.df$layer_2,
-        #                                   corr = layer.corr.df$corr, nr_FS_compared = layer.corr.df$layer_Iteration, stringsAsFactors = F)
-        #   write.csv(write.layer.corrs.df, file = paste0(out.dir, '_final_allCorrs_k', i,'.csv'), row.names = F)
-        # 
-        #   display_relics_fs_as_tiff(final.layer.posterior[[i]],
-        #                             input.data$segLabels,
-        #                             paste0(out.dir, '_atFinal_k', i),
-        #                             input.min.rs.pp,
-        #                             input.data$seg_info)
-        # 
-        #   display_relics_fs_as_tiff(final.pp.out,
-        #                             input.data$segLabels,
-        #                             paste0(out.dir, '_final_k', i-1),
-        #                             input.min.rs.pp,
-        #                             input.data$seg_info)
-        # 
-        #   # # plot the ll progression and mark layers where convergence failed
-        #   # # plot the correlation between PP
-        #   plot_fs_stats(all.layers.ll.out, layer.corr.df.list[[i-1]], paste0(out.dir, '_final'), i-1, fs.correlation.cutoff)
-        #   #
-        #   # also plot summary at the stopping point so see how the correlation changed
-        #   plot_fs_stats(all.layers.ll, layer.corr.df, paste0(out.dir, '_atCutoff'), i, fs.correlation.cutoff)
-        # 
-        #   # guide efficiency vars:
-        #   if(! is.null(input.data$fixed_ge_coeff) && ! input.data$fixed_ge_coeff){
-        #     ge.coff.df <- data.frame(ge_coeff = c('beta0', paste0('beta', 1:ncol(input.data$guide_efficiency_scores))),
-        #                              ge_coeff_scores = round(ge.coeff.list[[i - 1]], 3))
-        #     write.csv(ge.coff.df, file = paste0(out.dir, '_final_k', i-1, '_ge_coeff.csv'), row.names = F)
-        #   }
-        # 
-        #   break()
-        # } else {
-        #   print(paste0('Recommend stopping RELICS 2'))
-        #   print(fs.correlation.cutoff.list$why_to_stop)
-        #   print('Continuing to run because auto.stop was set to FALSE')
-        # 
-        #   write.csv(out.guide.info, file = paste0(out.dir, '_recommendedFinal_k', i - 1,'_guide_ll_info.csv'), row.names = F)
-        # 
-        #   # record bedgraph
-        #   create_bedgraphs(to.bg.list, paste0(out.dir, '_recommendedFinal_k', i - 1) )
-        # 
-        #   # save FS locations
-        #   write.table(all.seg.fs.df.final, file = paste0(out.dir, '_recommendedFinal_k', i - 1,'_FS_locations.bed'),
-        #               sep = '\t', quote = F, row.names = F, col.names = F)
-        # 
-        #   # record alphas used for posterior calculation
-        #   # record_alphas(final.layer.alpha0[[i - 1]], final.layer.alpha1[[i - 1]], paste0(out.dir, '_recommendedFinal'), i - 1, pool.names)
-        #   # record_hyper_components(input.bkg.alpha = final.bkg.hyper[[i - 1]], 
-        #   #                         input.fs.alpha = final.fs.hyper[[i - 1]], 
-        #   #                         input.bkg.disp = final.bkg.disp[[i - 1]],
-        #   #                         paste0(out.dir, '_recommendedFinal'), i - 1, pool.names)
-        #   record_hyperparameters(input.bkg.alpha = final.bkg.hyper[[i - 1]], 
-        #                          input.fs.alpha = final.fs.hyper[[i - 1]], 
-        #                          input.bkg.disp = input.hypers$hyper_par_components$dispersion, #final.bkg.disp[[i - 1]],
-        #                          paste0(out.dir, '_recommendedFinal'), i - 1, pool.names)
-        # 
-        #   # record the per-layer contribution to the model
-        #   write.csv(final.per.layer.ll.out, file = paste0(out.dir, '_recommendedFinal_k',i - 1,'_perFS_LLcontributions.csv'), row.names = F)
-        # 
-        #   # model ll progression
-        #   write.csv(all.layers.ll.out, file = paste0(out.dir, '_recommendedFinal_k',i - 1,'_ll_progression.csv'), row.names = F)
-        # 
-        #   # record posteriors
-        #   write.csv(final.pp.out, file = paste0(out.dir, '_recommendedFinal_k', i - 1,'.csv'), row.names = F)
-        # 
-        #   if(local.max){
-        #     write.csv(final.ll.rt.out, file = paste0(out.dir, '_recommendedFinal_k', i-1, '_llRt.csv'), row.names = F)
-        #   }
-        # 
-        #   # record posteriors
-        #   write.csv(final.pp.out, file = paste0(out.dir, '_recommendedFinal_k', i - 1,'.csv'), row.names = F)
-        # 
-        #   # record all correlations
-        #   write.layer.corrs.df <- data.frame(FSpair_1 = layer.corr.df$layer_1, FSpair_2 = layer.corr.df$layer_2,
-        #                                      corr = layer.corr.df$corr, nr_FS_compared = layer.corr.df$layer_Iteration, stringsAsFactors = F)
-        #   write.csv(write.layer.corrs.df, file = paste0(out.dir, '_recommendedFinal_allCorrs_k', i,'.csv'), row.names = F)
-        # 
-        #   display_relics_fs_as_tiff(final.layer.posterior[[i]],
-        #                             input.data$segLabels,
-        #                             paste0(out.dir, '_atRecommendedFinal_k', i),
-        #                             input.min.rs.pp,
-        #                             input.data$seg_info)
-        # 
-        #   display_relics_fs_as_tiff(final.pp.out,
-        #                             input.data$segLabels,
-        #                             paste0(out.dir, '_recommendedFinal_k', i-1),
-        #                             input.min.rs.pp,
-        #                             input.data$seg_info)
-        # 
-        #   # plot the ll progression and mark layers where convergence failed
-        #   # plot the correlation between PP
-        #   plot_fs_stats(all.layers.ll.out, layer.corr.df, paste0(out.dir, '_recommendedFinal'), i-1, fs.correlation.cutoff)
-        # 
-        #   # also plot summary at the stopping point so see how the correlation changed
-        #   plot_fs_stats(all.layers.ll, layer.corr.df, paste0(out.dir, '_atRecommendedCutoff'), i, fs.correlation.cutoff)
-
-          # guide efficiency vars:
-          # if(! is.null(input.data$fixed_ge_coeff) && ! input.data$fixed_ge_coeff){
-          #   ge.coff.df <- data.frame(ge_coeff = c('beta0', paste0('beta', 1:ncol(input.data$guide_efficiency_scores))),
-          #                            ge_coeff_scores = round(ge.coeff.list[[i - 1]], 3))
-          #   write.csv(ge.coff.df, file = paste0(out.dir, '_recommendedFinal_k',i,'_ge_coeff.csv'), row.names = F)
-          # }
-
-        # }
 
       }
 
     }
 
-        # if the hyper parameters are reestimated after convergence of the posteriors
+    # if the hyper parameters are reestimated after convergence of the posteriors
     if(! fix.hypers & !iterative.hyper.est){
       
       relics.hyper.list <- c()
@@ -2578,7 +2017,6 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
     }
 
     if(!fix.hypers | !is.null(input.data$guide_efficiency_scores)){
-      #out.pars <- list(out_dir = out.dir, dataName = '')
       out.pars <- list(out_dir = out.dir,
                        iter = i)
       record_ll_ratio(relics.hyper, input.data, out.pars)
@@ -2647,16 +2085,9 @@ process_fs_pp <- function(input.pp.list, input.results.list, analysis.parameters
   new.model.ll <- data.frame(FS = fs.iter, FS_ll = input.pp.list$ll_tract[[convrg.iter]], stringsAsFactors = F)
   temp.model.ll <- rbind(do.call(rbind, input.results.list$model_ll), new.model.ll)
   input.results.list$model_ll[[fs.iter]] <- temp.model.ll
-  # final.layer.ll <- c(final.layer.ll, input.pp.list$ll_tract[[convrg.iter]])
-  # # record the overal model ll progression
-  # all.layers.ll <- data.frame(FS = c(1:length(final.layer.ll)),
-  #                             FS_ll = final.layer.ll,
-  #                             stringsAsFactors = F)
-  # final.all.layers.ll[[i]] <- all.layers.ll
   
   input.results.list$ll_ratio[[fs.iter]] <- order.pps.lst$fs_ll_rt_ordered
-  # final.fs.ll.rt[[i]] <- order.pps.lst$fs_ll_rt_ordered
-  
+
   #$nr_rs, $rs_prob, $training_overlap, $prct_overlap
   pp.stat.lst <- pps_stats(order.pps.lst$pp_ordered, analysis.parameters$min_fs_pp)
   
@@ -2667,57 +2098,13 @@ process_fs_pp <- function(input.pp.list, input.results.list, analysis.parameters
                              nr_fs = c(0, pp.stat.lst$nr_rs),
                              stringsAsFactors = F)
   input.results.list$per_fs_ll[[fs.iter]] <- per.fs.ll.df
-  # per.layer.ll.contribution <- order.pps.lst$layer_ll_ordered
-  # per.layer.ll.df <- data.frame(FS = c('total_model_ll', paste0('k_', c(1:(length(per.layer.ll.contribution)))) ),
-  #                               ll = c(input.pp.list$ll_tract[[convrg.iter]], per.layer.ll.contribution),
-  #                               nr_fs = c(0, pp.stat.lst$nr_rs),
-  #                               stringsAsFactors = F)
-  # final.per.layer.ll[[i]] <- per.layer.ll.df
-  #per.layer.ll.df$layer_Iteration <- rep(as.character(i), nrow(per.layer.ll.df))
-  
-  
-  # # prep the parameters for the next iteration (both the posteriors and hypers)
-  # relics.hyper$L <- relics.hyper$L + 1
-  # relics.param$delta.pp <- rbind(order.pps.lst$pp_ordered, rep(0, ncol(relics.param$delta.pp)))
-  # # relics.hyper$alpha0 <- input.pp.list$alpha0[[convrg.iter]]
-  # # relics.hyper$alpha1 <- input.pp.list$alpha1[[convrg.iter]]
-  # 
-  # if(local.max){
-  #   relics.param$ll_rt <- rbind(order.pps.lst$fs_ll_rt_ordered, rep(0, ncol(relics.param$delta.pp)))
-  # }
-  # 
-  # can be removed
-  # if there was an issue with convergence, then record it
-  # no.convergence.bool <- c(no.convergence.bool, input.pp.list$max_iter_reached)
-  # if(input.pp.list$max_iter_reached){
-  #   no.convergence.layer <- c(no.convergence.layer, i) # during what layers whas there no convergence
-  #   no.convergence.lls <- c(no.convergence.lls, input.pp.list$ll_tract[[convrg.iter]])
-  # }
   
   # # record the PP correlations and overlaps
   fs.corrs <- pps_corr(order.pps.lst$pp_ordered, fs.iter)
-  # fs.corr.df <- rbind(fs.corr.df, fs.corrs)
   input.results.list$correlation[[fs.iter]] <- fs.corrs
-  # layer.corrs <- pps_corr(order.pps.lst$pp_ordered, i)
-  # layer.corr.df <- rbind(layer.corr.df, layer.corrs)
-  # layer.corr.df.list[[i]] <- layer.corr.df
   
   input.results.list$ge_coeff[[fs.iter]] <- input.data$ge_coeff
-  
-  # # record sum of posteriors as bedgraph
-  # total.per.seg.posterior <- colSums(order.pps.lst$pp_ordered)
-  # total.per.seg.posterior[which(total.per.seg.posterior > 1)] <- 1
-  # out.bedgraph <- input.data$seg_info
-  # out.bedgraph$score <- total.per.seg.posterior
-  # to.bg.list <- list(total_pp = out.bedgraph)
-  # 
-  # if(local.max){
-  #   to.bg.list$total_ll <- input.data$seg_info
-  #   to.bg.list$total_ll$score <- colSums(order.pps.lst$fs_ll_rt_ordered)
-  # }
-  
-  # record the segments with FS probabilities above the threshold.
-  # all.seg.fs.df <- extract_fs_locations(order.pps.lst$pp_ordered, input.data$seg_info, input.min.rs.pp)
+
   return(input.results.list)
 }
 
@@ -2759,20 +2146,19 @@ hyperparameter_recording <- function(input.results.list, fs.iter, hyper.componen
   
   record.bkg.hyper <- input.results.list$bkg_hyper[[fs.iter]]
   record.fs.hyper <- input.results.list$fs_hyper[[fs.iter]]
-  record.bkg.disp <- input.results.list$bkg_disp[[fs.iter]]
   out.dir <- paste0(analysis.parameters$out_dir, '/', analysis.parameters$dataName)
   
-  if(analysis.parameters$mean_var_type == 'independent'){
-    record_hyper_components(input.bkg.alpha = record.bkg.hyper,
-                            input.fs.alpha = record.fs.hyper,
-                            input.bkg.disp = record.bkg.disp,
-                            paste0(out.dir, file.extension), fs.iter, analysis.parameters$pool_names)
-  } else {
+  if(analysis.parameters$model_dispersion){
     record_hyperparameters(input.bkg.alpha = record.bkg.hyper, 
                            input.fs.alpha = record.fs.hyper, 
                            input.bkg.disp = hyper.components$dispersion, 
                            paste0(out.dir, file.extension), fs.iter, analysis.parameters$pool_names)
-    
+  } else {
+    record.bkg.disp <- input.results.list$bkg_disp[[fs.iter]]
+    record_hyper_components(input.bkg.alpha = record.bkg.hyper,
+                            input.fs.alpha = record.fs.hyper,
+                            input.bkg.disp = record.bkg.disp,
+                            paste0(out.dir, file.extension), fs.iter, analysis.parameters$pool_names)
   }
   
 }
@@ -2982,86 +2368,25 @@ record_sum_effectSizes <- function(input.pp, input.min.rs.pp, hyper, data,
           temp.alpha0 <- t(temp.bkg.alpha %*% t(temp.disp) )
         }
         
+        res <- optim(temp.fs.alpha, FS_prop_eSize, method= 'L-BFGS-B', #'BFGS', #"Nelder-Mead",
+                     alpha.zero = temp.alpha0, input.disp = temp.disp,
+                     data = fs.data, region.ll.list = temp.guide.lls.list,
+                     guide.efficiency = fs.guide.efficiency)
         
-        # temp.bkg.disp <- hyper.components$bkg_dispersion[[i]]
-        # 
-        # temp.disp <- c()
-        # temp.alpha0 <- c()
-        # 
-        # if(mean.var.type == 'radical'){
-        #   temp.disp <- (temp.bkg.disp[1] + temp.bkg.disp[2] * fs.data[,ncol(fs.data)] + temp.bkg.disp[3] * sqrt(fs.data[,ncol(fs.data)]))
-        #   temp.disp[which(temp.disp < 0.1)] <- 0.1
-        #   temp.alpha0 <- t(temp.bkg.alpha %*% t(temp.disp) )
-        # } else if(mean.var.type == 'exponential'){
-        #   temp.disp <- (temp.bkg.disp[1] + temp.bkg.disp[2] * log(fs.data[,ncol(fs.data)]))
-        #   # temp.disp <- (temp.bkg.disp[1] + temp.bkg.disp[2] * fs.data[,ncol(fs.data)] + temp.bkg.disp[3] * log(fs.data[,ncol(fs.data)] + 1))
-        #   temp.disp[which(temp.disp < 0.1)] <- 0.1
-        #   temp.disp[which(is.na(temp.disp))] <- 0.1
-        #   temp.disp[which(temp.disp == Inf)] <- max(temp.disp[which(temp.disp < Inf)])
-        #   temp.alpha0 <- t(temp.bkg.alpha %*% t(temp.disp) )
-        # } else if(mean.var.type == 'independent'){
-        #   temp.disp <- temp.bkg.disp[1]^2
-        #   temp.alpha0 <- temp.bkg.alpha * temp.disp
-        # } else if(mean.var.type == 'quadratic'){
-        #   temp.disp <- temp.bkg.disp[1] + temp.bkg.disp[2] * fs.data[,ncol(fs.data)] + temp.bkg.disp[3] * fs.data[,ncol(fs.data)]^2
-        #   temp.disp[which(temp.disp < 0.1)] <- 0.1
-        #   temp.disp[which(is.na(temp.disp))] <- 0.1
-        #   temp.disp[which(temp.disp == Inf)] <- max(temp.disp[which(temp.disp < Inf)])
-        #   temp.alpha0 <- t(temp.bkg.alpha %*% t(temp.disp) )
-        # }
-        # 
-        # temp.alpha0 <- hyper$alpha0[[i]]
-        # temp.alpha1 <- sqrt(hyper$alpha1[[i]])
-
-        res <- c()
-
-        if(one.dispersion){
-          # res <- optim(temp.alpha1, prior_dirichlet_ll_singleDisp_eSize, method= 'L-BFGS-B', #'BFGS', #"Nelder-Mead",
-          #              data = fs.data, region.ll.list = temp.guide.lls.list,
-          #              guide.efficiency = fs.guide.efficiency, alpha.zero = temp.alpha0)
-          
-          res <- optim(temp.fs.alpha, FS_prop_eSize, method= 'L-BFGS-B', #'BFGS', #"Nelder-Mead",
-                       alpha.zero = temp.alpha0, input.disp = temp.disp,
-                       data = fs.data, region.ll.list = temp.guide.lls.list,
-                       guide.efficiency = fs.guide.efficiency)
-        } else {
-          print('Two dispersions currently not possible!')
-          break()
-          # res <- optim(temp.alpha1, prior_dirichlet_ll_eSize, method= 'L-BFGS-B', #'BFGS', #"Nelder-Mead",
-          #              data = fs.data, region.ll.list = temp.guide.lls.list,
-          #              guide.efficiency = fs.guide.efficiency, alpha.zero = temp.alpha0)
-        }
-
         alpha1s <- res$par**2
-
-        if(one.dispersion){
-
-          # alpha1s.norm <- alpha1s / sum(alpha1s)
-          # alpha1s.adj <- alpha1s.norm * sum(temp.alpha0)
-          
-          alpha1s.adj <- c(1, alpha1s) / sum(c(1, alpha1s))
-
-          if(abs.es){
-            # fs.alpha1.eff.size[[e]][[i]] <- abs((alpha1s.adj / sum(alpha1s.adj)) - (temp.alpha0 / sum(temp.alpha0 )))
-            fs.alpha1.eff.size[[e]][[i]] <- abs(alpha1s.adj - temp.bkg.alpha)
-          } else {
-            # fs.alpha1.eff.size[[e]][[i]] <- (alpha1s.adj / sum(alpha1s.adj)) - (temp.alpha0 / sum(temp.alpha0 ))
-            fs.alpha1.eff.size[[e]][[i]] <- alpha1s.adj - temp.bkg.alpha
-          }
+        
+        alpha1s.adj <- c(1, alpha1s) / sum(c(1, alpha1s))
+        
+        if(abs.es){
+          fs.alpha1.eff.size[[e]][[i]] <- abs(alpha1s.adj - temp.bkg.alpha)
         } else {
-          print('Two dispersions currently not possible!')
-          break()
-          # if(abs.es){
-          #   fs.alpha1.eff.size[[e]][[i]] <- abs( (alpha1s / sum(alpha1s)) - (temp.alpha0 / sum(temp.alpha0)) )
-          # } else {
-          #   fs.alpha1.eff.size[[e]][[i]] <- (alpha1s / sum(alpha1s)) - (temp.alpha0 / sum(temp.alpha0))
-          # }
+          fs.alpha1.eff.size[[e]][[i]] <- alpha1s.adj - temp.bkg.alpha
         }
-
-          if(res$convergence != 0) {
-            warning("estimation of hyperparameters failed to converge")
-            did.converge <- FALSE
-          }
+        
+        if(res$convergence != 0) {
+          warning("estimation of effect size failed to converge")
+          did.converge <- FALSE
+        }
 
       }
 
@@ -3775,7 +3100,7 @@ plot_fs_stats <- function(input.layer.ll.df, layer.corr.df, out.dir, layer.nr, f
   p.ll.prog <- ggplot() + geom_line(data = input.layer.ll.df, aes(x = FS, y = FS_ll)) +
     ggtitle('Log-Likelihood progression') + theme_bw() + labs(x='Number of FSs (K)', y='Log-Likelihood')
 
-  layer.corr.df.mod <- layer.corr.df
+  layer.corr.df.mod <- do.call(rbind, layer.corr.df)
   layer.corr.df.mod$cutoff <- 'below'
   layer.corr.df.mod$cutoff[which(layer.corr.df.mod$corr > fs.correlation.cutoff)] <- 'above'
   layer.corr.df.mod$layer_comb[which(layer.corr.df.mod$corr < fs.correlation.cutoff)] <- layer.corr.df.mod$layer_1[which(layer.corr.df.mod$corr < fs.correlation.cutoff)]
