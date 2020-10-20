@@ -127,7 +127,7 @@ RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.
   analysis.parameters <- compute_hyperparameters(analysis.parameters, data.setup)
 
   data.setup$fixed_ge_coeff <- analysis.parameters$fixed_ge_coeff
-  # To Do: adjust the guide efficiency to work with new dispersion method
+  # To Do!: adjust the guide efficiency to work with new dispersion method
   # # if guide efficiency scores are provided, calculate guide efficiency and include in the model
   # if(! is.null(data.setup$guide_efficiency_scores)){
   #   
@@ -147,6 +147,7 @@ RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.
   #   }
   # 
   # }
+  # TO DO!
 
   # plot the per-segment ll-ratio
   out.pars <- list(out_dir = paste0(analysis.parameters$out_dir, '/', analysis.parameters$dataName),
@@ -166,7 +167,6 @@ RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.
                auto.stop = analysis.parameters$auto_stop,
                record.all.fs = record.all.fs,
                input.convergence.tol = analysis.parameters$convergence_tol,
-               # adjust.tol = analysis.parameters$adjust_tol,
                one.dispersion = analysis.parameters$one_dispersion,
                recompute.fs0 = analysis.parameters$recompute_fs0,
                local.max = analysis.parameters$local_max,
@@ -432,7 +432,6 @@ check_parameter_list <- function(input.parameter.list, data.file.split){
   }
   if(! 'min_fs_pp' %in% par.given){
     out.parameter.list$min_fs_pp <- 0.1
-    # input.min.rs.pp = 0.1,
   }
   if(! 'auto_stop' %in% par.given){
     out.parameter.list$auto_stop <- TRUE
@@ -648,9 +647,6 @@ read_analysis_parameters <- function(parameter.file.loc){
     if('out_dir' == parameter.id){
       out.parameter.list$out_dir <- strsplit(parameter,':')[[1]][2]
     }
-    # if('adjust_tol' == parameter.id){
-    #   out.parameter.list$adjust_tol <- as.logical(strsplit(parameter,':')[[1]][2])
-    # }
     if('convergence_tol' == parameter.id){
       out.parameter.list$convergence_tol <- as.numeric(strsplit(parameter,':')[[1]][2])
     }
@@ -677,15 +673,11 @@ read_analysis_parameters <- function(parameter.file.loc){
       out.parameter.list$geom_p <- as.numeric(strsplit(parameter,':')[[1]][2])
       #geom.norm.factr <- pgeom(nr.segs, geom.p)
     }
-    # if('seg_length_dir' == parameter.id){
-    #   out.parameter.list$seg_length_dir <- 'continous-norm'
-    # }
     if('fs_correlation_cutoff' == parameter.id){
       out.parameter.list$fs_correlation_cutoff <- as.numeric(strsplit(parameter,':')[[1]][2])
     }
     if('min_fs_pp' == parameter.id){
       out.parameter.list$min_fs_pp <- as.numeric(strsplit(parameter,':')[[1]][2])
-      # input.min.rs.pp = 0.1,
     }
     if('auto_stop' == parameter.id){
       out.parameter.list$auto_stop <- as.logical(strsplit(parameter,':')[[1]][2])
@@ -863,10 +855,8 @@ set_up_RELICS_data <- function(input.parameter.list, data.file.split, guide.offs
   }
 
   if(length(which(! sim.info$label %in% labelHierarchy)) > 0){
-    #print(paste0("Removing labels not present in the 'labelHierarchy': ", unique(sim.info$label[which(! sim.info$label %in% labelHierarchy)])))
     sim.counts <- sim.counts[-which(! sim.info$label %in% labelHierarchy),]
     sim.info <- sim.info[-which(! sim.info$label %in% labelHierarchy),]
-    #save.files <- TRUE
   }
 
   if(length(which(is.na(sim.info$start))) > 0){
@@ -1155,7 +1145,6 @@ slide_window <- function(input.df, window.size, max.window.range = 3000,input.la
     out.df <- rbind(out.df, temp.out.df)
     
   }
-
 
   colnames(out.df) <- c('chrom', 'start', 'end', 'label', 'windowScore')
   
@@ -1544,7 +1533,6 @@ estimate_hyper_parameters <- function(data.par.list, analysis.par.list, input.re
   # most basic implementation of GE
   if(! is.null(data.par.list$guide_efficiency_scores)){
     if(! analysis.par.list$fixed_ge_coeff){
-      #data.par.list$guide_efficiency <- 1 / (1 + exp(-(data.par.list$guide_efficiency_scores %*% rep(1, ncol(data.par.list$guide_efficiency_scores)))))
 
       logit.ge <- apply(data.par.list$guide_efficiency_scores, 2, function(x){
         log(x / (1 - x))
@@ -1647,30 +1635,10 @@ prior_dirichlet_parameters <- function(hyper.param, data, region.ll.list, bkg.id
 
   hyper <- list()
   
-  if(mean.var.type == 'radical'){
-    temp.disp <- disp.alpha[1] + disp.alpha[2] * data[,ncol(data)] + disp.alpha[3] * sqrt(data[,ncol(data)])
-    temp.disp[which(temp.disp < 0.1)] <- 0.1
-    hyper$alpha0 <- t(bkg.alpha %*% t(temp.disp) )
-    hyper$alpha1 <- t(fs.alpha %*% t(temp.disp) )
-  } else if(mean.var.type == 'exponential'){
-    temp.disp <- disp.alpha[1] + disp.alpha[2] * log(data[,ncol(data)])
-    # temp.disp <- disp.alpha[1] + disp.alpha[2] * data[,ncol(data)] + disp.alpha[3] * log(data[,ncol(data)] + 1)
-    temp.disp[which(temp.disp < 0.1)] <- 0.1
-    temp.disp[which(is.na(temp.disp))] <- 0.1
-    temp.disp[which(temp.disp == Inf)] <- max(temp.disp[which(temp.disp < Inf)])
-    hyper$alpha0 <- t(bkg.alpha %*% t(temp.disp) )
-    hyper$alpha1 <- t(fs.alpha %*% t(temp.disp) )
-  } else if(mean.var.type == 'independent'){
+if(mean.var.type == 'independent'){
     temp.disp <- disp.alpha[1]^2
     hyper$alpha0 <- bkg.alpha * temp.disp
     hyper$alpha1 <- fs.alpha * temp.disp
-  } else if(mean.var.type == 'quadratic'){
-    temp.disp <- disp.alpha[1] + disp.alpha[2] * data[,ncol(data)] + disp.alpha[3] * data[,ncol(data)]^2
-    temp.disp[which(temp.disp < 0.1)] <- 0.1
-    temp.disp[which(is.na(temp.disp))] <- 0.1
-    temp.disp[which(temp.disp == Inf)] <- max(temp.disp[which(temp.disp < Inf)])
-    hyper$alpha0 <- t(bkg.alpha %*% t(temp.disp) )
-    hyper$alpha1 <- t(fs.alpha %*% t(temp.disp) )
   }
 
   out.sg.ll <- estimate_relics_sgrna_log_like(hyper, data, region.ll.list, guide.efficiency)
@@ -1697,7 +1665,6 @@ prior_dirichlet_ll_singleDisp <- function(hyper.param, data, region.ll.list, alp
   alpha1s.norm <- alpha1s / sum(alpha1s)
   alpha1s.adj <- alpha1s.norm * sum(alpha0s)
 
-  # cat(u0, u1, v0, v1, "\n")
   hyper <- list(alpha0 = alpha0s,
                 alpha1 = alpha1s.adj)
 
@@ -1992,7 +1959,6 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
                                                         input.data$data,
                                                         input.data$guide_to_seg_lst,
                                                         input.data$guide_efficiency,
-                                                        one.dispersion,
                                                         mean.var.type)
       }
 
@@ -2059,8 +2025,6 @@ initialize_results_list <- function(){
   results.list$model_ll <- list()
   
   results.list$ll_ratio <- list()
-  
-  # layer.corr.df <- c()
   
   return(results.list)
   
@@ -2145,8 +2109,6 @@ process_fs_pp <- function(input.pp.list, input.results.list, analysis.parameters
 #' @export record_results()
 
 record_results <- function(input.results.list, fs.iter, input.data, analysis.parameters, file.extension, hyper.components){
-  
-  #posteriors, alpha0, alpha1, bkg_hyper, fs_hyper, bkg_disp, fs_ll, per_fs_ll, correlation, ge_coeff, model_ll, ll_ratio
   
   record.posteriors <- input.results.list$posteriors[[fs.iter]]
   record.model.ll <- input.results.list$model_ll[[fs.iter]]
@@ -2553,8 +2515,6 @@ FS_prop_eSize <- function(fs.alpha, alpha.zero, input.disp, data, region.ll.list
 
 FS_only_guide_ll <- function(cumulative.pp, guide.seg.idx.lst, fs.idx, guide.fs.idx, hyper.setup = FALSE){
 
-  # fs.pp <- cumulative.pp[fs.idx]
-
   nr.fs.sgrna <- length(guide.fs.idx)
 
   null.ll <- vector('numeric', length = nr.fs.sgrna)
@@ -2629,7 +2589,6 @@ prior_dirichlet_ll_singleDisp_eSize <- function(alpha.one, alpha.zero, data, reg
   alpha1s.norm <- alpha1s / sum(alpha1s)
   alpha1s.adj <- alpha1s.norm * sum(alpha.zero)
 
-  # cat(u0, u1, v0, v1, "\n")
   hyper <- list(alpha0 = alpha.zero,
                 alpha1 = alpha1s.adj)
 
@@ -2653,7 +2612,6 @@ prior_dirichlet_ll_eSize <- function(alpha.one, alpha.zero, data, region.ll.list
 
   alpha1s <- alpha.one**2
 
-  # cat(u0, u1, v0, v1, "\n")
   hyper <- list(alpha0 = alpha.zero,
                 alpha1 = alpha1s)
 
@@ -2842,7 +2800,6 @@ prior_dirichlet_ll_singleDisp_eSize_scaled <- function(scaling.par, alpha.one, a
   alpha1s.norm <- alpha1s / sum(alpha1s)
   alpha1s.adj <- alpha1s.norm * sum(alpha.zero)
 
-  # cat(u0, u1, v0, v1, "\n")
   hyper <- list(alpha0 = alpha.zero,
                 alpha1 = alpha1s.adj)
 
@@ -2870,7 +2827,6 @@ prior_dirichlet_ll_eSize_scaled <- function(scaling.par, alpha.one, alpha.zero, 
 
   alpha1s <- alpha.one * abs(scaling.par)
 
-  # cat(u0, u1, v0, v1, "\n")
   hyper <- list(alpha0 = alpha.zero,
                 alpha1 = alpha1s)
 
@@ -2935,9 +2891,6 @@ recompute_ge_coefficients <- function(param, hyper, data, guide.seg.idx.lst, gui
 #' @export guide_coeff_ll()
 
 guide_coeff_ll <- function(ge.coeff.param, data, region.ll.list, alpha0.input, alpha1.input, guide.efficiency.scores) {
-
-  # , alpha0.input, alpha1.input
-  #guide.efficiency <- 1 / (1 + exp(-(ge.coeff.param[1] + guide.efficiency.scores %*% ge.coeff.param[2:length(ge.coeff.param)])))
 
   guide.efficiency.scores.logit <- apply(guide.efficiency.scores, 2, function(x){
     log(x / (1-x))
@@ -3193,7 +3146,6 @@ plot_fs_stats <- function(input.layer.ll.df, layer.corr.df, out.dir, layer.nr, f
 
   p.corr <- ggplot() +
     geom_boxplot(data = layer.corr.df.mod, aes(y = corr, x = (layer_Iteration) ),position = position_dodge(0.7)) +
-    #geom_point(data = fSim21.all.ap.corrs, aes(y = corr, x = (layer_Iteration) )) +
     geom_line(data = layer.corr.df.mod.max.corrs, aes(x = as.numeric(layer_Iteration), y = corr, color = 'Max. corr'), linetype = "dashed") +
     ggtitle('FS correlations (Boxplots)') + theme_classic() + geom_hline(yintercept=0.1, linetype="dotted", color = "black") +
     labs(x='Number of FSs (K)', y='Correlation of FS prob.', col="", shape="Cutoff = 0.1")
@@ -3707,8 +3659,6 @@ init_relics_param <- function(hyper, in.data.list, local.max, recompute.fs0) {
 #' @param input.hyper: hyper parameters
 #' @param input.data.list, list: $guide_to_seg_lst, $data, $true_pos_seg, $overlapMat, $guide_to_seg_lst, $seg_to_guide_lst
 #' @param input.tol: nr of layers to create
-#' #@param fix.hypers, whetehr the hyper parameters are fixed
-#' #@param iterative.hyper.est: whether the hyper parameters should be re-calculated after each round of estimating the posteriors. Default = TRUE
 #' @param nr.segs: max. length a functional segment is considered to have
 #' @param geom.p: proababilty of the genometric distribution to penalize for enhancers of increasing length
 #' @param min.pp: minimum posterior required to be part of a regulatory set
@@ -3724,8 +3674,6 @@ relics_compute_FS_k <- function(input.param,
                           input.hyper,
                           input.data.list,
                           input.tol = 0.001,
-                          # fix.hypers = FALSE,
-                          # iterative.hyper.est = TRUE,
                           nr.segs = 10, geom.p = 0.1,
                           min.pp = 0.1,
                           guide.efficiency,
@@ -3748,8 +3696,6 @@ relics_compute_FS_k <- function(input.param,
   dirichlet.ll.trace <- c()
   dirichlet.posterior.trace <- list()
   max.diff.trace <- c()
-  # alpha0.est <- list()
-  # alpha1.est <- list()
   fs.ll.rt.trace <- list() # per functional sequence, per segment log-likelihood ratio of local max
 
   too.low.pps <- 3 # 3 strikes to get posteriors higher than lowest possibility
@@ -3757,12 +3703,6 @@ relics_compute_FS_k <- function(input.param,
   while((max.diff > tol) & (iter < max.iter) & too.low.pps > 0) {
 
     iter <- iter + 1
-
-    # print(paste('alpha0:', lapply(dirichlet.hyper$alpha0, function(x){round(x, 3)})))
-    # print(paste('alpha1:', lapply(dirichlet.hyper$alpha1, function(x){round(x, 3)})))
-
-    # alpha0.est[[iter]] <- dirichlet.hyper$alpha0
-    # alpha1.est[[iter]] <- dirichlet.hyper$alpha1
 
     cur.delta <- dirichlet.param$delta.pp
 
@@ -3781,25 +3721,12 @@ relics_compute_FS_k <- function(input.param,
     delta.diff <- cur.delta - dirichlet.param$delta.pp
     max.diff <- max(abs(delta.diff))
 
-    # print(paste0('diff in posterior: ', max.diff))
-
     max.diff.trace <- c(max.diff.trace, max.diff)
     dirichlet.posterior.trace[[iter]] <- dirichlet.param$delta.pp
 
     if(local.max){
       fs.ll.rt.trace[[iter]] <- dirichlet.param$ll_rt
     }
-
-    # if(!fix.hypers & iterative.hyper.est){
-    #   print('iterative hyperparameter estimation currently not possible!')
-    #   break()
-    #   # dirichlet.hyper <- recompute_hyper_parameters(dirichlet.param,
-    #   #                                                dirichlet.hyper,
-    #   #                                                input.data.list$data,
-    #   #                                                input.data.list$guide_to_seg_lst,
-    #   #                                               guide.efficiency,
-    #   #                                               one.dispersion)
-    # }
 
     dirichlet.pp <- colSums(dirichlet.param$delta.pp)
     dirichlet.pp[dirichlet.pp > 1] <- 1
@@ -3817,7 +3744,6 @@ relics_compute_FS_k <- function(input.param,
       dirichlet.ll <- dirichlet.ll + temp.dirichlet.ll
     }
 
-    #print(paste0('Updated ll: ', sum(dirichlet.ll)))
     dirichlet.ll.trace <- rbind(dirichlet.ll.trace, dirichlet.ll)
 
     # check if the last layer has a posterior below a certain threshold
@@ -3846,8 +3772,6 @@ relics_compute_FS_k <- function(input.param,
       max.ll.idx <- which(dirichlet.ll.trace[iter:(iter-5)] == max(dirichlet.ll.trace[iter:(iter-5)]))[1]
       dirichlet.posterior.trace[[iter]] <- dirichlet.posterior.trace[[iter - max.ll.idx + 1]]
       dirichlet.ll.trace[iter] <- dirichlet.ll.trace[iter - max.ll.idx + 1]
-      # alpha0.est[[iter]] <- alpha0.est[[iter - max.ll.idx + 1]]
-      # alpha1.est[[iter]] <- alpha1.est[[iter - max.ll.idx + 1]]
 
       if(local.max){
         fs.ll.rt.trace[[iter]] <- fs.ll.rt.trace[[iter - max.ll.idx + 1]]
@@ -3860,8 +3784,6 @@ relics_compute_FS_k <- function(input.param,
 
   out.list <- list(ll_tract = dirichlet.ll.trace,
                    posterior_trace_list = dirichlet.posterior.trace,
-                   # alpha0_est = alpha0.est,
-                   # alpha1_est = alpha1.est,
                    max_iter_reached = max.iter.reached,
                    fs_ll_rt_trace = fs.ll.rt.trace)
 
@@ -3935,23 +3857,18 @@ recompute_dirichlet_hypers <- function(param, guide.seg.idx.lst, hyper.component
 #' @param data: data, consists of: $y1, $y2 and $n
 #' @param guide.seg.idx.lst: list: each element is a guide, contaiing the indexes of the segments it overlaps
 #' @param guide.efficiency: either a vector of guide efficiency or NULL
-#' @param one.dispersion. logical, if there should be one or two dispersions for the hyper parameters
 #' @param mean.var.type: type of mean-variance relationship
 #' @return list of the re-estimated hyperparameters
 #' @export recompute_hyper_parameters()
 
-recompute_hyper_parameters <- function(param, hyper, hyper.components, data, guide.seg.idx.lst, guide.efficiency, one.dispersion, mean.var.type) {
+recompute_hyper_parameters <- function(param, hyper, hyper.components, data, guide.seg.idx.lst, guide.efficiency, mean.var.type) {
   cumulative.pp <- colSums(param$delta.pp) #apply(param$delta.pp, 2, sum)
   cumulative.pp[cumulative.pp > 1] <- 1
 
   guide.lls.list <- compute_perGuide_fs_ll(cumulative.pp, guide.seg.idx.lst)
 
   for(i in 1:length(data)){
-    # need alphas to be greater than 0, taking square root now to exponentiate after
-    # hyper.param <- c(sqrt(hyper$alpha0[[i]]), sqrt(hyper$alpha1[[i]]))
-    # alpha0.idx <- c(1:length(hyper$alpha0[[i]]))
-    # alpha1.idx <- c(1:length(hyper$alpha0[[i]])) + max(alpha0.idx)
-    
+
     temp.hyper.params <- c(sqrt(hyper.components$bkg_alpha[[i]]), sqrt(hyper.components$FS_alpha[[i]]), hyper.components$bkg_dispersion[[i]])
     temp.bkg.idx <- c(1:length(hyper.components$bkg_alpha[[i]]))
     temp.fs.idx <- c(1:length(hyper.components$FS_alpha[[i]])) + max(temp.bkg.idx)
@@ -3966,31 +3883,6 @@ recompute_hyper_parameters <- function(param, hyper, hyper.components, data, gui
                            guide.efficiency = guide.efficiency, 
                            mean.var.type = mean.var.type)
 
-    # temp.res.drch <- c()
-    # 
-    # if(one.dispersion){
-    #   # res <- optim(hyper.param, prior_dirichlet_ll_singleDisp, method= 'L-BFGS-B', #'BFGS', #"Nelder-Mead",
-    #   #              data=data[[i]], region.ll.list = guide.lls.list,
-    #   #              alpha0.idx = alpha0.idx, alpha1.idx = alpha1.idx,
-    #   #              guide.efficiency = guide.efficiency)
-    #   temp.res.drch <- optim(temp.hyper.params, prior_dirichlet_parameters, method= 'L-BFGS-B',
-    #                          data = data[[i]], 
-    #                          region.ll.list = guide.lls.list,
-    #                          bkg.idx = temp.bkg.idx, 
-    #                          fs.idx = temp.fs.idx, 
-    #                          disp.idx = temp.disp.idx, 
-    #                          guide.efficiency = guide.efficiency, 
-    #                          mean.var.type = mean.var.type)
-    #   
-    #   
-    # } else {
-    #   print('currently one one dispersion available')
-    #   break()
-    #   # res <- optim(hyper.param, prior_dirichlet_ll, method= 'L-BFGS-B', #'BFGS', #"Nelder-Mead",
-    #   #              data=data[[i]], region.ll.list = guide.lls.list,
-    #   #              alpha0.idx = alpha0.idx, alpha1.idx = alpha1.idx,
-    #   #              guide.efficiency = guide.efficiency)
-    # }
 
     # account for flat surface!
     if(temp.res.drch$convergence %in% c(0, 52) ) {
@@ -4010,57 +3902,7 @@ recompute_hyper_parameters <- function(param, hyper, hyper.components, data, gui
         hyper$alpha1[[i]] <- t(temp.fs.alpha %*% t(temp.disp) )
       }
 
-      # if(one.dispersion){
-      #   # alpha0s <- res$par[alpha0.idx]**2
-      #   # alpha1s <- res$par[alpha1.idx]**2
-      #   # 
-      #   # alpha1s.norm <- alpha1s / sum(alpha1s)
-      #   # alpha1s.adj <- alpha1s.norm * sum(alpha0s)
-      #   # 
-      #   # hyper$alpha0[[i]] <- alpha0s
-      #   # hyper$alpha1[[i]] <- alpha1s.adj
-      #   
-      #   temp.bkg.alpha <- c(1, temp.res.drch$par[temp.bkg.idx]**2) / sum(c(1, temp.res.drch$par[temp.bkg.idx]**2))
-      #   temp.fs.alpha <- c(1, temp.res.drch$par[temp.fs.idx]**2) / sum(c(1, temp.res.drch$par[temp.fs.idx]**2))
-      #   temp.bkg.disp <- temp.res.drch$par[temp.disp.idx]
-      #   
-      #   hyper.components$bkg_alpha[[i]] <- temp.res.drch$par[temp.bkg.idx]**2
-      #   hyper.components$FS_alpha[[i]] <- temp.res.drch$par[temp.fs.idx]**2
-      #   hyper.components$bkg_dispersion[[i]] <- temp.bkg.disp
-      #   
-      #   if(mean.var.type == 'radical'){
-      #     temp.disp <- temp.bkg.disp[1] + temp.bkg.disp[2] * data[[i]][,ncol(data[[i]])] + temp.bkg.disp[3] * sqrt(data[[i]][,ncol(data[[i]])])
-      #     temp.disp[which(temp.disp < 0.1)] <- 0.1
-      #     hyper$alpha0[[i]] <- t(temp.bkg.alpha %*% t(temp.disp) )
-      #     hyper$alpha1[[i]] <- t(temp.fs.alpha %*% t(temp.disp) )
-      #   } else if(mean.var.type == 'exponential'){
-      #     temp.disp <- temp.bkg.disp[1] + temp.bkg.disp[2] * log(data[[i]][,ncol(data[[i]])])
-      #     # temp.disp <- temp.bkg.disp[1] + temp.bkg.disp[2] * data[[i]][,ncol(data[[i]])] + temp.bkg.disp[3] * log(data[[i]][,ncol(data[[i]])])
-      #     temp.disp[which(temp.disp < 0.1)] <- 0.1
-      #     temp.disp[which(is.na(temp.disp))] <- 0.1
-      #     temp.disp[which(temp.disp == Inf)] <- max(temp.disp[which(temp.disp < Inf)])
-      #     hyper$alpha0[[i]] <- t(temp.bkg.alpha %*% t(temp.disp) )
-      #     hyper$alpha1[[i]] <- t(temp.fs.alpha %*% t(temp.disp) )
-      #   } else if(mean.var.type == 'independent'){
-      #     temp.disp <- rep(temp.bkg.disp[1]^2, nrow(data[[i]]))
-      #     hyper$alpha0[[i]] <- t(temp.bkg.alpha %*% t(temp.disp) )
-      #     hyper$alpha1[[i]] <- t(temp.fs.alpha %*% t(temp.disp) )
-      #   } else if(mean.var.type == 'quadratic'){
-      #     temp.disp <- temp.bkg.disp[1] + temp.bkg.disp[2] * data[[i]][,ncol(data[[i]])] + temp.bkg.disp[3] * data[[i]][,ncol(data[[i]])]^2
-      #     temp.disp[which(temp.disp < 0.1)] <- 0.1
-      #     temp.disp[which(is.na(temp.disp))] <- 0.1
-      #     temp.disp[which(temp.disp == Inf)] <- max(temp.disp[which(temp.disp < Inf)])
-      #     hyper$alpha0[[i]] <- t(temp.bkg.alpha %*% t(temp.disp) )
-      #     hyper$alpha1[[i]] <- t(temp.fs.alpha %*% t(temp.disp) )
-      #   }
-      #   
-      # } else {
-      #   print('currently one one dispersion available')
-      #   break()
-      #   # hyper$alpha0[[i]] <- res$par[alpha0.idx]**2
-      #   # hyper$alpha1[[i]] <- res$par[alpha1.idx]**2
-      # }
-    } else {
+     } else {
       warning("estimation of hyperparameters failed to converge")
     }
   }
@@ -4130,24 +3972,15 @@ relics_estimate_pp <- function(param, hyper, data, known.reg,
 
     }
 
-    # sgrna.log.like.list <- guide_ll_calculation(pp, data, guide.to.seg.lst, hyper, guide.efficiency)
-
     delta.pps <- c()
     if(pp.calculation == 'v4'){
-      delta.pps <- estimate_fs_AoE_pp_v2(hyper, data.mat.list, data.total.list, guide.to.seg.lst,
-                                         seg.to.guide.lst, next.guide.lst, nr.segs, geom.p, sgrna.log.like.list)
-    # } else if(pp.calculation == 'v2'){
-    #   delta.pps <- estimate_fs_AoE_pp(hyper, data.mat.list, data.total.list, guide.to.seg.lst,
-    #                                   seg.to.guide.lst, next.guide.lst, nr.segs, geom.p, sgrna.log.like.list)
-    # } else if(pp.calculation == 'v3'){
-    #   seg.ll.list <- seg_ll_calculation(pp, data, seg.to.guide.lst, hyper, guide.efficiency, guide.to.seg.lst)
-    #   
-    #   delta.pps <- estimate_seg_fs_AoE_pp(hyper, data.mat.list, data.total.list, guide.to.seg.lst,
-    #                                       seg.to.guide.lst, next.guide.lst, nr.segs, geom.p, 
-    #                                       seg.ll.list$out_seg_ll, seg.ll.list$out_seg_pp_ll)
+      delta.pps <- estimate_fs_AoE_pp(hyper, data.mat.list, data.total.list, guide.to.seg.lst,
+                                         seg.to.guide.lst, next.guide.lst, nr.segs, geom.p, 
+                                         sgrna.log.like.list, seg.adjust = 0, 
+                                         total.segs = length(seg.to.guide.lst))
     } else {
-      delta.pps <- estimate_fs_pp(#hyper, data.mat.list, data.total.list,
-        seg.to.guide.lst, next.guide.lst, nr.segs, geom.p, sgrna.log.like.list)
+      delta.pps <- estimate_fs_pp(seg.to.guide.lst, next.guide.lst, 
+                                  nr.segs, geom.p, sgrna.log.like.list)
     }
     
 
@@ -4155,22 +3988,18 @@ relics_estimate_pp <- function(param, hyper, data, known.reg,
     if(local.max){
 
       # identify segment with highest posterior, pull our segments +/- local.max.region
-      local.max.idx <- extract_local_max_idx(delta.pps, local.max.range) # toDo, add 'local.max.range's
+      local.max.idx <- extract_local_max_idx(delta.pps, local.max.range)
 
-      # temp.local.seg.to.guide.lst <- seg.to.guide.lst[local.max.idx]
-      # # adjust $nonGuide_idx to match local region
-      # local.seg.to.guide.lst <- extract_local_seg_to_guide(temp.local.seg.to.guide.lst, local.max.idx)
-      local.seg.to.guide.lst <- seg.to.guide.lst[local.max.idx]
-
-      # local.seg.to.guide.lst <- seg.to.guide.lst[local.max.idx] # toDo (pull out the ones needed)
-      local.next.guide.lst <- next.guide.lst[local.max.idx] # toDo
-      # sg.ll.list # can be left, as the index for the guide remains unchanged
-      
       local.delta.pps <- c()
       if(pp.calculation == 'v4'){
-        local.delta.pps <- estimate_fs_AoE_pp_v2(hyper, data.mat.list, data.total.list, guide.to.seg.lst,
-                                                 local.seg.to.guide.lst, local.next.guide.lst, nr.segs, geom.p, sgrna.log.like.list)
+        local.delta.pps <- estimate_fs_AoE_pp(hyper, data.mat.list, data.total.list, guide.to.seg.lst,
+                                                 seg.to.guide.lst, next.guide.lst, nr.segs, geom.p, 
+                                                 sgrna.log.like.list, seg.adjust = min(local.max.idx) - 1, 
+                                                 total.segs = length(local.max.idx))
       } else {
+        local.seg.to.guide.lst <- seg.to.guide.lst[local.max.idx]
+        
+        local.next.guide.lst <- next.guide.lst[local.max.idx]
         local.delta.pps <- estimate_fs_pp(local.seg.to.guide.lst, local.next.guide.lst,
                                           nr.segs, geom.p, sgrna.log.like.list)
       }
@@ -4204,288 +4033,6 @@ relics_estimate_pp <- function(param, hyper, data, known.reg,
   return(param)
 }
 
-seg_pp_calculation <- function(cumulative.pp, seg.to.guide.lst, hyper, guide.efficiency, guide.to.seg.lst,
-                               in.data.list, nr.segs = 10, geom.p = 0.1){
-  
-  # set up a list, the length of the number of segments
-  # each element contains a vector, which contains the ll of that segment being overlapped by a regulatory element
-  segment.ll.list <- list()
-  
-  total.segs <- length(seg.to.guide.lst)
-  region.priors <- rep(1/total.segs, total.segs)
-  geom.norm.factr <- pgeom(nr.segs, geom.p)
-  
-  total.ll <- log(0)
-  
-  for(seg in 1:total.segs){
-    temp.segment.ll <- 0
-    temp.guide.idx<- seg.to.guide.lst[[seg]]$guide_idx
-    # temp.nonGuide.idx<- seg.to.guide.lst[[seg]]$nonGuide_idx
-    
-    # for each guide, identify what segments we're processing (what index matches current segment)
-    # return the max distance / probability of all segments covered
-    temp.seg.dist <- unlist(lapply(guide.to.seg.lst[temp.guide.idx], function(x){
-      adj.seg.idx <- which(x$seg_overlapped %in% seg)
-      temp.dist.to.seg <- x$dist_to_seg[adj.seg.idx]
-      max(temp.dist.to.seg)
-    }))
-    
-    temp.pp <- cumulative.pp[seg]
-    
-    for(repl in 1:length(in.data.list)){
-      
-      # initialize the segment lls, both the new ll (temp.seg.pp.ll) as well as the one using the previous FS
-      temp.seg.ll <- 0
-      temp.seg.pp.ll <- sum(ddirmnom(in.data.list[[repl]][temp.guide.idx,],
-                                     size = in.data.totals[[repl]][temp.guide.idx],
-                                     alpha = hyper$alpha1[[repl]][temp.guide.idx,], log = T) + log(temp.seg.dist))
-      
-      if(temp.pp == 0){
-        temp.seg.ll <- sum(log(temp.seg.dist) + ddirmnom(in.data.list[[repl]][temp.guide.idx,],
-                                                         size = in.data.totals[[repl]][temp.guide.idx],
-                                                         alpha = hyper$alpha0[[repl]][temp.guide.idx,], log = T))
-      } else if(temp.pp == 1){
-        temp.seg.ll <- sum(log(temp.seg.dist) + ddirmnom(in.data.list[[repl]][temp.guide.idx,],
-                                                         size = in.data.totals[[repl]][temp.guide.idx],
-                                                         alpha = hyper$alpha1[[repl]][temp.guide.idx,], log = T))
-      } else {
-        temp.seg.bkg.ll <- sum(log(temp.seg.dist) + ddirmnom(in.data.list[[repl]][temp.guide.idx,],
-                                                             size = in.data.totals[[repl]][temp.guide.idx],
-                                                             alpha = hyper$alpha0[[repl]][temp.guide.idx,], log = T) + log(1 - temp.pp))
-        temp.seg.fs.ll <- sum(log(temp.seg.dist) + ddirmnom(in.data.list[[repl]][temp.guide.idx,],
-                                                            size = in.data.totals[[repl]][temp.guide.idx],
-                                                            alpha = hyper$alpha1[[repl]][temp.guide.idx,], log = T) + log(temp.pp))
-        temp.seg.ll <- addlogs(temp.seg.fs.ll, temp.seg.bkg.ll)
-      }
-      
-      temp.segment.ll <- temp.segment.ll + (temp.seg.pp.ll - temp.seg.ll) + log(dgeom(1, geom.p) / geom.norm.factr)
-
-    }
-    segment.ll.list[[seg]] <- temp.segment.ll
-    total.ll <- addlogs(total.ll, temp.segment.ll)
-  }
-
-  # now make a pass through all 2 to nr.segs length segments
-  if(nr.segs > 1){
-    for(ns in 1:(nr.segs-1) ){
-      
-      for(seg in 1:(total.segs - nr.segs)){
-        
-        temp.stretch.ll <- 0
-        temp.stretch.segs <- c(seg:(seg + ns)) # index of segments to be included as part of the stretch and be updated in this iteration
-        temp.guide.idx <- c(seg.to.guide.lst[[seg]]$guide_idx, unlist(next.guide.lst[(seg + 1):(seg + ns)]))
-        # temp.nonGuide.idx <- all.guide.idx[-temp.guide.idx]
-        
-        temp.seg.dist <- unlist(lapply(guide.to.seg.lst[temp.guide.idx], function(x){
-          adj.seg.idx <- which(x$seg_overlapped %in% temp.stretch.segs)
-          temp.dist.to.seg <- x$dist_to_seg[adj.seg.idx]
-          max(temp.dist.to.seg)
-        }))
-        
-        for(repl in 1:ncol(sg.ll.df)){
-          
-          temp.seg.ll <- 0
-          temp.seg.pp.ll <- sum(ddirmnom(in.data.list[[repl]][temp.guide.idx,],
-                                         size = in.data.totals[[repl]][temp.guide.idx],
-                                         alpha = hyper$alpha1[[repl]][temp.guide.idx,], log = T) + log(temp.seg.dist))
-          
-          if(temp.pp == 0){
-            temp.seg.ll <- sum(log(temp.seg.dist) + ddirmnom(in.data.list[[repl]][temp.guide.idx,],
-                                                             size = in.data.totals[[repl]][temp.guide.idx],
-                                                             alpha = hyper$alpha0[[repl]][temp.guide.idx,], log = T))
-          } else if(temp.pp == 1){
-            temp.seg.ll <- sum(log(temp.seg.dist) + ddirmnom(in.data.list[[repl]][temp.guide.idx,],
-                                                             size = in.data.totals[[repl]][temp.guide.idx],
-                                                             alpha = hyper$alpha1[[repl]][temp.guide.idx,], log = T))
-          } else {
-            temp.seg.bkg.ll <- sum(log(temp.seg.dist) + ddirmnom(in.data.list[[repl]][temp.guide.idx,],
-                                                                 size = in.data.totals[[repl]][temp.guide.idx],
-                                                                 alpha = hyper$alpha0[[repl]][temp.guide.idx,], log = T) + log(1 - temp.pp))
-            temp.seg.fs.ll <- sum(log(temp.seg.dist) + ddirmnom(in.data.list[[repl]][temp.guide.idx,],
-                                                                size = in.data.totals[[repl]][temp.guide.idx],
-                                                                alpha = hyper$alpha1[[repl]][temp.guide.idx,], log = T) + log(temp.pp))
-            temp.seg.ll <- addlogs(temp.seg.fs.ll, temp.seg.bkg.ll)
-          }
-          
-          temp.segment.ll <- temp.segment.ll + (temp.seg.pp.ll - temp.seg.ll) + log(dgeom(1, geom.p) / geom.norm.factr)
-          
-        }
-        
-        total.ll <- addlogs(total.ll, temp.stretch.ll)
-        
-        for(span in 1:length(temp.stretch.segs)){
-          segment.ll.list[[temp.stretch.segs[span]]] <- c(segment.ll.list[[temp.stretch.segs[span]]], temp.stretch.ll)
-        }
-      }
-    }
-  }
-  
-  # normalize the list by the total, and add the logs across the segments
-  segment.lls <- unlist(lapply(segment.ll.list, function(x){
-    x.norm <- x - total.ll
-    
-    x.norm.sum <- combine_segment_ll(x.norm)
-    x.norm.sum
-  }))
-  
-  segment.posteriors <- exp(segment.lls)
-  
-  return(segment.posteriors)
-  
-}
-
-seg_ll_calculation <- function(cumulative.pp, data, seg.to.guide.lst, hyper, guide.efficiency, guide.to.seg.lst){
-  
-  n.seg <- length(seg.to.guide.lst)
-  out.seg.ll <- c()
-  out.seg.pp.ll <- c()
-  
-  for(repl in 1:length(data)){
-    
-    repl.seg.ll <- vector('numeric', length = n.seg)
-    repl.data <- data[[repl]]
-    pool.cols <- c(1:(ncol(repl.data) - 1))
-    temp.hypers <- list(alpha0 = hyper$alpha0[[repl]], alpha1 = hyper$alpha1[[repl]])
-    
-    sgrna.null.log.like <- ddirmnom(repl.data[,pool.cols], size = repl.data[,ncol(repl.data)], alpha = temp.hypers$alpha0, log = T)
-    
-    sgrna.alt.log.like <- c()
-    if(is.null(guide.efficiency)){
-      sgrna.alt.log.like <- ddirmnom(repl.data[,pool.cols], size = repl.data[,ncol(repl.data)], alpha = temp.hypers$alpha1, log = T)
-    } else {
-      # toDo, difference in alphas or in proportions? 
-      alpha0.matrix <- t(apply(matrix(0, ncol = length(temp.hypers$alpha0), nrow = length(guide.efficiency)), 1, function(x){x + temp.hypers$alpha0}))
-      alpha.diffs <- temp.hypers$alpha0 - temp.hypers$alpha1
-      
-      alpha1.matrix <- matrix(0, ncol = length(temp.hypers$alpha0), nrow = length(guide.efficiency))
-      
-      for(i in 1:length(guide.efficiency)){
-        # this cound be an issue if the dispersion is no longer identical...
-        alpha1.matrix[i,] <- alpha0.matrix[i,] - alpha.diffs * guide.efficiency[i]
-      }
-      
-      sgrna.alt.log.like <- ddirmnom(repl.data[,pool.cols], size = repl.data[,ncol(repl.data)], alpha = alpha1.matrix, log = T)
-    }
-    
-    repl.seg.ll <- vector('numeric', length = n.seg)
-    repl.seg.pp.ll <- vector('numeric', length = n.seg)
-    # for every guide, extract the distances
-    # compute the null and the alternative for each of the distances
-    for(j in 1:n.seg){
-      
-      temp.pp <- cumulative.pp[j]
-      temp.overl.guide.idx <- seg.to.guide.lst[[j]]$guide_idx
-      
-      temp.seg.dist <- unlist(lapply(guide.to.seg.lst[temp.overl.guide.idx], function(x){
-        adj.seg.idx <- which(x$seg_overlapped %in% j)
-        temp.dist.to.seg <- x$dist_to_seg[adj.seg.idx]
-        max(temp.dist.to.seg)
-      }))
-      
-      temp.seg.ll <- 0
-      temp.seg.pp.ll <- sum(log(temp.seg.dist) + sgrna.alt.log.like[temp.overl.guide.idx])
-      
-      if(temp.pp == 0){
-        temp.seg.ll <- sum(log(temp.seg.dist) + sgrna.null.log.like[temp.overl.guide.idx])
-      } else if(temp.pp == 1){
-        temp.seg.ll <- sum(log(temp.seg.dist) + sgrna.alt.log.like[temp.overl.guide.idx])
-      } else {
-        temp.seg.bkg.ll <- sum(log(temp.seg.dist) + sgrna.null.log.like[temp.overl.guide.idx] + log(1 - temp.pp))
-        temp.seg.fs.ll <- sum(log(temp.seg.dist) + sgrna.alt.log.like[temp.overl.guide.idx] + log(temp.pp))
-        temp.seg.ll <- addlogs(temp.seg.fs.ll, temp.seg.bkg.ll)
-      }
-      
-      repl.seg.ll[j] <- temp.seg.ll
-      repl.seg.pp.ll[j] <- temp.seg.pp.ll
-    }
-    
-    out.seg.ll <- cbind(out.seg.ll, repl.seg.ll)
-    out.seg.pp.ll <- cbind(out.seg.pp.ll, repl.seg.pp.ll)
-    
-  }
-  
-  out.list <- list(out_seg_ll = out.seg.ll, out_seg_pp_ll = out.seg.pp.ll)
-  return(out.list)
-}
-
-guide_ll_calculation <- function(cumulative.pp, data, guide.seg.idx.lst, hyper, guide.efficiency){
-  
-  n.sgrna <- length(guide.seg.idx.lst)
-  out.guide.ll <- list()
-  
-  for(repl in 1:length(data)){
-    
-    repl.guide.ll <- vector('numeric', length = n.sgrna)
-    repl.data <- data[[repl]]
-    pool.cols <- c(1:(ncol(repl.data) - 1))
-    temp.hypers <- list(alpha0 = hyper$alpha0[[repl]], alpha1 = hyper$alpha1[[repl]])
-    
-    sgrna.null.log.like <- ddirmnom(repl.data[,pool.cols], size = repl.data[,ncol(repl.data)], alpha = temp.hypers$alpha0, log = T)
-    
-    sgrna.alt.log.like <- c()
-    if(is.null(guide.efficiency)){
-      sgrna.alt.log.like <- ddirmnom(repl.data[,pool.cols], size = repl.data[,ncol(repl.data)], alpha = temp.hypers$alpha1, log = T)
-    } else {
-      # toDo, difference in alphas or in proportions? 
-      alpha0.matrix <- t(apply(matrix(0, ncol = length(temp.hypers$alpha0), nrow = length(guide.efficiency)), 1, function(x){x + temp.hypers$alpha0}))
-      alpha.diffs <- temp.hypers$alpha0 - temp.hypers$alpha1
-      
-      alpha1.matrix <- matrix(0, ncol = length(temp.hypers$alpha0), nrow = length(guide.efficiency))
-      
-      for(i in 1:length(guide.efficiency)){
-        # this cound be an issue if the dispersion is no longer identical...
-        alpha1.matrix[i,] <- alpha0.matrix[i,] - alpha.diffs * guide.efficiency[i]
-      }
-      
-      sgrna.alt.log.like <- ddirmnom(repl.data[,pool.cols], size = repl.data[,ncol(repl.data)], alpha = alpha1.matrix, log = T)
-    }
-    
-    # for every guide, extract the distances
-    # compute the null and the alternative for each of the distances
-    for(j in 1:n.sgrna){
-      
-      temp.dist <- guide.seg.idx.lst[[j]]$dist_to_seg
-      temp.pp <- cumulative.pp[guide.seg.idx.lst[[j]]$seg_overlapped]
-      
-      temp.zero.pp.idx <- which(temp.pp == 0)
-      temp.one.pp.idx <- which(temp.pp == 1)
-      
-      temp.bkg.guide.ll.seg <- log(temp.dist) + log(1 - temp.pp) + sgrna.null.log.like[j]
-      temp.fs.guide.ll.seg <- log(temp.dist) + log(temp.pp) + sgrna.alt.log.like[j]
-      
-      # data.frame for each of the segments
-      # compute bth the null and the alternative
-      # for 0 pp compute only the null
-      # for 1 pp compute only the alternative
-      
-      if(length(temp.zero.pp.idx) > 0){
-        temp.fs.guide.ll.seg[temp.zero.pp.idx] <- 0
-      }
-      if(length(temp.one.pp.idx) > 0){
-        temp.bkg.guide.ll.seg[temp.one.pp.idx] <- 0
-      }
-      
-      temp.seg.ll <- temp.bkg.guide.ll.seg + temp.fs.guide.ll.seg
-      temp.guide.total.ll <- temp.seg.ll[1]
-      
-      if(length(temp.seg.ll) > 1){
-        for(i in 2:length(temp.seg.ll)){
-          temp.guide.total.ll <- addlogs(temp.guide.total.ll, temp.seg.ll[i])
-        }
-      }
-      
-      
-      # temp.guide.ll <- addlogs(sum(temp.bkg.guide.ll.seg), sum(temp.fs.guide.ll.seg))
-      repl.guide.ll[j] <- temp.guide.total.ll
-    }
-    
-    out.guide.ll[[repl]] <- repl.guide.ll
-    
-  }
-  
-  return(out.guide.ll)
-}
-
 
 #' @title Identifying the segment with the highest PP and surrounding segments (focuses on the first segment if multiple max PPs)
 #' @param input.pps: vector, contains the PPs
@@ -4507,29 +4054,6 @@ extract_local_max_idx <- function(input.pps, local.max.range){
   }
 
   return(c(min.idx:max.idx))
-
-}
-
-
-#' @title adjust the non_guide index according to the window
-#' @param seg.to.guide.lst: list, $guide_idx, $nonGuide_idx
-#' @param local.max.range: number of segments to include in addition to the the ones with highest PP (one way, so multiply by 2 for total nr of segs)
-#' @return vector with idx of region to look for signal
-#' @export extract_local_seg_to_guide()
-
-extract_local_seg_to_guide <- function(seg.to.guide.lst, local.max.idx){
-
-  all.local.guides <- unique(unlist(lapply(seg.to.guide.lst, function(x){
-    x$guide_idx
-  })))
-
-  local.seg.to.guide.lst <- lapply(seg.to.guide.lst, function(x){
-    x$nonGuide_idx <- all.local.guides[which(! all.local.guides %in% x$guide_idx)]
-
-    x
-  })
-
-  return(local.seg.to.guide.lst)
 
 }
 
@@ -4561,182 +4085,78 @@ compute_local_ll_ratio <- function(guide.ll.df, local.seg.to.guide.lst){
 #' @param hyper: list, hyperparameters
 #' @param in.data.list: list, each element contains a replicate, the total column has already been removed
 #' @param in.data.totals: list, each element contains the per-guide totals for a replicate
+#' @param guide.to.seg.lst: list, mapping of guides to segments
 #' @param seg.to.guide.lst: list, each element is a segment, contains a list with guide_idx, nonGuide_idx
 #' @param next.guide.lst: list that contains the index of $next_guide_idx and next_nonGuide_idx
 #' @param nr.segs: max number of segemnts that can be combined
 #' @param geom.p: probability of the geometic distribution used to calculate the probability of there being x segments in the regulatory element
 #' @param sg.ll.list: list, each element is a data frame per.guide log likelihood given the posteriors for a replicate and alt. ll (total_guide_ll, alt_only_ll)
+#' @param seg.adjust: numeric, offset used when calculating lmax
+#' @param total.segs: how many segments to calculate PP for, adjusted for lmax, otherwise = length(seg.to.guide.lst)
 #' @return log likelihood for each segment
-#' @export estimate_fs_AoE_pp_v2()
+#' @export estimate_fs_AoE_pp()
 
-estimate_fs_AoE_pp_v2 <- function(hyper, in.data.list, in.data.totals, guide.to.seg.lst,
+estimate_fs_AoE_pp <- function(hyper, in.data.list, in.data.totals, guide.to.seg.lst,
                                seg.to.guide.lst, next.guide.lst, nr.segs = 10, geom.p = 0.1,
-                               sg.ll.list) {
+                               sg.ll.list, seg.adjust = 0, total.segs) {
   
   # set up a list, the length of the number of segments
   # each element contains a vector, which contains the ll of that segment being overlapped by a regulatory element
   segment.ll.list <- list()
   
-  total.segs <- length(seg.to.guide.lst)
   region.priors <- rep(1/total.segs, total.segs)
   geom.norm.factr <- pgeom(nr.segs, geom.p)
-  
-  # # initialize the total likelihood with the first, one-segment likelihood
-  # initial.segment.ll <- 0
-  # initial.guide.idx<- seg.to.guide.lst[[1]]$guide_idx
-  # initial.nonGuide.idx<- seg.to.guide.lst[[1]]$nonGuide_idx
-  # 
-  # initial.seg.dist <- guide.to.seg.lst[[initial.guide.idx]]$dist_to_seg[1] #unlist(lapply(guide.to.seg.lst[[initial.guide.idx]]$dist_to_seg, function(x){x[1]}))
-  # 
-  # for(repl in 1:length(sg.ll.list)){ # in.data.list
-  #   
-  #   initial.guide.ll <- sum(ddirmnom(in.data.list[[repl]][initial.guide.idx,],
-  #                                    size = in.data.totals[[repl]][initial.guide.idx],
-  #                                    alpha = hyper$alpha1[[repl]][initial.guide.idx,], log = T) + 
-  #                             log(1 - dpoibin(0, initial.seg.dist) ))
-  #   
-  #   initial.guide.ll.bkg <- sum(ddirmnom(in.data.list[[repl]][initial.guide.idx[init.with.bkg.idx],],
-  #                                        size = in.data.totals[[repl]][initial.guide.idx[init.with.bkg.idx]],
-  #                                        alpha = hyper$alpha0[[repl]][initial.guide.idx[init.with.bkg.idx],], log = T) + 
-  #                                 log(dpoibin(0, initial.seg.dist)))
-  #   
-  #   init.with.bkg.idx <- which(initial.seg.dist < 1)
-  #   
-  #   if(length(init.with.bkg.idx) > 0){
-  #     initial.guide.ll.bkg <- sum(ddirmnom(in.data.list[[repl]][initial.guide.idx[init.with.bkg.idx],],
-  #                                          size = in.data.totals[[repl]][initial.guide.idx[init.with.bkg.idx]],
-  #                                          alpha = hyper$alpha0[[repl]][initial.guide.idx[init.with.bkg.idx],], log = T) + 
-  #                                   log(1 - initial.seg.dist[init.with.bkg.idx])) # 1 - 
-  #   }
-  #   
-  #   # initial.guide.ll <- sum(sg.ll.list[[repl]][initial.guide.idx,2])
-  #   
-  #   
-  #   initial.nonGuide.ll <- sum(sg.ll.list[[repl]][initial.nonGuide.idx,1])
-  #   # initial.nonGuide.ll <- sum(sg.ll.list[[repl]][initial.nonGuide.idx])
-  #   initial.segment.ll <- initial.segment.ll + addlogs(initial.guide.ll, initial.guide.ll.bkg) + initial.nonGuide.ll + log(dgeom(1, geom.p) / geom.norm.factr)
-  # }
-  # 
-  # segment.ll.list[[1]] <- initial.segment.ll
   
   total.ll <- log(0)
   
   # make an initial pass with one-segment length RE placements
   for(seg in 1:total.segs){
+    curr.seg <- seg + seg.adjust
     temp.segment.ll <- 0
-    temp.guide.idx<- seg.to.guide.lst[[seg]]$guide_idx
-    temp.nonGuide.idx<- seg.to.guide.lst[[seg]]$nonGuide_idx
-    # 
-    # region.pp <- cumulative.pp[guide.seg.idx.lst[[j]]$seg_overlapped]
-    # 
-    # region.pp.distance.adj <- region.pp * guide.seg.idx.lst[[j]]$dist_to_seg
-    # 
-    
-    # for each guide, identify what segments we're processing (what index matches current segment)
-    # return the max distance / probability of all segments covered
-    # temp.seg.dist <- unlist(lapply(guide.to.seg.lst[temp.guide.idx], function(x){
-    #   adj.seg.idx <- which(x$seg_overlapped %in% seg)
-    #   temp.dist.to.seg <- x$dist_to_seg[adj.seg.idx]
-    #   max(temp.dist.to.seg)
-    # }))
+    temp.guide.idx<- seg.to.guide.lst[[curr.seg]]$guide_idx
+    temp.nonGuide.idx<- seg.to.guide.lst[[curr.seg]]$nonGuide_idx
     
     temp.seg.poi.bkg <- unlist(lapply(guide.to.seg.lst[temp.guide.idx], function(x){
-      adj.seg.idx <- which(x$seg_overlapped %in% seg)
+      adj.seg.idx <- which(x$seg_overlapped %in% curr.seg )
       temp.dist.to.seg <- x$dist_to_seg[adj.seg.idx]
       dpoibin(0, temp.dist.to.seg)
     }))
-    
-    # p.fs.idx <- which(temp.seg.poi.bkg < 1)
-    # p.bkg.idx <- which(temp.seg.poi.bkg > 0)
 
-    for(repl in 1:length(sg.ll.list)){ # in.data.list
+    for(repl in 1:length(sg.ll.list)){
       
       temp.guide.ll <- vector('numeric', length = length(temp.seg.poi.bkg))
       
       for(i in 1:length(temp.seg.poi.bkg)){
         temp.guide.ll[i] <- addlogs(sg.ll.list[[repl]][temp.guide.idx[i],2] + log(1 - temp.seg.poi.bkg[i]),
                                     sg.ll.list[[repl]][temp.guide.idx[i],1] + log(temp.seg.poi.bkg[i]))
-        # temp.guide.ll <- sum(temp.guide.ll,
-        #                      addlogs(ddirmnom(in.data.list[[repl]][temp.guide.idx[i],],
-        #                                       size = in.data.totals[[repl]][temp.guide.idx[i]],
-        #                                       alpha = hyper$alpha1[[repl]][temp.guide.idx[i],], log = T) +
-        #                                log(1 - temp.seg.poi.bkg[i]),
-        #                              ddirmnom(in.data.list[[repl]][temp.guide.idx[i],],
-        #                                       size = in.data.totals[[repl]][temp.guide.idx[i]],
-        #                                       alpha = hyper$alpha0[[repl]][temp.guide.idx[i],], log = T) +
-        #                                log(temp.seg.poi.bkg[i]) ) )
       }
 
-      # temp.fs.ll <- sum(ddirmnom(in.data.list[[repl]][temp.guide.idx[p.fs.idx],],
-      #                            size = in.data.totals[[repl]][temp.guide.idx[p.fs.idx]],
-      #                            alpha = hyper$alpha1[[repl]][temp.guide.idx[p.fs.idx],], log = T) + 
-      #                     log(1 - temp.seg.poi.bkg[p.fs.idx]) )
-      # 
-      # temp.bkg.ll <- sum(ddirmnom(in.data.list[[repl]][temp.guide.idx[p.bkg.idx],],
-      #                             size = in.data.totals[[repl]][temp.guide.idx[p.bkg.idx]],
-      #                             alpha = hyper$alpha0[[repl]][temp.guide.idx[p.bkg.idx],], log = T) + 
-      #                      log(temp.seg.poi.bkg[p.bkg.idx]) )
-
-      
-      # temp.guide.ll <- sum(ddirmnom(in.data.list[[repl]][temp.guide.idx,],
-      #                               size = in.data.totals[[repl]][temp.guide.idx],
-      #                               alpha = hyper$alpha1[[repl]][temp.guide.idx,], log = T) +
-      #                        log(1 - temp.seg.poi.bkg) ) # dpoibin(0, temp.seg.dist)
-      # 
-      # 
-      # 
-      # temp.guide.ll.bkg <- sum(ddirmnom(in.data.list[[repl]][temp.guide.idx,],
-      #                                   size = in.data.totals[[repl]][temp.guide.idx],
-      #                                   alpha = hyper$alpha0[[repl]][temp.guide.idx,], log = T) +
-      #                            log(temp.seg.poi.bkg) ) # temp.seg.poi.bkg
-      
-      # temp.with.bkg.idx <- which(temp.seg.dist < 1)
-      # 
-      # if(length(temp.with.bkg.idx) > 0){
-      #   temp.guide.ll.bkg <- sum(ddirmnom(in.data.list[[repl]][temp.guide.idx[temp.with.bkg.idx],],
-      #                                     size = in.data.totals[[repl]][temp.guide.idx[temp.with.bkg.idx]],
-      #                                     alpha = hyper$alpha1[[repl]][temp.guide.idx[temp.with.bkg.idx],], log = T) + 
-      #                              log(1 - temp.seg.dist[temp.with.bkg.idx])) # 1 - 
-      # }
-      # 
-      # temp.guide.ll <- sum(sg.ll.list[[repl]][temp.guide.idx,2])
       temp.nonGuide.ll <- sum(sg.ll.list[[repl]][temp.nonGuide.idx,1])
-      # temp.nonGuide.ll <- sum(sg.ll.list[[repl]][temp.nonGuide.idx])
-      # temp.segment.ll <- temp.segment.ll + addlogs(temp.guide.ll, temp.guide.ll.bkg) + temp.nonGuide.ll + log(dgeom(1, geom.p) / geom.norm.factr)
-      # temp.segment.ll <- temp.segment.ll + addlogs(temp.fs.ll, temp.bkg.ll) + temp.nonGuide.ll + log(dgeom(1, geom.p) / geom.norm.factr)
+
       temp.segment.ll <- temp.segment.ll + sum(temp.guide.ll) + temp.nonGuide.ll + log(dgeom(1, geom.p) / geom.norm.factr)
     }
     segment.ll.list[[seg]] <- temp.segment.ll
     total.ll <- addlogs(total.ll, temp.segment.ll)
   }
   
-  # all.guide.idx <- c(1:length(sg.ll.list[[1]][,1])) # helps to differentitate between guides for null vs alternative
   all.guide.idx <- c(1:nrow(in.data.list[[1]])) # helps to differentitate between guides for null vs alternative
   
   # now make a pass through all 2 to nr.segs length segments
   for(ns in 1:(nr.segs-1) ){
     
     for(seg in 1:(total.segs - ns)){
-      
       temp.stretch.ll <- 0
       temp.stretch.segs <- c(seg:(seg + ns)) # index of segments to be included as part of the stretch and be updated in this iteration
-      temp.guide.idx <- c(seg.to.guide.lst[[seg]]$guide_idx, unlist(next.guide.lst[(seg + 1):(seg + ns)]))
+      curr.seg <- seg + seg.adjust
+      curr.stretch.segs <- temp.stretch.segs + seg.adjust
+      temp.guide.idx <- c(seg.to.guide.lst[[curr.seg]]$guide_idx, unlist(next.guide.lst[(curr.seg + 1):(curr.seg + ns)]))
       temp.nonGuide.idx <- all.guide.idx[-temp.guide.idx]
       
-      # temp.seg.dist <- unlist(lapply(guide.to.seg.lst[temp.guide.idx], function(x){
-      #   adj.seg.idx <- which(x$seg_overlapped %in% temp.stretch.segs)
-      #   temp.dist.to.seg <- x$dist_to_seg[adj.seg.idx]
-      #   max(temp.dist.to.seg)
-      # }))
-      
       temp.seg.poi.bkg <- unlist(lapply(guide.to.seg.lst[temp.guide.idx], function(x){
-        adj.seg.idx <- which(x$seg_overlapped %in% temp.stretch.segs)
+        adj.seg.idx <- which(x$seg_overlapped %in% curr.stretch.segs )
         temp.dist.to.seg <- x$dist_to_seg[adj.seg.idx]
         dpoibin(0, temp.dist.to.seg)
       }))
-      
-      # p.fs.idx <- which(temp.seg.poi.bkg < 1)
-      # p.bkg.idx <- which(temp.seg.poi.bkg > 0)
       
       for(repl in 1:length(sg.ll.list)){ # in.data.list
         
@@ -4745,335 +4165,12 @@ estimate_fs_AoE_pp_v2 <- function(hyper, in.data.list, in.data.totals, guide.to.
         for(i in 1:length(temp.seg.poi.bkg)){
           temp.guide.ll[i] <- addlogs(sg.ll.list[[repl]][temp.guide.idx[i],2] + log(1 - temp.seg.poi.bkg[i]),
                                       sg.ll.list[[repl]][temp.guide.idx[i],1] + log(temp.seg.poi.bkg[i]))
-          # temp.guide.ll <- sum(temp.guide.ll,
-          #                      addlogs(ddirmnom(in.data.list[[repl]][temp.guide.idx[i],],
-          #                                       size = in.data.totals[[repl]][temp.guide.idx[i]],
-          #                                       alpha = hyper$alpha1[[repl]][temp.guide.idx[i],], log = T) +
-          #                                log(1 - temp.seg.poi.bkg[i]),
-          #                              ddirmnom(in.data.list[[repl]][temp.guide.idx[i],],
-          #                                       size = in.data.totals[[repl]][temp.guide.idx[i]],
-          #                                       alpha = hyper$alpha0[[repl]][temp.guide.idx[i],], log = T) +
-          #                                log(temp.seg.poi.bkg[i]) ) )
+
         }
-        
-        # 
-        # temp.fs.ll <- sum(ddirmnom(in.data.list[[repl]][temp.guide.idx[p.fs.idx],],
-        #                            size = in.data.totals[[repl]][temp.guide.idx[p.fs.idx]],
-        #                            alpha = hyper$alpha1[[repl]][temp.guide.idx[p.fs.idx],], log = T) + 
-        #                     log(1 - temp.seg.poi.bkg[p.fs.idx]) )
-        # 
-        # temp.bkg.ll <- sum(ddirmnom(in.data.list[[repl]][temp.guide.idx[p.bkg.idx],],
-        #                             size = in.data.totals[[repl]][temp.guide.idx[p.bkg.idx]],
-        #                             alpha = hyper$alpha0[[repl]][temp.guide.idx[p.bkg.idx],], log = T) + 
-        #                      log(temp.seg.poi.bkg[p.bkg.idx]) )
-        
-        # temp.guide.ll <- sum(ddirmnom(in.data.list[[repl]][temp.guide.idx,],
-        #                               size = in.data.totals[[repl]][temp.guide.idx],
-        #                               alpha = hyper$alpha1[[repl]][temp.guide.idx,], log = T) +
-        #                        log(1 - temp.seg.poi.bkg) ) # temp.seg.poi.bkg
-        # 
-        # temp.guide.ll.bkg <- sum(ddirmnom(in.data.list[[repl]][temp.guide.idx,],
-        #                                   size = in.data.totals[[repl]][temp.guide.idx],
-        #                                   alpha = hyper$alpha0[[repl]][temp.guide.idx,], log = T) +
-        #                            log(temp.seg.poi.bkg) ) # temp.seg.poi.bkg
-        
-        # temp.with.bkg.idx <- which(temp.seg.dist < 1)
-        # 
-        # if(length(temp.with.bkg.idx) > 0){
-        #   temp.guide.ll.bkg <- sum(ddirmnom(in.data.list[[repl]][temp.guide.idx[temp.with.bkg.idx],],
-        #                                     size = in.data.totals[[repl]][temp.guide.idx[temp.with.bkg.idx]],
-        #                                     alpha = hyper$alpha1[[repl]][temp.guide.idx[temp.with.bkg.idx],], log = T) + 
-        #                              log(1 - temp.seg.dist[temp.with.bkg.idx])) # 1 - 
-        # }
-        # 
-        # temp.guide.ll <- sum(sg.ll.list[[repl]][temp.guide.idx,2])
+
         temp.nonGuide.ll <- sum(sg.ll.list[[repl]][temp.nonGuide.idx,1])
-        # temp.nonGuide.ll <- sum(sg.ll.list[[repl]][temp.nonGuide.idx])
-        
-        # likelihood of this continous stretch of bins to contain a regulatory element
-        # temp.stretch.ll <- temp.stretch.ll + addlogs(temp.guide.ll, temp.guide.ll.bkg) + temp.nonGuide.ll + log(dgeom(1 + ns, geom.p) / geom.norm.factr)
-        # temp.stretch.ll <- temp.stretch.ll + addlogs(temp.fs.ll, temp.bkg.ll) + temp.nonGuide.ll + log(dgeom(1 + ns, geom.p) / geom.norm.factr)
+
         temp.stretch.ll <- temp.stretch.ll + sum(temp.guide.ll) + temp.nonGuide.ll + log(dgeom(1 + ns, geom.p) / geom.norm.factr)
-        
-      }
-      
-      total.ll <- addlogs(total.ll, temp.stretch.ll)
-      
-      for(span in 1:length(temp.stretch.segs)){
-        segment.ll.list[[temp.stretch.segs[span]]] <- c(segment.ll.list[[temp.stretch.segs[span]]], temp.stretch.ll)
-      }
-    }
-  }
-  
-  # normalize the list by the total, and add the logs across the segments
-  segment.lls <- unlist(lapply(segment.ll.list, function(x){
-    x.norm <- x - total.ll
-    
-    x.norm.sum <- combine_segment_ll(x.norm)
-    x.norm.sum
-  }))
-  
-  segment.posteriors <- exp(segment.lls)
-  
-  return(segment.posteriors)
-  
-}
-
-
-
-#' @title Compute the log likelihood of each possible configuration of the placement of a fs. Take into account distance between segment and the guide target site
-#' @param hyper: list, hyperparameters
-#' @param in.data.list: list, each element contains a replicate, the total column has already been removed
-#' @param in.data.totals: list, each element contains the per-guide totals for a replicate
-#' @param seg.to.guide.lst: list, each element is a segment, contains a list with guide_idx, nonGuide_idx
-#' @param next.guide.lst: list that contains the index of $next_guide_idx and next_nonGuide_idx
-#' @param nr.segs: max number of segemnts that can be combined
-#' @param geom.p: probability of the geometic distribution used to calculate the probability of there being x segments in the regulatory element
-#' @param sg.ll.df: data frame, each column in the segment log-likelihood based on the PP
-#' @return log likelihood for each segment
-#' @export estimate_seg_fs_AoE_pp()
-
-estimate_seg_fs_AoE_pp <- function(hyper, in.data.list, in.data.totals, guide.to.seg.lst,
-                               seg.to.guide.lst, next.guide.lst, nr.segs = 10, geom.p = 0.1,
-                               sg.ll.df, sg.pp.ll.df) {
-  
-  # set up a list, the length of the number of segments
-  # each element contains a vector, which contains the ll of that segment being overlapped by a regulatory element
-  segment.ll.list <- list()
-  
-  total.segs <- length(seg.to.guide.lst)
-  region.priors <- rep(1/total.segs, total.segs)
-  geom.norm.factr <- pgeom(nr.segs, geom.p)
-
-  total.ll <- log(0)
-  
-  # make an initial pass with one-segment length RE placements
-  for(seg in 1:total.segs){
-    temp.segment.ll <- 0
-    # temp.guide.idx<- seg.to.guide.lst[[seg]]$guide_idx
-    # temp.nonGuide.idx<- seg.to.guide.lst[[seg]]$nonGuide_idx
-    
-    # for each guide, identify what segments we're processing (what index matches current segment)
-    # return the max distance / probability of all segments covered
-    # temp.seg.dist <- unlist(lapply(guide.to.seg.lst[temp.guide.idx], function(x){
-    #   adj.seg.idx <- which(x$seg_overlapped %in% seg)
-    #   temp.dist.to.seg <- x$dist_to_seg[adj.seg.idx]
-    #   max(temp.dist.to.seg)
-    # }))
-    
-    for(repl in 1:ncol(sg.ll.df)){
-      # temp.seg.ll <- sum(ddirmnom(in.data.list[[repl]][temp.guide.idx,],
-      #                               size = in.data.totals[[repl]][temp.guide.idx],
-      #                               alpha = hyper$alpha1[[repl]][temp.guide.idx,], log = T) + log(temp.seg.dist))
-      temp.seg.ll <- sg.pp.ll.df[seg, repl]
-      temp.seg.noFS.ll <- sg.ll.df[seg, repl]
-      temp.segment.ll <- temp.segment.ll + (temp.seg.ll - temp.seg.noFS.ll) + log(dgeom(1, geom.p) / geom.norm.factr)
-
-      # temp.nonSeg.ll <- sg.ll.df[-seg, repl]
-      # temp.segment.ll <- temp.segment.ll + addlogs_vectorized(c(temp.seg.ll, temp.nonSeg.ll)) + log(dgeom(1, geom.p) / geom.norm.factr)
-    }
-    segment.ll.list[[seg]] <- temp.segment.ll
-    total.ll <- addlogs(total.ll, temp.segment.ll)
-  }
-  
-  # all.guide.idx <- c(1:nrow(sg.ll.df)) # helps to differentitate between guides for null vs alternative
-  
-  # now make a pass through all 2 to nr.segs length segments
-  if(nr.segs > 1){
-    for(ns in 1:(nr.segs-1) ){
-      
-      for(seg in 1:(total.segs - nr.segs)){
-        
-        temp.stretch.ll <- 0
-        temp.stretch.segs <- c(seg:(seg + ns)) # index of segments to be included as part of the stretch and be updated in this iteration
-        # temp.guide.idx <- c(seg.to.guide.lst[[seg]]$guide_idx, unlist(next.guide.lst[(seg + 1):(seg + ns)]))
-        # temp.nonGuide.idx <- all.guide.idx[-temp.guide.idx]
-        
-        # temp.seg.dist <- unlist(lapply(guide.to.seg.lst[temp.guide.idx], function(x){
-        #   adj.seg.idx <- which(x$seg_overlapped %in% temp.stretch.segs)
-        #   temp.dist.to.seg <- x$dist_to_seg[adj.seg.idx]
-        #   max(temp.dist.to.seg)
-        # }))
-        
-        for(repl in 1:ncol(sg.ll.df)){
-          # temp.seg.ll <- sum(ddirmnom(in.data.list[[repl]][temp.guide.idx,],
-          #                               size = in.data.totals[[repl]][temp.guide.idx],
-          #                               alpha = hyper$alpha1[[repl]][temp.guide.idx,], log = T) + log(temp.seg.dist))
-          temp.seg.ll <- addlogs_vectorized(sg.pp.ll.df[temp.stretch.segs,repl])
-          temp.seg.noFS.ll <- addlogs_vectorized(sg.ll.df[temp.stretch.segs,repl])
-          temp.stretch.ll <- temp.stretch.ll + (temp.seg.ll - temp.seg.noFS.ll) + log(dgeom(1 + ns, geom.p) / geom.norm.factr)
-  
-          # temp.nonSeg.ll <- sg.ll.df[-temp.stretch.segs,repl]
-          # temp.stretch.ll <- temp.stretch.ll + addlogs_vectorized(c(temp.seg.ll, temp.nonSeg.ll)) + log(dgeom(1 + ns, geom.p) / geom.norm.factr)
-          
-        }
-        
-        total.ll <- addlogs(total.ll, temp.stretch.ll)
-        
-        for(span in 1:length(temp.stretch.segs)){
-          segment.ll.list[[temp.stretch.segs[span]]] <- c(segment.ll.list[[temp.stretch.segs[span]]], temp.stretch.ll)
-        }
-      }
-    }
-  }
-  
-  # normalize the list by the total, and add the logs across the segments
-  segment.lls <- unlist(lapply(segment.ll.list, function(x){
-    x.norm <- x - total.ll
-    
-    x.norm.sum <- combine_segment_ll(x.norm)
-    x.norm.sum
-  }))
-  
-  segment.posteriors <- exp(segment.lls)
-  
-  return(segment.posteriors)
-  
-}
-
-
-#' @title Compute the log likelihood of each possible configuration of the placement of a fs. Take into account distance between segment and the guide target site
-#' @param hyper: list, hyperparameters
-#' @param in.data.list: list, each element contains a replicate, the total column has already been removed
-#' @param in.data.totals: list, each element contains the per-guide totals for a replicate
-#' @param seg.to.guide.lst: list, each element is a segment, contains a list with guide_idx, nonGuide_idx
-#' @param next.guide.lst: list that contains the index of $next_guide_idx and next_nonGuide_idx
-#' @param nr.segs: max number of segemnts that can be combined
-#' @param geom.p: probability of the geometic distribution used to calculate the probability of there being x segments in the regulatory element
-#' @param sg.ll.list: list, each element is a data frame per.guide log likelihood given the posteriors for a replicate and alt. ll (total_guide_ll, alt_only_ll)
-#' @return log likelihood for each segment
-#' @export estimate_fs_AoE_pp()
-
-estimate_fs_AoE_pp <- function(hyper, in.data.list, in.data.totals, guide.to.seg.lst,
-  seg.to.guide.lst, next.guide.lst, nr.segs = 10, geom.p = 0.1,
-  sg.ll.list) {
-  
-  # set up a list, the length of the number of segments
-  # each element contains a vector, which contains the ll of that segment being overlapped by a regulatory element
-  segment.ll.list <- list()
-  
-  total.segs <- length(seg.to.guide.lst)
-  region.priors <- rep(1/total.segs, total.segs)
-  geom.norm.factr <- pgeom(nr.segs, geom.p)
-  
-  # initialize the total likelihood with the first, one-segment likelihood
-  initial.segment.ll <- 0
-  initial.guide.idx<- seg.to.guide.lst[[1]]$guide_idx
-  initial.nonGuide.idx<- seg.to.guide.lst[[1]]$nonGuide_idx
-  
-  initial.seg.dist <- guide.to.seg.lst[[initial.guide.idx]]$dist_to_seg[1] #unlist(lapply(guide.to.seg.lst[[initial.guide.idx]]$dist_to_seg, function(x){x[1]}))
-  
-  for(repl in 1:length(sg.ll.list)){ # in.data.list
-    
-    initial.guide.ll <- sum(ddirmnom(in.data.list[[repl]][initial.guide.idx,],
-                                     size = in.data.totals[[repl]][initial.guide.idx],
-                                     alpha = hyper$alpha1[[repl]][initial.guide.idx,], log = T) + log(initial.seg.dist))
-    initial.guide.ll.bkg <- 0
-    init.with.bkg.idx <- which(initial.seg.dist < 1)
-    
-    if(length(init.with.bkg.idx) > 0){
-      initial.guide.ll.bkg <- sum(ddirmnom(in.data.list[[repl]][initial.guide.idx[init.with.bkg.idx],],
-                                           size = in.data.totals[[repl]][initial.guide.idx[init.with.bkg.idx]],
-                                           alpha = hyper$alpha0[[repl]][initial.guide.idx[init.with.bkg.idx],], log = T) + 
-                                    log(1 - initial.seg.dist[init.with.bkg.idx])) # 1 - 
-    }
-    
-    # initial.guide.ll <- sum(sg.ll.list[[repl]][initial.guide.idx,2])
-    
-    
-    initial.nonGuide.ll <- sum(sg.ll.list[[repl]][initial.nonGuide.idx,1])
-    # initial.nonGuide.ll <- sum(sg.ll.list[[repl]][initial.nonGuide.idx])
-    initial.segment.ll <- initial.segment.ll + initial.guide.ll + initial.nonGuide.ll + log(dgeom(1, geom.p) / geom.norm.factr) + initial.guide.ll.bkg
-  }
-  
-  segment.ll.list[[1]] <- initial.segment.ll
-  total.ll <- initial.segment.ll
-  
-  # make an initial pass with one-segment length RE placements
-  for(seg in 2:total.segs){
-    temp.segment.ll <- 0
-    temp.guide.idx<- seg.to.guide.lst[[seg]]$guide_idx
-    temp.nonGuide.idx<- seg.to.guide.lst[[seg]]$nonGuide_idx
-    # 
-    # region.pp <- cumulative.pp[guide.seg.idx.lst[[j]]$seg_overlapped]
-    # 
-    # region.pp.distance.adj <- region.pp * guide.seg.idx.lst[[j]]$dist_to_seg
-    # 
-    
-    # for each guide, identify what segments we're processing (what index matches current segment)
-    # return the max distance / probability of all segments covered
-    temp.seg.dist <- unlist(lapply(guide.to.seg.lst[temp.guide.idx], function(x){
-      adj.seg.idx <- which(x$seg_overlapped %in% seg)
-      temp.dist.to.seg <- x$dist_to_seg[adj.seg.idx]
-      max(temp.dist.to.seg)
-      }))
-    
-    for(repl in 1:length(sg.ll.list)){ # in.data.list
-      
-      temp.guide.ll <- sum(ddirmnom(in.data.list[[repl]][temp.guide.idx,],
-                                    size = in.data.totals[[repl]][temp.guide.idx],
-                                    alpha = hyper$alpha1[[repl]][temp.guide.idx,], log = T) + log(temp.seg.dist))
-      temp.guide.ll.bkg <- 0
-      
-      temp.with.bkg.idx <- which(temp.seg.dist < 1)
-      
-      if(length(temp.with.bkg.idx) > 0){
-        temp.guide.ll.bkg <- sum(ddirmnom(in.data.list[[repl]][temp.guide.idx[temp.with.bkg.idx],],
-                                          size = in.data.totals[[repl]][temp.guide.idx[temp.with.bkg.idx]],
-                                          alpha = hyper$alpha1[[repl]][temp.guide.idx[temp.with.bkg.idx],], log = T) + 
-                                   log(1 - temp.seg.dist[temp.with.bkg.idx])) # 1 - 
-      }
-      
-      # temp.guide.ll <- sum(sg.ll.list[[repl]][temp.guide.idx,2])
-      temp.nonGuide.ll <- sum(sg.ll.list[[repl]][temp.nonGuide.idx,1])
-      # temp.nonGuide.ll <- sum(sg.ll.list[[repl]][temp.nonGuide.idx])
-      temp.segment.ll <- temp.segment.ll + temp.guide.ll + temp.nonGuide.ll + log(dgeom(1, geom.p) / geom.norm.factr) + temp.guide.ll.bkg
-    }
-    segment.ll.list[[seg]] <- temp.segment.ll
-    total.ll <- addlogs(total.ll, temp.segment.ll)
-  }
-  
-  # all.guide.idx <- c(1:length(sg.ll.list[[1]][,1])) # helps to differentitate between guides for null vs alternative
-  all.guide.idx <- c(1:length(sg.ll.list[[1]])) # helps to differentitate between guides for null vs alternative
-  
-  # now make a pass through all 2 to nr.segs length segments
-  for(ns in 1:(nr.segs-1) ){
-    
-    for(seg in 1:(total.segs - nr.segs)){
-      
-      temp.stretch.ll <- 0
-      temp.stretch.segs <- c(seg:(seg + ns)) # index of segments to be included as part of the stretch and be updated in this iteration
-      temp.guide.idx <- c(seg.to.guide.lst[[seg]]$guide_idx, unlist(next.guide.lst[(seg + 1):(seg + ns)]))
-      temp.nonGuide.idx <- all.guide.idx[-temp.guide.idx]
-      
-      temp.seg.dist <- unlist(lapply(guide.to.seg.lst[temp.guide.idx], function(x){
-        adj.seg.idx <- which(x$seg_overlapped %in% temp.stretch.segs)
-        temp.dist.to.seg <- x$dist_to_seg[adj.seg.idx]
-        max(temp.dist.to.seg)
-      }))
-      
-      for(repl in 1:length(sg.ll.list)){ # in.data.list
-        temp.guide.ll <- sum(ddirmnom(in.data.list[[repl]][temp.guide.idx,],
-                                      size = in.data.totals[[repl]][temp.guide.idx],
-                                      alpha = hyper$alpha1[[repl]][temp.guide.idx,], log = T) + log(temp.seg.dist))
-        
-        temp.guide.ll.bkg <- 0
-        
-        temp.with.bkg.idx <- which(temp.seg.dist < 1)
-        
-        if(length(temp.with.bkg.idx) > 0){
-          temp.guide.ll.bkg <- sum(ddirmnom(in.data.list[[repl]][temp.guide.idx[temp.with.bkg.idx],],
-                                            size = in.data.totals[[repl]][temp.guide.idx[temp.with.bkg.idx]],
-                                            alpha = hyper$alpha1[[repl]][temp.guide.idx[temp.with.bkg.idx],], log = T) + 
-                                     log(1 - temp.seg.dist[temp.with.bkg.idx])) # 1 - 
-        }
-        
-        # temp.guide.ll <- sum(sg.ll.list[[repl]][temp.guide.idx,2])
-        temp.nonGuide.ll <- sum(sg.ll.list[[repl]][temp.nonGuide.idx,1])
-        # temp.nonGuide.ll <- sum(sg.ll.list[[repl]][temp.nonGuide.idx])
-        
-        # likelihood of this continous stretch of bins to contain a regulatory element
-        temp.stretch.ll <- temp.stretch.ll + temp.guide.ll + temp.nonGuide.ll + log(dgeom(1 + ns, geom.p) / geom.norm.factr) + temp.guide.ll.bkg
         
       }
       
@@ -5123,36 +4220,16 @@ estimate_fs_pp <- function(#hyper, in.data.list, in.data.totals,
   total.segs <- length(seg.to.guide.lst)
   region.priors <- rep(1/total.segs, total.segs)
   geom.norm.factr <- pgeom(nr.segs, geom.p)
-
-  # initialize the total likelihood with the first, one-segment likelihood
-  initial.segment.ll <- 0
-  initial.guide.idx<- seg.to.guide.lst[[1]]$guide_idx
-  initial.nonGuide.idx<- seg.to.guide.lst[[1]]$nonGuide_idx
-
-  for(repl in 1:length(sg.ll.list)){ # in.data.list
-    # initial.guide.ll <- sum(ddirmnom(in.data.list[[repl]][initial.guide.idx,],
-    #                                  size = in.data.totals[[repl]][initial.guide.idx],
-    #                                  alpha = hyper$alpha1[[repl]], log = T))
-
-    initial.guide.ll <- sum(sg.ll.list[[repl]][initial.guide.idx,2])
-    initial.nonGuide.ll <- sum(sg.ll.list[[repl]][initial.nonGuide.idx,1])
-    initial.segment.ll <- initial.segment.ll + initial.guide.ll + initial.nonGuide.ll + log(dgeom(1, geom.p) / geom.norm.factr)
-  }
-
-  segment.ll.list[[1]] <- initial.segment.ll
-  total.ll <- initial.segment.ll
+  
+  total.ll <- log(0)
 
   # make an initial pass with one-segment length RE placements
-  for(seg in 2:total.segs){
+  for(seg in 1:total.segs){
     temp.segment.ll <- 0
     temp.guide.idx<- seg.to.guide.lst[[seg]]$guide_idx
     temp.nonGuide.idx<- seg.to.guide.lst[[seg]]$nonGuide_idx
 
-    for(repl in 1:length(sg.ll.list)){ # in.data.list
-      # temp.guide.ll <- sum(ddirmnom(in.data.list[[repl]][temp.guide.idx,],
-      #                               size = in.data.totals[[repl]][temp.guide.idx],
-      #                               alpha = hyper$alpha1[[repl]], log = T))
-
+    for(repl in 1:length(sg.ll.list)){ 
       temp.guide.ll <- sum(sg.ll.list[[repl]][temp.guide.idx,2])
       temp.nonGuide.ll <- sum(sg.ll.list[[repl]][temp.nonGuide.idx,1])
       temp.segment.ll <- temp.segment.ll + temp.guide.ll + temp.nonGuide.ll + log(dgeom(1, geom.p) / geom.norm.factr)
@@ -5173,11 +4250,7 @@ estimate_fs_pp <- function(#hyper, in.data.list, in.data.totals,
       temp.guide.idx <- c(seg.to.guide.lst[[seg]]$guide_idx, unlist(next.guide.lst[(seg + 1):(seg + ns)]))
       temp.nonGuide.idx <- all.guide.idx[-temp.guide.idx]
 
-      for(repl in 1:length(sg.ll.list)){ # in.data.list
-        # temp.guide.ll <- sum(ddirmnom(in.data.list[[repl]][temp.guide.idx,],
-        #                               size = in.data.totals[[repl]][temp.guide.idx],
-        #                               alpha = hyper$alpha1[[repl]], log = T))
-
+      for(repl in 1:length(sg.ll.list)){
         temp.guide.ll <- sum(sg.ll.list[[repl]][temp.guide.idx,2])
         temp.nonGuide.ll <- sum(sg.ll.list[[repl]][temp.nonGuide.idx,1])
 
