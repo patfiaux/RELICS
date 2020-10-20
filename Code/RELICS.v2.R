@@ -386,10 +386,14 @@ check_parameter_list <- function(input.parameter.list, data.file.split){
       out.parameter.list$model_dispersion <- FALSE
     }
   }
-  if(out.parameter.list$model_dispersion & !out.parameter.list$mean_var_type == 'spline'){
+  if('mean_var_type' %in% par.given){
+    if(out.parameter.list$model_dispersion & !out.parameter.list$mean_var_type == 'spline'){
+      out.parameter.list$mean_var_type <- 'spline'
+    }
+  }
+  if(!'mean_var_type' %in% par.given){
     out.parameter.list$mean_var_type <- 'spline'
   }
-  
   if(! 'estimateSpline' %in% par.given){
     out.parameter.list$estimateSpline <- TRUE
   }
@@ -397,7 +401,7 @@ check_parameter_list <- function(input.parameter.list, data.file.split){
     out.parameter.list$nr_disp_bins <- 20
   }
   if(! 'pp_calculation' %in% par.given){
-    out.parameter.list$pp_calculation <- 'v2' #TRUE
+    out.parameter.list$pp_calculation <- 'v4'
   }
   if(! 'out_dir' %in% par.given){
     out.parameter.list$out_dir <- getwd()
@@ -1900,11 +1904,10 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
                                       input.hyper = relics.hyper,
                                       input.data.list = input.data,
                                       input.tol = coverg.tol[i],
-                                      # fix.hypers, iterative.hyper.est, 
                                       nr.segs, geom.p,
                                       min.pp = input.min.rs.pp, input.data$guide_efficiency,
                                       one.dispersion,
-                                      local.max, local.max.range,  pp.calculation)
+                                      local.max, local.max.range, analysis.parameters$areaOfEffect_type)
     
     fs.result.lists <- process_fs_pp(fs.data, fs.result.lists, analysis.parameters, input.data, i, relics.hyper, hyper.components)
 
@@ -3666,7 +3669,7 @@ init_relics_param <- function(hyper, in.data.list, local.max, recompute.fs0) {
 #' @param one.dispersion: whether the hyper parameters should be estimated with one or two dispersions
 #' @param local.max: logical, whether a local maximum should be computed
 #' @param local.max.range: number of segments to include in addition to the the ones with highest PP (one way, so multiply by 2 for total nr of segs)
-#' @param pp.calculation: type of PP calculation to use. 'v2' is for normal AoE
+#' @param area.of.effect: type of area of effect. Currently either 'normal' or 'uniform'
 #' @return ll_tract, posterior_trace_list, alpha0_est, alpha1_est, max_iter_reached, fs_ll_rt_trace
 #' @export relics_compute_FS_k()
 
@@ -3678,7 +3681,7 @@ relics_compute_FS_k <- function(input.param,
                           min.pp = 0.1,
                           guide.efficiency,
                           one.dispersion,
-                          local.max, local.max.range,  pp.calculation){
+                          local.max, local.max.range,  area.of.effect){
 
 
   dirichlet.hyper <- input.hyper
@@ -3714,7 +3717,7 @@ relics_compute_FS_k <- function(input.param,
                                            input.data.list$seg_to_guide_lst,
                                            input.data.list$next_guide_lst,
                                            nr.segs, geom.p, guide.efficiency,
-                                          local.max, local.max.range, pp.calculation)
+                                          local.max, local.max.range, area.of.effect)
 
 
     # keep track of changes in posterior estimates for delta
@@ -3779,14 +3782,12 @@ relics_compute_FS_k <- function(input.param,
 
     }
 
-
   }
 
   out.list <- list(ll_tract = dirichlet.ll.trace,
                    posterior_trace_list = dirichlet.posterior.trace,
                    max_iter_reached = max.iter.reached,
                    fs_ll_rt_trace = fs.ll.rt.trace)
-
 
   return(out.list)
 
@@ -3928,7 +3929,7 @@ recompute_hyper_parameters <- function(param, hyper, hyper.components, data, gui
 #' @param guide.efficiency: data.frame of guide efficiences. Either vector of guide efficiency or NULL
 #' @param local.max: logical, whether a local maximum should be computed
 #' @param local.max.range: number of segments to include in addition to the the ones with highest PP (one way, so multiply by 2 for total nr of segs)
-#' @param pp.calculation: tyep of PP calculation. 'v2' is for normal AoE
+#' @param area.of.effect: type of area of effect. Currently either 'normal' or 'uniform'
 #' @return log likelihood for each region
 #' @export relics_estimate_pp()
 
@@ -3936,7 +3937,7 @@ relics_estimate_pp <- function(param, hyper, data, known.reg,
                                 guide.to.seg.lst, seg.to.guide.lst,
                                 next.guide.lst, nr.segs = 10,
                                geom.p = 0.1, guide.efficiency,
-                               local.max, local.max.range, pp.calculation) {
+                               local.max, local.max.range, area.of.effect) {
   n.sgrna <- length(guide.to.seg.lst)
   n.region <- length(seg.to.guide.lst)
 
@@ -3973,7 +3974,7 @@ relics_estimate_pp <- function(param, hyper, data, known.reg,
     }
 
     delta.pps <- c()
-    if(pp.calculation == 'v4'){
+    if(area.of.effect == 'normal'){
       delta.pps <- estimate_fs_AoE_pp(hyper, data.mat.list, data.total.list, guide.to.seg.lst,
                                          seg.to.guide.lst, next.guide.lst, nr.segs, geom.p, 
                                          sgrna.log.like.list, seg.adjust = 0, 
@@ -3982,24 +3983,22 @@ relics_estimate_pp <- function(param, hyper, data, known.reg,
       delta.pps <- estimate_fs_pp(seg.to.guide.lst, next.guide.lst, 
                                   nr.segs, geom.p, sgrna.log.like.list)
     }
-    
 
     # if the signal is to be located at a local region
     if(local.max){
 
       # identify segment with highest posterior, pull our segments +/- local.max.region
       local.max.idx <- extract_local_max_idx(delta.pps, local.max.range)
+      local.seg.to.guide.lst <- seg.to.guide.lst[local.max.idx]
+      local.next.guide.lst <- next.guide.lst[local.max.idx]
 
       local.delta.pps <- c()
-      if(pp.calculation == 'v4'){
+      if(area.of.effect == 'normal'){
         local.delta.pps <- estimate_fs_AoE_pp(hyper, data.mat.list, data.total.list, guide.to.seg.lst,
                                                  seg.to.guide.lst, next.guide.lst, nr.segs, geom.p, 
                                                  sgrna.log.like.list, seg.adjust = min(local.max.idx) - 1, 
                                                  total.segs = length(local.max.idx))
       } else {
-        local.seg.to.guide.lst <- seg.to.guide.lst[local.max.idx]
-        
-        local.next.guide.lst <- next.guide.lst[local.max.idx]
         local.delta.pps <- estimate_fs_pp(local.seg.to.guide.lst, local.next.guide.lst,
                                           nr.segs, geom.p, sgrna.log.like.list)
       }
