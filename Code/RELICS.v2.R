@@ -127,27 +127,25 @@ RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.
   analysis.parameters <- compute_hyperparameters(analysis.parameters, data.setup)
 
   data.setup$fixed_ge_coeff <- analysis.parameters$fixed_ge_coeff
-  # To Do!: adjust the guide efficiency to work with new dispersion method
   # # if guide efficiency scores are provided, calculate guide efficiency and include in the model
-  # if(! is.null(data.setup$guide_efficiency_scores)){
-  #   
-  #   if(! analysis.parameters$fixed_ge_coeff){
-  # 
-  #     temp.relics.params <- init_relics_param(analysis.parameters$hyper_pars, data.setup, analysis.parameters$local_max)
-  # 
-  #     ge.list <- recompute_ge_coefficients(temp.relics.params,
-  #                                          analysis.parameters$hyper_pars,
-  #                                          data.setup$data,
-  #                                          data.setup$guide_to_seg_lst,
-  #                                          data.setup$guide_efficiency_scores,
-  #                                          c(0, rep(1, ncol(data.setup$guide_efficiency_scores))))
-  # 
-  #     data.setup$guide_efficiency <- ge.list$guide_efficiency
-  #     data.setup$ge_coeff <- ge.list$ge_coeff
-  #   }
-  # 
-  # }
-  # TO DO!
+  if(! is.null(data.setup$guide_efficiency_scores)){
+
+    if(! analysis.parameters$fixed_ge_coeff){
+
+      temp.relics.params <- init_relics_param(analysis.parameters$hyper_pars, data.setup, analysis.parameters$local_max)
+
+      ge.list <- recompute_ge_coefficients(temp.relics.params,
+                                           analysis.parameters$hyper_pars,
+                                           data.setup$data,
+                                           data.setup$guide_to_seg_lst,
+                                           data.setup$guide_efficiency_scores,
+                                           c(0, rep(1, ncol(data.setup$guide_efficiency_scores))))
+
+      data.setup$guide_efficiency <- ge.list$guide_efficiency
+      data.setup$ge_coeff <- ge.list$ge_coeff
+    }
+
+  }
 
   # plot the per-segment ll-ratio
   out.pars <- list(out_dir = paste0(analysis.parameters$out_dir, '/', analysis.parameters$dataName),
