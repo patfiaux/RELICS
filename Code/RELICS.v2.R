@@ -173,7 +173,7 @@ RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.
                mean.var.type = analysis.parameters$mean_var_type,
                pp.calculation = analysis.parameters$pp_calculation,
                analysis.parameters = analysis.parameters,
-               guide.dist.to.seg = guide.dist.to.seg)
+               guide.dist.to.seg = data.setup$guide_dist_to_seg)
 
 
 }
@@ -1975,39 +1975,43 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
                                    local.max, local.max.range, analysis.parameters$areaOfEffect_type,
                                    guide.dist.to.seg)
     
-    fs.result.lists <- process_fs_pp(fs.data, fs.result.lists, analysis.parameters, input.data, i, relics.hyper, hyper.components)
-
-    # prep the parameters for the next iteration (both the posteriors and hypers)
-    relics.hyper$L <- relics.hyper$L + 1
-    relics.param$delta.pp <- rbind(fs.result.lists$posteriors[[i]], rep(0, ncol(relics.param$delta.pp)))
-    if(local.max){
-      relics.param$ll_rt <- rbind(fs.result.lists$ll_ratio[[i]], rep(0, ncol(relics.param$delta.pp)))
-    }
+    # fs.result.lists <- process_fs_pp(fs.data, fs.result.lists, analysis.parameters, input.data, i, relics.hyper, hyper.components)
+    current.result.lists <- process_fs_pp_output(fs.data, fs.result.lists, analysis.parameters, input.data, i, relics.hyper, hyper.components)
    
     if(record.all.fs){
       
-      record_results(fs.result.lists, i, input.data, analysis.parameters, '', hyper.components, relics.hyper)
+      record_results(current.result.lists, i, input.data, analysis.parameters, '', hyper.components, relics.hyper)
       
     }
 
     if(i > 1){
 
-      fs.correlation.cutoff.list <- determine_FS_nr_cutoff(fs.result.lists$correlation, analysis.parameters$fs_correlation_cutoff)
+      fs.correlation.cutoff.list <- determine_FS_nr_cutoff(current.result.lists$correlation, analysis.parameters$fs_correlation_cutoff)
 
       if(fs.correlation.cutoff.list$need_to_stop){
         print(fs.correlation.cutoff.list$why_to_stop)
         
         if(auto.stop){
-          record_results(fs.result.lists, i, input.data, analysis.parameters, '_final', hyper.components, relics.hyper)
+          record_results(fs.result.lists, i - 1, input.data, analysis.parameters, '_final', hyper.components, relics.hyper)
           break()
         } else {
           print(paste0('Recommend stopping RELICS 2'))
           print('Continuing to run because auto.stop was set to FALSE')
-          record_results(fs.result.lists, i, input.data, analysis.parameters, '_recommendedFinal', hyper.components, relics.hyper)
+          record_results(fs.result.lists, i - 1, input.data, analysis.parameters, '_recommendedFinal', hyper.components, relics.hyper)
         }
 
       }
 
+    }
+    
+    # update the results
+    fs.result.lists <- current.result.lists
+    
+    # prep the parameters for the next iteration (both the posteriors and hypers)
+    relics.hyper$L <- relics.hyper$L + 1
+    relics.param$delta.pp <- rbind(fs.result.lists$posteriors, rep(0, ncol(relics.param$delta.pp)))  # fs.result.lists$posteriors[[i]]
+    if(local.max){
+      relics.param$ll_rt <- rbind(fs.result.lists$ll_ratio, rep(0, ncol(relics.param$delta.pp)))  # fs.result.lists$ll_ratio[[i]]
     }
 
     # if the hyper parameters are reestimated after convergence of the posteriors
@@ -2094,6 +2098,74 @@ initialize_results_list <- function(){
 }
 
 
+#' @title Wrapper function for recording the output from the most recent run
+#' @param input.pp.list: list of PP results
+#' @param input.results.list: lest, each element keeps track of results from a number of FS identified
+#' @param analysis.parameters: list containing all the analysis parameters
+#' @param input.data: list containing the counts
+#' @param relics.hyper: list, RELICS hyperparameters, alpha0 and alpha1, each list of df, one for each repl
+#' @param hyper.components: hyperpparameter components (alpha0 and alpha1 proportions and dispersions)
+#' @param file.extension: extension for files, either '', '_final', or '_recommendedFinal'
+#' @param fs.iter: current FS interation
+#' @return list with updated input.results.list
+#' @export process_fs_pp_output()
+
+process_fs_pp_output <- function(input.pp.list, input.results.list, analysis.parameters, input.data, fs.iter, relics.hyper, hyper.components){
+  
+  
+  out.results.list <- input.results.list
+  convrg.iter <- length(input.pp.list$posterior_trace_list)
+  
+  fs.posteriors <- input.pp.list$posterior_trace_list[[convrg.iter]]
+  fs.posteriors[fs.posteriors > 1] <- 1
+  
+  fs.ll.rt <- list()
+  if(analysis.parameters$local_max){
+    fs.ll.rt <- input.pp.list$fs_ll_rt_trace[[convrg.iter]]
+  }
+  
+  # order the layers according to their model contributions
+  order.pps.lst <- order_pps(fs.posteriors, input.pp.list$ll_tract[[convrg.iter]],
+                             input.data, relics.hyper$alpha0, relics.hyper$alpha1,
+                             input.data$guide_efficiency, analysis.parameters$local_max, fs.ll.rt)
+  
+  #posteriors, alpha0, alpha1, bkg_hyper, fs_hyper, bkg_disp, fs_ll, per_fs_ll, correlation, ge_coeff, model_ll, ll_ratio
+  out.results.list$posteriors <- order.pps.lst$pp_ordered
+  out.results.list$alpha0 <- relics.hyper$alpha0
+  out.results.list$alpha1 <- relics.hyper$alpha1
+  
+  out.results.list$bkg_hyper <- hyper.components$bkg_alpha
+  out.results.list$fs_hyper <- hyper.components$FS_alpha
+  out.results.list$bkg_disp <- hyper.components$bkg_dispersion
+  
+  # record the model log-likelihood with each additional FS
+  new.model.ll <- data.frame(FS = fs.iter, FS_ll = input.pp.list$ll_tract[[convrg.iter]], stringsAsFactors = F)
+  temp.model.ll <- rbind(input.results.list$model_ll, new.model.ll)
+  out.results.list$model_ll <- temp.model.ll
+  
+  out.results.list$ll_ratio <- order.pps.lst$fs_ll_rt_ordered
+  
+  #$nr_rs, $rs_prob, $training_overlap, $prct_overlap
+  pp.stat.lst <- pps_stats(order.pps.lst$pp_ordered, analysis.parameters$min_fs_pp)
+  
+  # record the per-FS contribution to the model
+  per.fs.ll.contribution <- order.pps.lst$layer_ll_ordered
+  per.fs.ll.df <- data.frame(FS = c('total_model_ll', paste0('k_', c(1:(length(per.fs.ll.contribution)))) ),
+                             ll = c(input.pp.list$ll_tract[[convrg.iter]], per.fs.ll.contribution),
+                             nr_fs = c(0, pp.stat.lst$nr_rs),
+                             stringsAsFactors = F)
+  out.results.list$per_fs_ll <- per.fs.ll.df
+  
+  # # record the PP correlations and overlaps
+  fs.corrs <- pps_corr(order.pps.lst$pp_ordered, fs.iter)
+  out.results.list$correlation[[fs.iter]] <- fs.corrs
+  
+  out.results.list$ge_coeff <- input.data$ge_coeff
+  
+  return(out.results.list)
+}
+
+
 #' @title Wrapper function for recording hyperparameters
 #' @param input.pp.list: list of PP results
 #' @param input.results.list: lest, each element keeps track of results from a number of FS identified
@@ -2174,10 +2246,8 @@ process_fs_pp <- function(input.pp.list, input.results.list, analysis.parameters
 
 record_results <- function(input.results.list, fs.iter, input.data, analysis.parameters, file.extension, hyper.components, relics.hyper){
   
-  record.posteriors <- input.results.list$posteriors[[fs.iter]]
-  record.model.ll <- input.results.list$model_ll[[fs.iter]]
-  record.correlation <- input.results.list$correlation[[fs.iter]]
-  
+  record.posteriors <- input.results.list$posteriors#[[fs.iter]]
+  record.model.ll <- input.results.list$model_ll#[[fs.iter]]
   
   out.dir <- paste0(analysis.parameters$out_dir, '/', analysis.parameters$dataName)
   
@@ -2194,7 +2264,7 @@ record_results <- function(input.results.list, fs.iter, input.data, analysis.par
     plot_fs_stats(record.model.ll, input.results.list$correlation, out.dir, fs.iter, analysis.parameters$fs_correlation_cutoff)
   }
   
-  ll_ratio_recording(input.data, analysis.parameters, relics.hyper, fs.iter)
+  ll_ratio_recording(input.data, analysis.parameters, input.results.list, fs.iter)
   
   hyperparameter_recording(input.results.list, fs.iter, hyper.components, analysis.parameters, file.extension)
   
@@ -2209,10 +2279,10 @@ record_results <- function(input.results.list, fs.iter, input.data, analysis.par
 
 
 #' @title wrapper for reporting the per-segment ll ratio while accounting for the area of effect
-#' @param input.hypers: list: hyper parameters
+#' @param relics.hyper: list: hyper parameters
 #' @param input.data: list: $seg_to_guide_lst, $guide_efficiency_scores (and $guide_efficiency if former not NULL)
-#' @param input.ge: guide efficiency
-#' @param input.seg.to.guide.lst: list: hyper parameters
+#' @param analysis.parameters: list containing all the analysis parameters
+#' @param fs.iter: current FS interation
 #' @return list with parameters for running RELICS or logical FALSE if required parameter is missing
 #' @export ll_ratio_recording()
 
@@ -2232,8 +2302,7 @@ ll_ratio_recording <- function(input.data, analysis.parameters, relics.hyper, fs
 #' @title given hyper parameters and guide efficiency (optional), report the per-segment ll ratio while accounting for the area of effect
 #' @param input.hypers: list: hyper parameters
 #' @param input.data: list: $seg_to_guide_lst, $guide_efficiency_scores (and $guide_efficiency if former not NULL)
-#' @param input.ge: guide efficiency
-#' @param input.seg.to.guide.lst: list: hyper parameters
+#' @param input.parameters: list containing all the analysis parameters
 #' @return list with parameters for running RELICS or logical FALSE if required parameter is missing
 #' @export record_AoE_ll_ratio()
 
@@ -2324,8 +2393,8 @@ compute_local_AoE_ll_ratio <- function(guide.ll.df, local.seg.to.guide.lst, guid
 
 hyperparameter_recording <- function(input.results.list, fs.iter, hyper.components, analysis.parameters, file.extension){
   
-  record.bkg.hyper <- input.results.list$bkg_hyper[[fs.iter]]
-  record.fs.hyper <- input.results.list$fs_hyper[[fs.iter]]
+  record.bkg.hyper <- input.results.list$bkg_hyper#[[fs.iter]]
+  record.fs.hyper <- input.results.list$fs_hyper#[[fs.iter]]
   out.dir <- paste0(analysis.parameters$out_dir, '/', analysis.parameters$dataName)
   
   if(analysis.parameters$model_dispersion){
@@ -2334,7 +2403,7 @@ hyperparameter_recording <- function(input.results.list, fs.iter, hyper.componen
                            input.bkg.disp = hyper.components$dispersion, 
                            paste0(out.dir, file.extension), fs.iter, analysis.parameters$pool_names)
   } else {
-    record.bkg.disp <- input.results.list$bkg_disp[[fs.iter]]
+    record.bkg.disp <- input.results.list$bkg_disp#[[fs.iter]]
     record_hyper_components(input.bkg.alpha = record.bkg.hyper,
                             input.fs.alpha = record.fs.hyper,
                             input.bkg.disp = record.bkg.disp,
@@ -2355,11 +2424,11 @@ hyperparameter_recording <- function(input.results.list, fs.iter, hyper.componen
 
 data_ll_recording <- function(input.results.list, fs.iter, input.data, file.extension, analysis.parameters){
   
-  record.posteriors <- input.results.list$posteriors[[fs.iter]]
-  record.per.fs.ll <- input.results.list$per_fs_ll[[fs.iter]]
-  record.model.ll <- input.results.list$model_ll[[fs.iter]]
-  record.ll.rt <- input.results.list$ll_ratio[[fs.iter]]
-  record.correlation <- input.results.list$correlation[[fs.iter]]
+  record.posteriors <- input.results.list$posteriors#[[fs.iter]]
+  record.per.fs.ll <- input.results.list$per_fs_ll#[[fs.iter]]
+  record.model.ll <- input.results.list$model_l#l[[fs.iter]]
+  record.ll.rt <- input.results.list$ll_ratio#[[fs.iter]]
+  record.correlation <- input.results.list$correlation#[[fs.iter]]
   out.dir <- paste0(analysis.parameters$out_dir, '/', analysis.parameters$dataName)
   
   # record the segments with FS probabilities above the threshold.
@@ -2387,7 +2456,7 @@ data_ll_recording <- function(input.results.list, fs.iter, input.data, file.exte
   
   # guide efficiency vars:
   if(! is.null(input.data$fixed_ge_coeff) && ! input.data$fixed_ge_coeff){
-    record.ge.coeff <- input.results.list$ge_coeff[[fs.iter]]
+    record.ge.coeff <- input.results.list$ge_coeff#[[fs.iter]]
     ge.coff.df <- data.frame(ge_coeff = c('beta0', paste0('beta', 1:ncol(input.data$guide_efficiency_scores))),
                              ge_coeff_scores = round(record.ge.coeff, 3))
     write.csv(ge.coff.df, file = paste0(out.dir, file.extension, '_k', fs.iter, '_ge_coeff.csv'), row.names = F)
@@ -2407,10 +2476,10 @@ data_ll_recording <- function(input.results.list, fs.iter, input.data, file.exte
 
 bedgraph_recording <- function(input.results.list, input.data, fs.iter, analysis.parameters, file.extension){
   
-  record.posteriors <- input.results.list$posteriors[[fs.iter]]
-  record.ll.rt <- input.results.list$ll_ratio[[fs.iter]]
-  record.alpha0 <- input.results.list$alpha0[[fs.iter]]
-  record.alpha1 <- input.results.list$alpha1[[fs.iter]]
+  record.posteriors <- input.results.list$posteriors#[[fs.iter]]
+  record.ll.rt <- input.results.list$ll_ratio#[[fs.iter]]
+  record.alpha0 <- input.results.list$alpha0#[[fs.iter]]
+  record.alpha1 <- input.results.list$alpha1#[[fs.iter]]
   out.dir <- paste0(analysis.parameters$out_dir, '/', analysis.parameters$dataName)
   
   total.record.posteriors <- colSums(record.posteriors)
