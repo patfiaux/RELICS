@@ -1034,23 +1034,25 @@ compute_guide_dist_to_seg <- function(guide.to.seg.lst, seg.to.guide.lst, next.g
     
   }
   
-  for(ns in 1:(nr.segs-1) ){
-    fs.length <- fs.length + 1
-    for(seg in 1:(total.segs - ns)){
+  if(nr.segs > 1){
+    for(ns in 1:(nr.segs-1) ){
+      fs.length <- fs.length + 1
+      for(seg in 1:(total.segs - ns)){
+        
+        temp.stretch.segs <- c(seg:(seg + ns)) # index of segments to be included as part of the stretch and be updated in this iteration
+        temp.guide.idx <- c(seg.to.guide.lst[[seg]]$guide_idx, unlist(next.guide.lst[(seg + 1):(seg + ns)]))
+        
+        temp.seg.poi.bkg <- unlist(lapply(guide.to.seg.lst[temp.guide.idx], function(x){
+          adj.seg.idx <- which(x$seg_overlapped %in% temp.stretch.segs )
+          temp.dist.to.seg <- x$dist_to_seg[adj.seg.idx]
+          dpoibin(0, temp.dist.to.seg)
+        }))
+        
+        dist.to.seg.list[[seg]][[fs.length]] <- temp.seg.poi.bkg
+        
+      }
       
-      temp.stretch.segs <- c(seg:(seg + ns)) # index of segments to be included as part of the stretch and be updated in this iteration
-      temp.guide.idx <- c(seg.to.guide.lst[[seg]]$guide_idx, unlist(next.guide.lst[(seg + 1):(seg + ns)]))
-      
-      temp.seg.poi.bkg <- unlist(lapply(guide.to.seg.lst[temp.guide.idx], function(x){
-        adj.seg.idx <- which(x$seg_overlapped %in% temp.stretch.segs )
-        temp.dist.to.seg <- x$dist_to_seg[adj.seg.idx]
-        dpoibin(0, temp.dist.to.seg)
-      }))
-      
-      dist.to.seg.list[[seg]][[fs.length]] <- temp.seg.poi.bkg
-      
-    }
-    
+    } 
   }
 
   return(dist.to.seg.list)
@@ -1610,19 +1612,28 @@ reparameterize_hypers <- function(input.bkg.alpha, input.fs.alpha, input.disp, g
   }
   
   alpha1 <- c()
-  alpha0.matrix <- t(apply(matrix(0, ncol = length(input.bkg.alpha), nrow = length(guide.efficiency)), 1, function(x){x + input.bkg.alpha}))
-  alpha.diffs <- input.bkg.alpha - input.fs.alpha
   
-  alpha1.matrix <- matrix(0, ncol = length(input.bkg.alpha), nrow = length(guide.efficiency))
-  
-  for(i in 1:length(guide.efficiency)){
-    # this cound be an issue if the dispersion is no longer identical...
-    temp.alpha1 <- alpha0.matrix[i,] - alpha.diffs * guide.efficiency[i]
-
-    alpha1.matrix[i,] <- temp.alpha1
+  if(is.null(guide.efficiency)){
+    if(model.disp){
+      alpha1 <- t(input.fs.alpha %*% t(input.disp) )
+    } else {
+      alpha1 <- input.fs.alpha * input.disp
+    }
+  } else {
+    alpha0.matrix <- t(apply(matrix(0, ncol = length(input.bkg.alpha), nrow = length(guide.efficiency)), 1, function(x){x + input.bkg.alpha}))
+    alpha.diffs <- input.bkg.alpha - input.fs.alpha
+    
+    alpha1.matrix <- matrix(0, ncol = length(input.bkg.alpha), nrow = length(guide.efficiency))
+    
+    for(i in 1:length(guide.efficiency)){
+      # this cound be an issue if the dispersion is no longer identical...
+      temp.alpha1 <- alpha0.matrix[i,] - alpha.diffs * guide.efficiency[i]
+      
+      alpha1.matrix[i,] <- temp.alpha1
+    }
+    
+    alpha1 <- alpha1.matrix * input.disp
   }
-  
-  alpha1 <- alpha1.matrix * input.disp
   
   out.list <- list(alpha0 = alpha0, alpha1 = alpha1)
   
@@ -1757,7 +1768,7 @@ prior_dirichlet_parameters <- function(hyper.param, data, region.ll.list, bkg.id
     # hyper$alpha1 <- fs.alpha * temp.disp
   }
   
-  hyper <- reparameterize_hypers(bkg.alpha, fs.alpha, temp.disp, guide.efficiency, TRUE)
+  hyper <- reparameterize_hypers(bkg.alpha, fs.alpha, temp.disp, guide.efficiency, FALSE)
 
   out.sg.ll <- estimate_relics_sgrna_log_like(hyper, data, region.ll.list, guide.efficiency)
 
@@ -4204,47 +4215,50 @@ estimate_fs_AoE_pp <- function(hyper, in.data.list, in.data.totals, guide.to.seg
   all.guide.idx <- c(1:nrow(in.data.list[[1]])) # helps to differentitate between guides for null vs alternative
   
   # now make a pass through all 2 to nr.segs length segments
-  for(ns in 1:(nr.segs-1) ){
-    fs.length <- fs.length + 1
-    for(seg in 1:(total.segs - ns)){
-      temp.stretch.ll <- 0
-      temp.stretch.segs <- c(seg:(seg + ns)) # index of segments to be included as part of the stretch and be updated in this iteration
-      curr.seg <- seg + seg.adjust
-      curr.stretch.segs <- temp.stretch.segs + seg.adjust
-      temp.guide.idx <- c(seg.to.guide.lst[[curr.seg]]$guide_idx, unlist(next.guide.lst[(curr.seg + 1):(curr.seg + ns)]))
-      temp.nonGuide.idx <- all.guide.idx[-temp.guide.idx]
-      
-      # temp.seg.poi.bkg <- unlist(lapply(guide.to.seg.lst[temp.guide.idx], function(x){
-      #   adj.seg.idx <- which(x$seg_overlapped %in% curr.stretch.segs )
-      #   temp.dist.to.seg <- x$dist_to_seg[adj.seg.idx]
-      #   dpoibin(0, temp.dist.to.seg)
-      # }))
-      temp.seg.poi.bkg <- guide.dist.to.seg[[curr.seg]][[fs.length]]
-      
-      for(repl in 1:length(sg.ll.list)){ # in.data.list
+  if(nr.segs > 1){
+    for(ns in 1:(nr.segs-1) ){
+      fs.length <- fs.length + 1
+      for(seg in 1:(total.segs - ns)){
+        temp.stretch.ll <- 0
+        temp.stretch.segs <- c(seg:(seg + ns)) # index of segments to be included as part of the stretch and be updated in this iteration
+        curr.seg <- seg + seg.adjust
+        curr.stretch.segs <- temp.stretch.segs + seg.adjust
+        temp.guide.idx <- c(seg.to.guide.lst[[curr.seg]]$guide_idx, unlist(next.guide.lst[(curr.seg + 1):(curr.seg + ns)]))
+        temp.nonGuide.idx <- all.guide.idx[-temp.guide.idx]
         
-        temp.guide.ll <- vector('numeric', length = length(temp.seg.poi.bkg))
-
-        for(i in 1:length(temp.seg.poi.bkg)){
-          temp.guide.ll[i] <- addlogs(sg.ll.list[[repl]][temp.guide.idx[i],2] + log(1 - temp.seg.poi.bkg[i]),
-                                      sg.ll.list[[repl]][temp.guide.idx[i],1] + log(temp.seg.poi.bkg[i]))
-
+        # temp.seg.poi.bkg <- unlist(lapply(guide.to.seg.lst[temp.guide.idx], function(x){
+        #   adj.seg.idx <- which(x$seg_overlapped %in% curr.stretch.segs )
+        #   temp.dist.to.seg <- x$dist_to_seg[adj.seg.idx]
+        #   dpoibin(0, temp.dist.to.seg)
+        # }))
+        temp.seg.poi.bkg <- guide.dist.to.seg[[curr.seg]][[fs.length]]
+        
+        for(repl in 1:length(sg.ll.list)){ # in.data.list
+          
+          temp.guide.ll <- vector('numeric', length = length(temp.seg.poi.bkg))
+          
+          for(i in 1:length(temp.seg.poi.bkg)){
+            temp.guide.ll[i] <- addlogs(sg.ll.list[[repl]][temp.guide.idx[i],2] + log(1 - temp.seg.poi.bkg[i]),
+                                        sg.ll.list[[repl]][temp.guide.idx[i],1] + log(temp.seg.poi.bkg[i]))
+            
+          }
+          
+          temp.nonGuide.ll <- sum(sg.ll.list[[repl]][temp.nonGuide.idx,1])
+          
+          temp.stretch.ll <- temp.stretch.ll + sum(temp.guide.ll) + temp.nonGuide.ll + log(dgeom(1 + ns, geom.p) / geom.norm.factr)
+          
         }
-
-        temp.nonGuide.ll <- sum(sg.ll.list[[repl]][temp.nonGuide.idx,1])
-
-        temp.stretch.ll <- temp.stretch.ll + sum(temp.guide.ll) + temp.nonGuide.ll + log(dgeom(1 + ns, geom.p) / geom.norm.factr)
         
-      }
-      
-      total.ll <- addlogs(total.ll, temp.stretch.ll)
-      
-      for(span in 1:length(temp.stretch.segs)){
-        segment.ll.list[[temp.stretch.segs[span]]] <- c(segment.ll.list[[temp.stretch.segs[span]]], temp.stretch.ll)
+        total.ll <- addlogs(total.ll, temp.stretch.ll)
+        
+        for(span in 1:length(temp.stretch.segs)){
+          segment.ll.list[[temp.stretch.segs[span]]] <- c(segment.ll.list[[temp.stretch.segs[span]]], temp.stretch.ll)
+        }
       }
     }
+    
   }
-  
+   
   # normalize the list by the total, and add the logs across the segments
   segment.lls <- unlist(lapply(segment.ll.list, function(x){
     x.norm <- x - total.ll
@@ -4304,30 +4318,33 @@ estimate_fs_pp <- function(#hyper, in.data.list, in.data.totals,
   all.guide.idx <- c(1:length(sg.ll.list[[1]][,1])) # helps to differentitate between guides for null vs alternative
 
   # now make a pass through all 2 to nr.segs length segments
-  for(ns in 1:(nr.segs-1) ){
-
-    for(seg in 1:(total.segs - nr.segs)){ # pretty sure nr.segs should be 'ns'....
-
-      temp.stretch.ll <- 0
-      temp.stretch.segs <- c(seg:(seg + ns)) # index of segments to be included as part of the stretch and be updated in this iteration
-      temp.guide.idx <- c(seg.to.guide.lst[[seg]]$guide_idx, unlist(next.guide.lst[(seg + 1):(seg + ns)]))
-      temp.nonGuide.idx <- all.guide.idx[-temp.guide.idx]
-
-      for(repl in 1:length(sg.ll.list)){
-        temp.guide.ll <- sum(sg.ll.list[[repl]][temp.guide.idx,2])
-        temp.nonGuide.ll <- sum(sg.ll.list[[repl]][temp.nonGuide.idx,1])
-
-        # likelihood of this continous stretch of bins to contain a regulatory element
-        temp.stretch.ll <- temp.stretch.ll + temp.guide.ll + temp.nonGuide.ll + log(dgeom(1 + ns, geom.p) / geom.norm.factr)
-
-      }
-
-      total.ll <- addlogs(total.ll, temp.stretch.ll)
-
-      for(span in 1:length(temp.stretch.segs)){
-        segment.ll.list[[temp.stretch.segs[span]]] <- c(segment.ll.list[[temp.stretch.segs[span]]], temp.stretch.ll)
+  if(nr.segs > 1){
+    for(ns in 1:(nr.segs-1) ){
+      
+      for(seg in 1:(total.segs - nr.segs)){ # pretty sure nr.segs should be 'ns'....
+        
+        temp.stretch.ll <- 0
+        temp.stretch.segs <- c(seg:(seg + ns)) # index of segments to be included as part of the stretch and be updated in this iteration
+        temp.guide.idx <- c(seg.to.guide.lst[[seg]]$guide_idx, unlist(next.guide.lst[(seg + 1):(seg + ns)]))
+        temp.nonGuide.idx <- all.guide.idx[-temp.guide.idx]
+        
+        for(repl in 1:length(sg.ll.list)){
+          temp.guide.ll <- sum(sg.ll.list[[repl]][temp.guide.idx,2])
+          temp.nonGuide.ll <- sum(sg.ll.list[[repl]][temp.nonGuide.idx,1])
+          
+          # likelihood of this continous stretch of bins to contain a regulatory element
+          temp.stretch.ll <- temp.stretch.ll + temp.guide.ll + temp.nonGuide.ll + log(dgeom(1 + ns, geom.p) / geom.norm.factr)
+          
+        }
+        
+        total.ll <- addlogs(total.ll, temp.stretch.ll)
+        
+        for(span in 1:length(temp.stretch.segs)){
+          segment.ll.list[[temp.stretch.segs[span]]] <- c(segment.ll.list[[temp.stretch.segs[span]]], temp.stretch.ll)
+        }
       }
     }
+    
   }
 
   # normalize the list by the total, and add the logs across the segments
