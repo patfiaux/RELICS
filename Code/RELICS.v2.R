@@ -258,7 +258,7 @@ display_relics_segLLs_as_tiff <- function(input.seg.lls, input.labels, tiff.name
         max.idx <- which(temp.lls == max(temp.lls)[1])
         
         plot(input.seg.lls[row.index,], pch=21,
-             main=paste("FS", row.index, ", Nr. top segments: ", max.idx, sep=""), col=cs.col,
+             main=paste("FS", row.index, ", Nr. top segments: ", length(max.idx), sep=""), col=cs.col,
              ylab = 'Segment ll', xlab = 'Genome Segment')
         abline(v=max.idx, col="red")
       }
@@ -453,6 +453,7 @@ initialize_fs_results <- function(input.pp, input.data.list, guide.efficiency,
   fs.result.lists$fs_placement_ll <- 0 # the ll of placing a FS as this location and nowhere else (max ll of segment ll)
   fs.result.lists$fs_placement_raw_ll <- 0
   fs.result.lists$fs_total_ll <- 0 # the total ll of all the FS placement on all the segments
+  fs.result.lists$segment_lls <- c()
   
   return(fs.result.lists)
 }
@@ -583,10 +584,10 @@ run_RELICS_3 <- function(input.data, final.layer.nr, out.dir = NULL,
         print('Maximum number of FS found.')
         if(auto.stop){
           record_fs_results(fs.result.lists, analysis.parameters, input.data, i - 1, relics.hyper, hyper.components, '_final')
+          break()
         } else {
           record_fs_results(fs.result.lists, analysis.parameters, input.data, i - 1, relics.hyper, hyper.components, '_recommendedFinal')
         }
-        break()
       }
     }
     
@@ -816,7 +817,7 @@ relics_estimate_FS_ll <- function(input.posteriors, hyper, data, known.reg,
                                fs.prior) {
   
   posteriors <- input.posteriors
-  segment.lls <- c()
+  segment.lls <- fs.result.lists$segment_lls
   
   n.sgrna <- length(guide.to.seg.lst)
   n.region <- length(seg.to.guide.lst)
@@ -830,6 +831,7 @@ relics_estimate_FS_ll <- function(input.posteriors, hyper, data, known.reg,
     fs.placement.ll <- fs.placement.ll[1]
     fs.total.ll <- fs.total.ll[1]
     fs.placement.raw.ll <- fs.placement.raw.ll[1]
+    segment.lls <- c()
   }
   
   # set posteriors for all rows to be computed to 0
