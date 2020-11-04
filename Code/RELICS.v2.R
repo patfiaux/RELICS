@@ -652,7 +652,7 @@ run_RELICS_3 <- function(input.data, final.layer.nr, out.dir = NULL,
 #' @export compute_model_lls()
 
 compute_model_lls <- function(input.pp, input.data.list, guide.efficiency, dirichlet.hyper, 
-                              fix.hypers, fs.results.list){
+                              fix.hypers, fs.results.list, fs.prior){
   
   pps <- colSums(input.pp)
   dirichlet.guide.ll <- compute_perGuide_fs_ll(pps, input.data.list$guide_to_seg_lst)
@@ -668,6 +668,7 @@ compute_model_lls <- function(input.pp, input.data.list, guide.efficiency, diric
     temp.dirichlet.ll <- sum(temp.sgRNa.ll$total_guide_ll)
     temp.total.model.ll <- temp.total.model.ll + temp.dirichlet.ll
   }
+  temp.total.model.ll <- temp.total.model.ll + dnorm(nrow(input.pp) - 1, mean = fs.prior$mean, sd = fs.prior$sd, log = T)
   total.model.ll <- c(total.model.ll, temp.total.model.ll)
   
   fs.idx <- nrow(input.pp)
@@ -680,14 +681,14 @@ compute_model_lls <- function(input.pp, input.data.list, guide.efficiency, diric
     model.fs.ll <- c() #model.fs.ll[1]
   }
   
-  for(f in fs.idx:nrow(input.pp)){
+  for(fs in fs.idx:nrow(input.pp)){
     temp.pp <- input.pp
-    temp.pp[f,] <- 0
+    temp.pp[fs,] <- 0
     temp.pp.sum <- colSums(temp.pp)
     temp.pp.sum[temp.pp.sum > 1] <- 1
     condit.guide.ll <- compute_perGuide_fs_ll(temp.pp.sum, input.data.list$guide_to_seg_lst)
     
-    temp.guide.model.pp <- colSums(input.pp[1:f,, drop = F])
+    temp.guide.model.pp <- colSums(input.pp[1:fs,, drop = F])
     model.fs.guide.ll <- compute_perGuide_fs_ll(temp.guide.model.pp, input.data.list$guide_to_seg_lst)
     
     temp.cond.fs.ll <- 0
@@ -709,8 +710,8 @@ compute_model_lls <- function(input.pp, input.data.list, guide.efficiency, diric
       temp.model.fs.ll <- temp.model.fs.ll + sum(temp.sgRNA.model.ll$total_guide_ll)
     }
     
-    conditional.fs.ll <- c(conditional.fs.ll, temp.cond.fs.ll - temp.total.model.ll) 
-    model.fs.ll <- c(model.fs.ll, temp.model.fs.ll)
+    conditional.fs.ll <- c(conditional.fs.ll, temp.cond.fs.ll - temp.total.model.ll + dnorm(fs, mean = fs.prior$mean, sd = fs.prior$sd, log = T) ) 
+    model.fs.ll <- c(model.fs.ll, temp.model.fs.ll + dnorm(fs, mean = fs.prior$mean, sd = fs.prior$sd, log = T))
   }
   
   out.list <- list(total_model_ll = total.model.ll,
@@ -773,7 +774,7 @@ relics_compute_FS_ll_placement <- function(input.param,
   
   dirichlet.model.lls <- compute_model_lls(fs.model.list$posteriors, input.data.list, 
                                            guide.efficiency, dirichlet.hyper, fix.hypers, 
-                                           fs.result.lists)
+                                           fs.result.lists, fs.prior)
   
   out.list <- list(posteriors = fs.model.list$posteriors,
                    total_model_ll = dirichlet.model.lls$total_model_ll,
@@ -967,7 +968,7 @@ estimate_fs_AoE_pp_ll <- function(hyper, in.data.list, in.data.totals, guide.to.
       
       temp.nonGuide.ll <- sum(sg.ll.list[[repl]][temp.nonGuide.idx,1])
       
-      temp.segment.ll <- temp.segment.ll + sum(temp.guide.ll) + temp.nonGuide.ll + log(dgeom(1, geom.p) / geom.norm.factr) + ll.of.placement
+      temp.segment.ll <- temp.segment.ll + sum(temp.guide.ll) + temp.nonGuide.ll + log(dgeom(1, geom.p) / geom.norm.factr) #+ ll.of.placement
     }
     segment.ll.list[[seg]] <- temp.segment.ll
     total.ll <- addlogs(total.ll, temp.segment.ll)
@@ -1001,7 +1002,7 @@ estimate_fs_AoE_pp_ll <- function(hyper, in.data.list, in.data.totals, guide.to.
           
           temp.nonGuide.ll <- sum(sg.ll.list[[repl]][temp.nonGuide.idx,1])
           
-          temp.stretch.ll <- temp.stretch.ll + sum(temp.guide.ll) + temp.nonGuide.ll + log(dgeom(1 + ns, geom.p) / geom.norm.factr) + ll.of.placement
+          temp.stretch.ll <- temp.stretch.ll + sum(temp.guide.ll) + temp.nonGuide.ll + log(dgeom(1 + ns, geom.p) / geom.norm.factr) #+ ll.of.placement
           
         }
         
@@ -1071,7 +1072,7 @@ estimate_fs_pp_ll <- function(seg.to.guide.lst, next.guide.lst, nr.segs = 10, ge
     for(repl in 1:length(sg.ll.list)){ 
       temp.guide.ll <- sum(sg.ll.list[[repl]][temp.guide.idx,2])
       temp.nonGuide.ll <- sum(sg.ll.list[[repl]][temp.nonGuide.idx,1])
-      temp.segment.ll <- temp.segment.ll + temp.guide.ll + temp.nonGuide.ll + log(dgeom(1, geom.p) / geom.norm.factr) + ll.of.placement
+      temp.segment.ll <- temp.segment.ll + temp.guide.ll + temp.nonGuide.ll + log(dgeom(1, geom.p) / geom.norm.factr) #+ ll.of.placement
     }
     segment.ll.list[[seg]] <- temp.segment.ll
     total.ll <- addlogs(total.ll, temp.segment.ll)
@@ -1095,7 +1096,7 @@ estimate_fs_pp_ll <- function(seg.to.guide.lst, next.guide.lst, nr.segs = 10, ge
           temp.nonGuide.ll <- sum(sg.ll.list[[repl]][temp.nonGuide.idx,1])
           
           # likelihood of this continous stretch of bins to contain a regulatory element
-          temp.stretch.ll <- temp.stretch.ll + temp.guide.ll + temp.nonGuide.ll + log(dgeom(1 + ns, geom.p) / geom.norm.factr) + ll.of.placement
+          temp.stretch.ll <- temp.stretch.ll + temp.guide.ll + temp.nonGuide.ll + log(dgeom(1 + ns, geom.p) / geom.norm.factr) #+ ll.of.placement
           
         }
         
