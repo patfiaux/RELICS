@@ -310,22 +310,10 @@ run_RELICS_4 <- function(input.data, final.layer.nr, out.dir = NULL,
       
     }
     
-    if(i > 1){
+    if(i == final.layer.nr){
       
-      # To Do! Overlaps with PP is now allowed, so what is current stopping criteria?
-      # calculate some cutoff criteria to determine when to stop...
-      # criteria 1: placement of optimal FS back to FS0
-      # placements.finished <- is_placement_complete(fs.data$posteriors)
-      # 
-      # if(placements.finished){
-      #   print('Maximum number of FS found.')
-      #   if(auto.stop){
-      #     record_fs_results_w_priors(fs.result.lists, analysis.parameters, input.data, i - 1, relics.hyper, hyper.components, '_final')
-      #     break()
-      #   } else {
-      #     record_fs_results_w_priors(fs.result.lists, analysis.parameters, input.data, i - 1, relics.hyper, hyper.components, '_recommendedFinal')
-      #   }
-      # }
+      compute_final_priors(fs.data, analysis.parameters, input.data, i, relics.hyper, hyper.components, '')
+      
     }
     
     # update the results
@@ -375,7 +363,108 @@ run_RELICS_4 <- function(input.data, final.layer.nr, out.dir = NULL,
       }
     }
   }
+  
 }
+
+
+#' @title Compute the final weighted pp matrix based on optimal model priors
+#' @param input.pars: nb parameters (mu, size)
+#' @param input.pp: pp matrix
+#' @param data.setup: list containing the counts and guide to seg list
+#' @param input.alphas: list, RELICS hyperparameters, alpha0 and alpha1, each list of df, one for each repl
+#' @param max.mu: upper limit to mu
+#' @param max.size: upper limit to size
+#' @return optimal parameters
+#' @export optimize_priors()
+
+optimize_priors <- function(input.pars, input.pp, input.alphas, data.setup, max.mu = 50, max.size = 100){
+  
+  nr.fs <- nrow(input.pp)
+  nb.mu <- min(input.pars[1]^2, max.mu)
+  nb.size <- min(input.pars[2]^2, max.size)
+  
+  temp.priors <- dnbinom(0:nr.fs, mu = nb.mu, size = nb.size)
+
+  pp.mtx <- matrix(0, ncol = ncol(input.pp), nrow = nrow(input.pp))
+  norm.weigth <- temp.priors[1:nrow(input.pp)] / sum(temp.priors[1:nrow(input.pp)])
+  for(fs in 1:nrow(input.pp)){
+    pp.mtx[fs,] <- input.pp[fs,] * sum(norm.weigth[fs:length(norm.weigth)])
+  }
+  
+  comb.pp <- colSums(pp.mtx)
+  comb.pp[comb.pp > 1] <- 1
+  temp.guide.ll <- compute_perGuide_fs_ll(comb.pp, data.setup$guide_to_seg_lst)
+  
+  temp.total.model.ll <- 0
+  
+  for(i in 1:length(data.setup$data)){
+    temp.hypers <- list(alpha0 = input.alphas$alpha0[[i]], alpha1 = input.alphas$alpha1[[i]])
+    temp.sgRNa.ll <- estimate_relics_sgrna_log_like(temp.hypers,
+                                                    data.setup$data[[i]],
+                                                    temp.guide.ll,
+                                                    data.setup$guide_efficiency)
+    temp.dirichlet.ll <- sum(temp.sgRNa.ll$total_guide_ll)
+    temp.total.model.ll <- temp.total.model.ll + temp.dirichlet.ll
+  }
+  
+  - temp.total.model.ll
+}
+
+
+#' @title Compute the final weighted pp matrix based on optimal model priors
+#' @param input.results.list: lest, each element keeps track of results from a number of FS identified
+#' @param analysis.parameters: list containing all the analysis parameters
+#' @param input.data: list containing the counts
+#' @param relics.hyper: list, RELICS hyperparameters, alpha0 and alpha1, each list of df, one for each repl
+#' @param hyper.components: hyperpparameter components (alpha0 and alpha1 proportions and dispersions)
+#' @param file.extension: extension for files, either '', '_final', or '_recommendedFinal'
+#' @param fs.iter: current FS interation
+#' @return list with updated input.results.list
+#' @export compute_final_priors()
+
+compute_final_priors <- function(input.results.list, analysis.parameters, input.data, fs.iter, relics.hyper, hyper.components, file.extension){
+  
+  out.dir <- paste0(analysis.parameters$out_dir, '/', analysis.parameters$dataName)
+  nb.pars <- c(sqrt(5), sqrt(30))
+  
+  pp.df <- input.results.list$posteriors
+  nb.optim.res <- optim(nb.pars, optimize_priors,
+                     input.pp = pp.df, 
+                     input.alphas = relics.hyper, 
+                     data.setup = input.data,
+                     max.mu = analysis.parameters$max_mu, 
+                     max.size = analysis.parameters$max_size)
+
+  final.pp.mtx <- matrix(0, ncol = ncol(pp.df), nrow = nrow(pp.df))
+  final.priors <- dnbinom(0:nrow(pp.df), mu = min(nb.optim.res$par[1]^2, 50), size = min(nb.optim.res$par[2]^2, 100) )
+  
+  norm.weigth <- final.priors[1:nrow(pp.df)] / sum(final.priors[1:nrow(pp.df)])
+  for(fs in 1:nrow(pp.df)){
+    final.pp.mtx[fs,] <- pp.df[fs,] * sum(norm.weigth[fs:length(norm.weigth)])
+  }
+
+  write.table(final.pp.mtx, file = paste0(out.dir, file.extension, '_k', fs.iter,'_pp_w_optim_priors.csv'), row.names = F, col.names = F, sep = ',')
+  
+  to.bg.list <- list()
+  final.comb.pp <- colSums(final.pp.mtx)
+  final.comb.pp[which(final.comb.pp > 1)] <- 1
+  to.bg.list$pp_w_optim_priors <- input.data$seg_info
+  to.bg.list$pp_w_optim_priors$score <- final.comb.pp
+  
+  create_bedgraphs(to.bg.list, paste0(out.dir, file.extension, '_k', fs.iter) )
+  
+  out.nb.pars <- data.frame(mu = nb.optim.res$par[1]^2,
+                            size = nb.optim.res$par[2]^2,
+                            max_mu = analysis.parameters$max_mu,
+                            max_size = analysis.parameters$max_size, 
+                            optim_ll = -nb.optim.res$value,
+                            model_ll = input.results.list$total_model_ll[length(input.results.list$total_model_ll)],
+                            stringsAsFactors = F)
+  
+  write.csv(out.nb.pars, file = paste0(out.dir, file.extension, '_k', fs.iter, '_nb_optim_priors.csv'), row.names = F)
+
+}
+
 
 
 #' @title initialize the results list
@@ -520,6 +609,9 @@ record_fs_results_w_priors <- function(input.results.list, analysis.parameters, 
   hyperparameter_recording(list(bkg_hyper = hyper.components$bkg_alpha, fs_hyper = hyper.components$FS_alpha, bkg_disp = hyper.components$bkg_dispersion), 
                            fs.iter, hyper.components, analysis.parameters, file.extension)
   
+  write.table(record.posteriors, file = paste0(out.dir, file.extension, '_k', fs.iter,'_pp.csv'), row.names = F, col.names = F, sep = ',')
+  write.table(input.results.list$posteriors_w_priors, file = paste0(out.dir, file.extension, '_k', fs.iter,'_pp_w_priors.csv'), row.names = F, col.names = F, sep = ',')
+  
   # record the segments with FS probabilities above the threshold.
   all.seg.fs.df.final <- extract_fs_locations(record.posteriors, input.data$seg_info, analysis.parameters$min_fs_pp)
   write.table(all.seg.fs.df.final, file = paste0(out.dir, file.extension, '_k', fs.iter,'_FS_locations.bed'),
@@ -542,7 +634,7 @@ record_fs_results_w_priors <- function(input.results.list, analysis.parameters, 
   
   # guide efficiency vars:
   if(! is.null(input.data$fixed_ge_coeff) && ! input.data$fixed_ge_coeff){
-    record.ge.coeff <- input.results.list$ge_coeff#[[fs.iter]]
+    record.ge.coeff <- input.data$ge_coeff#[[fs.iter]]
     ge.coff.df <- data.frame(ge_coeff = c('beta0', paste0('beta', 1:ncol(input.data$guide_efficiency_scores))),
                              ge_coeff_scores = round(record.ge.coeff, 3))
     write.csv(ge.coff.df, file = paste0(out.dir, file.extension, '_k', fs.iter, '_ge_coeff.csv'), row.names = F)
@@ -649,7 +741,27 @@ relics_compute_FS_placement_w_priors <- function(input.param,
   dirichlet.hyper <- input.hyper
   posteriors <- input.param$delta.pp
   
-  fs.model.list <- relics_estimate_FS_w_priors(posteriors,
+  # out.list <- list(posteriors = posteriors,
+  #                  fs_placement_ll = fs.placement.ll,
+  #                  fs_total_ll = fs.total.ll,
+  #                  fs_placement_raw_ll = fs.placement.raw.ll,
+  #                  segment_lls = segment.lls)
+  # 
+  # return(out.list)
+  
+  # fs.model.list <- relics_estimate_FS_w_priors(posteriors,
+  #                                        dirichlet.hyper,
+  #                                        input.data.list$data,
+  #                                        input.data.list$true_pos_seg,
+  #                                        input.data.list$guide_to_seg_lst,
+  #                                        input.data.list$seg_to_guide_lst,
+  #                                        input.data.list$next_guide_lst,
+  #                                        nr.segs, geom.p, guide.efficiency,
+  #                                        local.max, local.max.range, area.of.effect,
+  #                                        guide.dist.to.seg, fix.hypers,
+  #                                        fs.result.lists, fs.prior)
+  
+  fs.model.list <- relics_estimate_FS_ll(posteriors,
                                          dirichlet.hyper,
                                          input.data.list$data,
                                          input.data.list$true_pos_seg,
@@ -991,6 +1103,8 @@ record_fs_results <- function(input.results.list, analysis.parameters, input.dat
   hyperparameter_recording(list(bkg_hyper = hyper.components$bkg_alpha, fs_hyper = hyper.components$FS_alpha, bkg_disp = hyper.components$bkg_dispersion), 
                            fs.iter, hyper.components, analysis.parameters, file.extension)
   
+  write.table(record.posteriors, file = paste0(out.dir, file.extension, '_k', fs.iter,'_pp.csv'), row.names = F, col.names = F, sep = ',')
+  
   # record the segments with FS probabilities above the threshold.
   all.seg.fs.df.final <- extract_fs_locations(record.posteriors, input.data$seg_info, analysis.parameters$min_fs_pp)
   write.table(all.seg.fs.df.final, file = paste0(out.dir, file.extension, '_k', fs.iter,'_FS_locations.bed'),
@@ -1010,7 +1124,7 @@ record_fs_results <- function(input.results.list, analysis.parameters, input.dat
 
   # guide efficiency vars:
   if(! is.null(input.data$fixed_ge_coeff) && ! input.data$fixed_ge_coeff){
-    record.ge.coeff <- input.results.list$ge_coeff#[[fs.iter]]
+    record.ge.coeff <- input.data$ge_coeff#[[fs.iter]]
     ge.coff.df <- data.frame(ge_coeff = c('beta0', paste0('beta', 1:ncol(input.data$guide_efficiency_scores))),
                              ge_coeff_scores = round(record.ge.coeff, 3))
     write.csv(ge.coff.df, file = paste0(out.dir, file.extension, '_k', fs.iter, '_ge_coeff.csv'), row.names = F)
@@ -1030,6 +1144,30 @@ record_fs_results <- function(input.results.list, analysis.parameters, input.dat
   
   # currently not recording effect sizes
   # effect_size_recording(input.results.list, input.data, analysis.parameters, hyper.components, file.extension, fs.iter)
+  
+  # write.table(input.results.list$posteriors_w_priors, file = paste0(out.dir, file.extension, '_k', fs.iter,'_pp_w_priors.csv'), row.names = F, col.names = F, sep = ',')
+  # 
+  # all.seg.fs.w.priors.df.final <- extract_fs_w_prior_locations(input.results.list$posteriors_w_priors, input.data$seg_info, analysis.parameters$min_fs_pp)
+  # write.table(all.seg.fs.w.priors.df.final, file = paste0(out.dir, file.extension, '_k', fs.iter,'_FS_w_priors_locations.bed'),
+  #             sep = '\t', quote = F, row.names = F, col.names = F)
+  # 
+  # # guide efficiency vars:
+  # if(! is.null(input.data$fixed_ge_coeff) && ! input.data$fixed_ge_coeff){
+  #   record.ge.coeff <- input.data$ge_coeff#[[fs.iter]]
+  #   ge.coff.df <- data.frame(ge_coeff = c('beta0', paste0('beta', 1:ncol(input.data$guide_efficiency_scores))),
+  #                            ge_coeff_scores = round(record.ge.coeff, 3))
+  #   write.csv(ge.coff.df, file = paste0(out.dir, file.extension, '_k', fs.iter, '_ge_coeff.csv'), row.names = F)
+  # }
+  # 
+  # to.bg.list <- list()
+  # 
+  # total.posteriors.w.priors <- colSums(input.results.list$posteriors_w_priors)
+  # total.posteriors.w.priors[which(total.posteriors.w.priors > 1)] <- 1
+  # to.bg.list$pp_w_priors <- input.data$seg_info
+  # to.bg.list$pp_w_priors$score <- total.posteriors.w.priors
+  # 
+  # create_bedgraphs(to.bg.list, paste0(out.dir, file.extension, '_k', fs.iter) )
+  
 }
 
 
@@ -1451,8 +1589,8 @@ relics_compute_FS_ll_placement <- function(input.param,
                                         guide.dist.to.seg, fix.hypers,
                                         fs.result.lists, fs.prior)
   
-  dirichlet.model.lls <- compute_model_lls(fs.model.list$posteriors, input.data.list, 
-                                           guide.efficiency, dirichlet.hyper, fix.hypers, 
+  dirichlet.model.lls <- compute_model_lls(fs.model.list$posteriors, input.data.list,
+                                           guide.efficiency, dirichlet.hyper, fix.hypers,
                                            fs.result.lists, fs.prior)
   
   out.list <- list(posteriors = fs.model.list$posteriors,
@@ -1518,7 +1656,7 @@ relics_estimate_FS_ll <- function(input.posteriors, hyper, data, known.reg,
   posteriors[k.idx:(hyper$L+1),] <- rep(0, n.region)
   
   for(l in k.idx:(hyper$L+1)) {
-    ll.of.placement <- dnorm(l, mean = fs.prior$mean, sd = fs.prior$sd, log = T)
+    ll.of.placement <- 1 #dnorm(l, mean = fs.prior$mean, sd = fs.prior$sd, log = T)
     
     # sum posteriors from other rows
     pp <- colSums(posteriors)
@@ -2011,6 +2149,12 @@ check_parameter_list <- function(input.parameter.list, data.file.split, RELICS_3
   # set default to TRUE. But if not background is provided, then switch to false
   out.parameter.list$background_label_specified <- TRUE
   
+  if(! 'max_mu' %in% par.given){
+    out.parameter.list$max_mu <- 50
+  }
+  if(! 'max_size' %in% par.given){
+    out.parameter.list$max_size <- 100
+  }
   if(! 'record_posteriors_w_priors' %in% par.given){
     out.parameter.list$record_posteriors_w_priors <- FALSE
   }
@@ -2286,8 +2430,13 @@ read_analysis_parameters <- function(parameter.file.loc){
   for(parameter in raw.parameters){
 
     parameter.id <- strsplit(parameter,':')[[1]][1]
-    
-    
+
+    if('max_mu' == parameter.id){
+      out.parameter.list$max_mu <- as.numeric(strsplit(parameter,':')[[1]][2])
+    }
+    if('max_size' == parameter.id){
+      out.parameter.list$max_size <- as.numeric(strsplit(parameter,':')[[1]][2])
+    }
     if('record_posteriors' == parameter.id){
       out.parameter.list$record_posteriors <- as.logical(strsplit(parameter,':')[[1]][2])
     }
@@ -4592,6 +4741,9 @@ recompute_ge_coefficients <- function(param, hyper.components, data, guide.seg.i
 
   } else {
     warning("estimation of hyperparameters failed to converge")
+    out.list <- list()
+    out.list$guide_efficiency <- guide.efficiency.scores
+    out.list$ge_coeff <- ge.coeff
   }
 
   return(out.list)
