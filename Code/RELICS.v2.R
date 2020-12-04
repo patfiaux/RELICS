@@ -93,9 +93,68 @@ compute_hyperparameters <- function(analysis.parameters, data.setup){
   analysis.parameters$hyper_par_components <- fs0.alphas$hyper_par_components
   analysis.parameters$init_model_ll <- fs0.alphas$init_model_ll
   
+  # if 'intermediate' signal selected:
+  if(analysis.parameters$hyper_adj < 1){
+    record_orig_fs0_alphas(fs0.alphas$orig_hyper_par_components, analysis.parameters, analysis.parameters$pool_names) # record just the fs.alphas
+  }
+  
   return(analysis.parameters)
 }
 
+
+#' @title Record the original hyperparameters 
+#' @param input.fs0.list: list of FS0 hyperparameters
+#' @param analysis.parameters: list of all analysis paramters
+#' @param pool.names: names of the different pools
+#' @return list of final per-layer posteriors
+#' @export record_orig_fs0_alphas()
+
+record_orig_fs0_alphas <- function(input.fs0.list, analysis.parameters, pool.names){
+  
+  out.dir <- paste0(analysis.parameters$out_dir, '/', analysis.parameters$dataName, '_orig_FS0_hyperPars.csv')
+  
+  out.alpha.df <- c()
+  
+  total.rows <- length(input.fs0.list)
+  total.cols <- max(c( unlist(lapply(input.fs0.list, function(x){length(x) + 1}))))
+  
+  alpha.names <- c(paste(rep('FS', length(input.fs0.list)), 'r', c(1:length(input.fs0.list)), sep = '_'))
+  
+  alpha.matrix <- matrix(0, nrow = total.rows, ncol = total.cols)
+
+  if(! is.null(pool.names)){
+    temp.pool.names <- unique(unlist(pool.names))
+    
+    for(i in 1:length(input.fs0.list)){
+      alpha1.scores <- rep(0, length(length(temp.pool.names)))
+      
+      temp.fs.alpha <- c(1,input.fs0.list[[i]]) / sum(c(1, input.fs0.list[[i]]))
+      
+      alpha1.scores[match(pool.names[[i]], temp.pool.names)] <- round(temp.fs.alpha, 3)
+      
+      alpha.matrix[i,] <- alpha1.scores
+
+      out.alpha.df <- cbind(alpha.names, alpha.matrix)
+      
+      colnames(out.alpha.df) <- c('hyperPar_type', temp.pool.names)
+      
+    }
+    
+  } else {
+    
+    for(i in 1:length(input.fs0.list)){
+      temp.fs0.alpha <- c(1,input.fs0.list[[i]]) / sum(c(1, input.fs0.list[[i]]))
+      alpha.matrix[i, c(1:length(temp.fs0.alpha))] <- round(temp.fs0.alpha, 3)
+    }
+    
+    out.alpha.df <- cbind(alpha.names, alpha.matrix)
+    
+    colnames(out.alpha.df) <- c('hyperPar_type', paste0('pool', c(1:(nrow(out.alpha.df) - 2))))
+  }
+  
+  write.csv(out.alpha.df, file = out.dir, row.names = F, quote = F)
+
+}
 
 
 #' @title RELICS 2.0 analysis function. Uses IBSS to return a set of functional sequences FS for CRISPR regulatory screens
@@ -3187,6 +3246,12 @@ estimate_fs_AoE_pp_ll <- function(hyper, in.data.list, in.data.totals, guide.to.
   geom.norm.factr <- pgeom(nr.segs, geom.p)
   
   total.ll <- log(0)
+  null.model.ll.list <- list()
+  for(repl in 1:length(sg.ll.list)){
+    repl.guide.null <- sum(sg.ll.list[[repl]][seg.to.guide.lst[[1]]$guide_idx,1])
+    repl.non.guide.null <- sum(sg.ll.list[[repl]][seg.to.guide.lst[[1]]$nonGuide_idx,1])
+    null.model.ll.list[[repl]] <- repl.guide.null + repl.non.guide.null
+  }
   fs.length <- 1
   
   # make an initial pass with one-segment length RE placements
@@ -3209,7 +3274,13 @@ estimate_fs_AoE_pp_ll <- function(hyper, in.data.list, in.data.totals, guide.to.
       
       temp.nonGuide.ll <- sum(sg.ll.list[[repl]][temp.nonGuide.idx,1])
       
-      temp.segment.ll <- temp.segment.ll + sum(temp.guide.ll) + temp.nonGuide.ll + log(dgeom(1, geom.p) / geom.norm.factr) #+ ll.of.placement
+      if(sum(temp.guide.ll) + temp.nonGuide.ll < null.model.ll.list[[repl]]){
+        temp.segment.ll <- temp.segment.ll + null.model.ll.list[[repl]] + log(dgeom(1, geom.p) / geom.norm.factr)
+      } else {
+        temp.segment.ll <- temp.segment.ll + sum(temp.guide.ll) + temp.nonGuide.ll + log(dgeom(1, geom.p) / geom.norm.factr)
+      }
+      # temp.segment.ll <- temp.segment.ll + sum(temp.guide.ll) + temp.nonGuide.ll #+ log(dgeom(1, geom.p) / geom.norm.factr) #+ ll.of.placement
+      
     }
     segment.ll.list[[seg]] <- temp.segment.ll
     total.ll <- addlogs(total.ll, temp.segment.ll)
@@ -3243,7 +3314,13 @@ estimate_fs_AoE_pp_ll <- function(hyper, in.data.list, in.data.totals, guide.to.
           
           temp.nonGuide.ll <- sum(sg.ll.list[[repl]][temp.nonGuide.idx,1])
           
-          temp.stretch.ll <- temp.stretch.ll + sum(temp.guide.ll) + temp.nonGuide.ll + log(dgeom(1 + ns, geom.p) / geom.norm.factr) #+ ll.of.placement
+          if(sum(temp.guide.ll) + temp.nonGuide.ll < null.model.ll.list[[repl]]){
+            temp.stretch.ll <- temp.stretch.ll + null.model.ll.list[[repl]] + log(dgeom(1, geom.p) / geom.norm.factr)
+          } else {
+            temp.stretch.ll <- temp.stretch.ll + sum(temp.guide.ll) + temp.nonGuide.ll + log(dgeom(1, geom.p) / geom.norm.factr)
+          }
+          # likelihood of this continuous stretch of bins to contain a regulatory element
+          # temp.stretch.ll <- temp.stretch.ll + sum(temp.guide.ll) + temp.nonGuide.ll + log(dgeom(1 + ns, geom.p) / geom.norm.factr) #+ ll.of.placement
           
         }
         
@@ -3305,6 +3382,12 @@ estimate_fs_pp_ll <- function(seg.to.guide.lst, next.guide.lst, nr.segs = 10, ge
   geom.norm.factr <- pgeom(nr.segs, geom.p)
   
   total.ll <- log(0)
+  null.model.ll.list <- list()
+  for(repl in 1:length(sg.ll.list)){
+    repl.guide.null <- sum(sg.ll.list[[repl]][seg.to.guide.lst[[1]]$guide_idx,1])
+    repl.non.guide.null <- sum(sg.ll.list[[repl]][seg.to.guide.lst[[1]]$nonGuide_idx,1])
+    null.model.ll.list[[repl]] <- repl.guide.null + repl.non.guide.null
+  }
   
   # make an initial pass with one-segment length RE placements
   for(seg in 1:total.segs){
@@ -3315,7 +3398,13 @@ estimate_fs_pp_ll <- function(seg.to.guide.lst, next.guide.lst, nr.segs = 10, ge
     for(repl in 1:length(sg.ll.list)){ 
       temp.guide.ll <- sum(sg.ll.list[[repl]][temp.guide.idx,2])
       temp.nonGuide.ll <- sum(sg.ll.list[[repl]][temp.nonGuide.idx,1])
-      temp.segment.ll <- temp.segment.ll + temp.guide.ll + temp.nonGuide.ll + log(dgeom(1, geom.p) / geom.norm.factr) #+ ll.of.placement
+      if(temp.guide.ll + temp.nonGuide.ll < null.model.ll.list[[repl]]){
+        temp.segment.ll <- temp.segment.ll + null.model.ll.list[[repl]] + log(dgeom(1, geom.p) / geom.norm.factr)
+      } else {
+        temp.segment.ll <- temp.segment.ll + temp.guide.ll + temp.nonGuide.ll + log(dgeom(1, geom.p) / geom.norm.factr)
+      }
+      # temp.segment.ll <- temp.segment.ll + temp.guide.ll + temp.nonGuide.ll #+ log(dgeom(1, geom.p) / geom.norm.factr) #+ ll.of.placement
+      
     }
     segment.ll.list[[seg]] <- temp.segment.ll
     total.ll <- addlogs(total.ll, temp.segment.ll)
@@ -3337,10 +3426,14 @@ estimate_fs_pp_ll <- function(seg.to.guide.lst, next.guide.lst, nr.segs = 10, ge
         for(repl in 1:length(sg.ll.list)){
           temp.guide.ll <- sum(sg.ll.list[[repl]][temp.guide.idx,2])
           temp.nonGuide.ll <- sum(sg.ll.list[[repl]][temp.nonGuide.idx,1])
-          
+          if(temp.guide.ll + temp.nonGuide.ll < null.model.ll.list[[repl]]){
+            temp.stretch.ll <- temp.stretch.ll + null.model.ll.list[[repl]] + log(dgeom(1, geom.p) / geom.norm.factr)
+          } else {
+            temp.stretch.ll <- temp.stretch.ll + temp.guide.ll + temp.nonGuide.ll + log(dgeom(1, geom.p) / geom.norm.factr)
+          }
           # likelihood of this continous stretch of bins to contain a regulatory element
-          temp.stretch.ll <- temp.stretch.ll + temp.guide.ll + temp.nonGuide.ll + log(dgeom(1 + ns, geom.p) / geom.norm.factr) #+ ll.of.placement
-          
+          # temp.stretch.ll <- temp.stretch.ll + temp.guide.ll + temp.nonGuide.ll + log(dgeom(1 + ns, geom.p) / geom.norm.factr) #+ ll.of.placement
+
         }
         
         total.ll <- addlogs(total.ll, temp.stretch.ll)
@@ -3577,6 +3670,9 @@ check_parameter_list <- function(input.parameter.list, data.file.split, RELICS_3
   # set default to TRUE. But if not background is provided, then switch to false
   out.parameter.list$background_label_specified <- TRUE
   
+  if(! 'hyper_adj' %in% par.given){
+    out.parameter.list$hyper_adj <- 1
+  }
   out.parameter.list$cs_params <- list()
   if(! 'min_cs_sum' %in% par.given){
     out.parameter.list$cs_params$min_cs_sum <- 0.01
@@ -3890,6 +3986,9 @@ read_analysis_parameters <- function(parameter.file.loc){
 
     parameter.id <- strsplit(parameter,':')[[1]][1]
     
+    if('hyper_adj' == parameter.id){
+      out.parameter.list$hyper_adj <- as.numeric(strsplit(parameter,':')[[1]][2])
+    }
     if('min_cs_sum' == parameter.id){
       out.parameter.list$min_cs_sum <- as.numeric(strsplit(parameter,':')[[1]][2])
     }
@@ -4807,6 +4906,8 @@ estimate_dirichlet_proportions <- function(data.par.list, analysis.par.list, inp
   final.alpha$alpha0 <- list()
   final.alpha$alpha1 <- list()
   
+  orig.fs.par <- list()
+  
   model.ll <- 0
   
   for(i in 1:length(data.par.list$data)){
@@ -4831,11 +4932,19 @@ estimate_dirichlet_proportions <- function(data.par.list, analysis.par.list, inp
                            repl.disp = temp.repl.disp,
                            model.disp = analysis.par.list$model_dispersion)
     
-    temp.bkg.alpha <- c(1, temp.res.drch$par[temp.bkg.idx]**2) / sum(c(1, temp.res.drch$par[temp.bkg.idx]**2))
-    temp.fs.alpha <- c(1, temp.res.drch$par[temp.fs.idx]**2) / sum(c(1, temp.res.drch$par[temp.fs.idx]**2))
+    bkg.par <- temp.res.drch$par[temp.bkg.idx]**2
+    fs.par <- temp.res.drch$par[temp.fs.idx]**2
+    orig.fs.par[[i]] <- fs.par
+
+    if(analysis.par.list$hyper_adj < 1){
+      fs.par <- adjust_hypers(bkg.par, fs.par, analysis.par.list$hyper_adj)
+    }
     
-    final.dirichlet.pars$bkg_alpha[[i]] <- temp.res.drch$par[temp.bkg.idx]**2
-    final.dirichlet.pars$FS_alpha[[i]] <- temp.res.drch$par[temp.fs.idx]**2
+    temp.bkg.alpha <- c(1, bkg.par) / sum(c(1, bkg.par))
+    temp.fs.alpha <- c(1, fs.par) / sum(c(1, fs.par))
+    
+    final.dirichlet.pars$bkg_alpha[[i]] <- bkg.par
+    final.dirichlet.pars$FS_alpha[[i]] <- fs.par
     final.dirichlet.pars$dispersion[[i]] <- temp.repl.disp
     
     temp.hyper <- reparameterize_hypers(temp.bkg.alpha, temp.fs.alpha, temp.repl.disp, data.par.list$guide_efficiency, analysis.par.list$model_dispersion)
@@ -4851,8 +4960,30 @@ estimate_dirichlet_proportions <- function(data.par.list, analysis.par.list, inp
 
   out.list <- list(hyper_pars = final.alpha,
                    hyper_par_components = final.dirichlet.pars,
-                   init_model_ll = model.ll)
+                   init_model_ll = model.ll,
+                   orig_hyper_par_components = orig.fs.par)
   return(out.list)
+}
+
+
+#' @title adjust the hyper parameters to detect elements which are only part of the strength of the original signal
+#' @param input.bkg: background hyperparameter
+#' @param input.fs: fs hyperparameter
+#' @param prct.adj: by what percent the hyperparameters is similar to FS0 (at 0.9 the FS0 signal is at 0.9*FS0)
+#' @return adjusted FS hyperparameter
+#' @export adjust_hypers()
+
+adjust_hypers <- function(input.bkg, input.fs, prct.adj){
+  
+  fs.adj.out <- c()
+  bkg.prop <- c(1, input.bkg) / sum(c(1, input.bkg))
+  fs.prop <- c(1, input.fs) / sum(c(1, input.fs))
+  
+  fs.prop.adj <- (bkg.prop - fs.prop) * (1-prct.adj) + fs.prop
+  
+  fs.adj.out <- (fs.prop.adj / fs.prop.adj[1])[2:length(fs.prop.adj)]
+  
+  return(fs.adj.out)
 }
 
 
@@ -4973,6 +5104,8 @@ estimate_hyper_parameters <- function(data.par.list, analysis.par.list, input.re
   final.alpha$alpha0 <- list()
   final.alpha$alpha1 <- list()
   
+  orig.fs.par <- list()
+  
   model.ll <- 0
 
   for(i in 1:length(data.par.list$data)){
@@ -5003,12 +5136,20 @@ estimate_hyper_parameters <- function(data.par.list, analysis.par.list, input.re
                            mean.var.type = analysis.par.list$mean_var_type,
                            model.disp = analysis.par.list$model_dispersion)
     
-    temp.bkg.alpha <- c(1, temp.res.drch$par[temp.bkg.idx]**2) / sum(c(1, temp.res.drch$par[temp.bkg.idx]**2))
-    temp.fs.alpha <- c(1, temp.res.drch$par[temp.fs.idx]**2) / sum(c(1, temp.res.drch$par[temp.fs.idx]**2))
+    bkg.par <- temp.res.drch$par[temp.bkg.idx]**2
+    fs.par <- temp.res.drch$par[temp.fs.idx]**2
+    orig.fs.par[[i]] <- fs.par
+    
+    if(analysis.par.list$hyper_adj < 1){
+      fs.par <- adjust_hypers(bkg.par, fs.par, analysis.par.list$hyper_adj)
+    }
+    
+    temp.bkg.alpha <- c(1, bkg.par) / sum(c(1, bkg.par))
+    temp.fs.alpha <- c(1, fs.par) / sum(c(1, fs.par))
     temp.bkg.disp <- temp.res.drch$par[temp.disp.idx]
     
-    final.dirichlet.pars$bkg_alpha[[i]] <- temp.res.drch$par[temp.bkg.idx]**2
-    final.dirichlet.pars$FS_alpha[[i]] <- temp.res.drch$par[temp.fs.idx]**2
+    final.dirichlet.pars$bkg_alpha[[i]] <- bkg.par
+    final.dirichlet.pars$FS_alpha[[i]] <- fs.par
     final.dirichlet.pars$bkg_dispersion[[i]] <- temp.bkg.disp
     
     if(analysis.par.list$mean_var_type == 'independent'){
@@ -5028,7 +5169,8 @@ estimate_hyper_parameters <- function(data.par.list, analysis.par.list, input.re
 
   out.list <- list(hyper_pars = final.alpha,
                    hyper_par_components = final.dirichlet.pars,
-                   init_model_ll = model.ll)
+                   init_model_ll = model.ll,
+                   orig_hyper_par_components = orig.fs.par)
   return(out.list)
 }
 
