@@ -1703,7 +1703,7 @@ run_RELICS_4 <- function(input.data, final.layer.nr, out.dir = NULL,
     # fs.data already contains the most recent additions
     if(record.all.fs){
       
-      record_fs_results_w_deltas(fs.data, analysis.parameters, input.data, i, relics.hyper, hyper.components, '')
+      record_fs_results_w_priors(fs.data, analysis.parameters, input.data, i, relics.hyper, hyper.components, '')
       
     }
     
@@ -2434,7 +2434,7 @@ relics_estimate_FS_w_priors <- function(input.posteriors, hyper, data, known.reg
                                            seg.to.guide.lst, next.guide.lst, nr.segs, geom.p, 
                                            sgrna.log.like.list, seg.adjust = 0, 
                                            total.segs = length(seg.to.guide.lst),
-                                           guide.dist.to.seg, ll.of.placement)
+                                           guide.dist.to.seg, ll.of.placement, pp)
       fs.pps <- fs.pps.list$seg_pp
       fs.lls <- fs.pps.list$segment_lls
       fs.total.lls <- fs.pps.list$total_ll
@@ -2442,7 +2442,7 @@ relics_estimate_FS_w_priors <- function(input.posteriors, hyper, data, known.reg
     } else {
       fs.pps.list <- estimate_fs_pp_ll(seg.to.guide.lst, next.guide.lst, 
                                        nr.segs, geom.p, sgrna.log.like.list,
-                                       ll.of.placement)
+                                       ll.of.placement, pp)
       fs.pps <- fs.pps.list$seg_pp
       fs.lls <- fs.pps.list$segment_lls
       fs.total.lls <- fs.pps.list$total_ll
@@ -3175,7 +3175,7 @@ relics_estimate_FS_ll <- function(input.posteriors, hyper, data, known.reg,
                                       seg.to.guide.lst, next.guide.lst, nr.segs, geom.p, 
                                       sgrna.log.like.list, seg.adjust = 0, 
                                       total.segs = length(seg.to.guide.lst),
-                                      guide.dist.to.seg, ll.of.placement)
+                                      guide.dist.to.seg, ll.of.placement, pp)
       fs.pps <- fs.pps.list$seg_pp
       fs.lls <- fs.pps.list$segment_lls
       fs.total.lls <- fs.pps.list$total_ll
@@ -3183,7 +3183,7 @@ relics_estimate_FS_ll <- function(input.posteriors, hyper, data, known.reg,
     } else {
       fs.pps.list <- estimate_fs_pp_ll(seg.to.guide.lst, next.guide.lst, 
                                   nr.segs, geom.p, sgrna.log.like.list,
-                                  ll.of.placement)
+                                  ll.of.placement, pp)
       fs.pps <- fs.pps.list$seg_pp
       fs.lls <- fs.pps.list$segment_lls
       fs.total.lls <- fs.pps.list$total_ll
@@ -3236,7 +3236,7 @@ relics_estimate_FS_ll <- function(input.posteriors, hyper, data, known.reg,
 estimate_fs_AoE_pp_ll <- function(hyper, in.data.list, in.data.totals, guide.to.seg.lst,
                                seg.to.guide.lst, next.guide.lst, nr.segs = 10, geom.p = 0.1,
                                sg.ll.list, seg.adjust = 0, total.segs, guide.dist.to.seg,
-                               ll.of.placement) {
+                               ll.of.placement, input.pp) {
   
   # set up a list, the length of the number of segments
   # each element contains a vector, which contains the ll of that segment being overlapped by a regulatory element
@@ -3274,7 +3274,9 @@ estimate_fs_AoE_pp_ll <- function(hyper, in.data.list, in.data.totals, guide.to.
       
       temp.nonGuide.ll <- sum(sg.ll.list[[repl]][temp.nonGuide.idx,1])
       
-      if(sum(temp.guide.ll) + temp.nonGuide.ll < null.model.ll.list[[repl]]){
+      if(input.pp[seg] == 1){
+        temp.segment.ll <- temp.segment.ll + null.model.ll.list[[repl]] + log(dgeom(1, geom.p) / geom.norm.factr)
+      } else if(sum(temp.guide.ll) + temp.nonGuide.ll < null.model.ll.list[[repl]]){
         temp.segment.ll <- temp.segment.ll + null.model.ll.list[[repl]] + log(dgeom(1, geom.p) / geom.norm.factr)
       } else {
         temp.segment.ll <- temp.segment.ll + sum(temp.guide.ll) + temp.nonGuide.ll + log(dgeom(1, geom.p) / geom.norm.factr)
@@ -3314,7 +3316,9 @@ estimate_fs_AoE_pp_ll <- function(hyper, in.data.list, in.data.totals, guide.to.
           
           temp.nonGuide.ll <- sum(sg.ll.list[[repl]][temp.nonGuide.idx,1])
           
-          if(sum(temp.guide.ll) + temp.nonGuide.ll < null.model.ll.list[[repl]]){
+          if(1 %in% input.pp[temp.stretch.segs]){
+            temp.stretch.ll <- temp.stretch.ll + null.model.ll.list[[repl]] + log(dgeom(1, geom.p) / geom.norm.factr)
+          } else if(sum(temp.guide.ll) + temp.nonGuide.ll < null.model.ll.list[[repl]]){
             temp.stretch.ll <- temp.stretch.ll + null.model.ll.list[[repl]] + log(dgeom(1, geom.p) / geom.norm.factr)
           } else {
             temp.stretch.ll <- temp.stretch.ll + sum(temp.guide.ll) + temp.nonGuide.ll + log(dgeom(1, geom.p) / geom.norm.factr)
@@ -3371,7 +3375,7 @@ estimate_fs_AoE_pp_ll <- function(hyper, in.data.list, in.data.totals, guide.to.
 #' @return log likelihood for each segment
 #' @export estimate_fs_pp_ll()
 
-estimate_fs_pp_ll <- function(seg.to.guide.lst, next.guide.lst, nr.segs = 10, geom.p = 0.1, sg.ll.list, ll.of.placement) {
+estimate_fs_pp_ll <- function(seg.to.guide.lst, next.guide.lst, nr.segs = 10, geom.p = 0.1, sg.ll.list, ll.of.placement, input.pp) {
   
   # set up a list, the length of the number of segments
   # each element contains a vector, which contains the ll of that segment being overlapped by a regulatory element
@@ -3398,7 +3402,9 @@ estimate_fs_pp_ll <- function(seg.to.guide.lst, next.guide.lst, nr.segs = 10, ge
     for(repl in 1:length(sg.ll.list)){ 
       temp.guide.ll <- sum(sg.ll.list[[repl]][temp.guide.idx,2])
       temp.nonGuide.ll <- sum(sg.ll.list[[repl]][temp.nonGuide.idx,1])
-      if(temp.guide.ll + temp.nonGuide.ll < null.model.ll.list[[repl]]){
+      if(input.pp[seg] == 1){
+        temp.segment.ll <- temp.segment.ll + null.model.ll.list[[repl]] + log(dgeom(1, geom.p) / geom.norm.factr)
+      } else if(temp.guide.ll + temp.nonGuide.ll < null.model.ll.list[[repl]]){
         temp.segment.ll <- temp.segment.ll + null.model.ll.list[[repl]] + log(dgeom(1, geom.p) / geom.norm.factr)
       } else {
         temp.segment.ll <- temp.segment.ll + temp.guide.ll + temp.nonGuide.ll + log(dgeom(1, geom.p) / geom.norm.factr)
@@ -3426,7 +3432,9 @@ estimate_fs_pp_ll <- function(seg.to.guide.lst, next.guide.lst, nr.segs = 10, ge
         for(repl in 1:length(sg.ll.list)){
           temp.guide.ll <- sum(sg.ll.list[[repl]][temp.guide.idx,2])
           temp.nonGuide.ll <- sum(sg.ll.list[[repl]][temp.nonGuide.idx,1])
-          if(temp.guide.ll + temp.nonGuide.ll < null.model.ll.list[[repl]]){
+          if(1 %in% input.pp[temp.stretch.segs]){
+            temp.stretch.ll <- temp.stretch.ll + null.model.ll.list[[repl]] + log(dgeom(1, geom.p) / geom.norm.factr)
+          } else if(temp.guide.ll + temp.nonGuide.ll < null.model.ll.list[[repl]]){
             temp.stretch.ll <- temp.stretch.ll + null.model.ll.list[[repl]] + log(dgeom(1, geom.p) / geom.norm.factr)
           } else {
             temp.stretch.ll <- temp.stretch.ll + temp.guide.ll + temp.nonGuide.ll + log(dgeom(1, geom.p) / geom.norm.factr)
