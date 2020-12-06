@@ -1065,84 +1065,94 @@ relics_estimate_FS_CS_optimFSplacement <- function(input.posteriors, hyper, data
   fs.placement.raw.ll <- c(fs.result.lists$fs_placement_raw_ll, 0)
   fs.total.ll <- c(fs.result.lists$fs_total_ll, 0)
   
-  delta.conv <- FALSE
-  conv.counter <- 1
-  
-  while(! delta.conv & conv.counter < 10){
-    
-    new.delta.mtx <- delta.mtx
-    for(fs in 2:nrow(new.delta.mtx)){
-      ll.of.placement <- c() 
-      temp.delta.mtx <- new.delta.mtx
-      temp.delta.mtx[fs, ] <- 0
-      fs.config <- colSums(temp.delta.mtx)
-
-      # Compute the ll for each RE length for both replicates, combine the lls and then add to the ll total
-      # set up the data structues as lists to access the different replicates
-      layer.guide.ll <- compute_perGuide_fs_ll(fs.config, guide.to.seg.lst) # processed.pp
-      sgrna.log.like.list <- list()
-      data.mat.list <- list()
-      data.total.list <- list()
-      
-      for(repl in 1:length(data)){
-        temp.hypers <- list(alpha0 = hyper$alpha0[[repl]], alpha1 = hyper$alpha1[[repl]])
-        temp.data <- data[[repl]]
-        temp.data.counts <- temp.data[, c(1:(ncol(temp.data) - 1))]
-        temp.data.totals <- temp.data[, ncol(temp.data)]
-        
-        data.mat.list[[repl]] <- temp.data.counts
-        data.total.list[[repl]] <- temp.data.totals
-        
-        temp.sgrna.log.like <- estimate_relics_sgrna_log_like(temp.hypers, temp.data, layer.guide.ll, guide.efficiency)
-        sgrna.log.like.list[[repl]] <- temp.sgrna.log.like
-        
-      }
-      
-      fs.pps <- c()
-      if(area.of.effect == 'normal'){
-        # to Do!
-        fs.pps.list <- estimate_fs_AoE_pp_norm_ll(hyper, data.mat.list, data.total.list, guide.to.seg.lst,
-                                                  seg.to.guide.lst, next.guide.lst, nr.segs, geom.p, 
-                                                  sgrna.log.like.list, seg.adjust = 0, 
-                                                  total.segs = length(seg.to.guide.lst),
-                                                  guide.dist.to.seg, ll.of.placement)
-        fs.pps <- fs.pps.list$seg_pp
-        fs.lls <- fs.pps.list$segment_lls
-        fs.total.lls <- fs.pps.list$total_ll
-        raw.seg.ll <- fs.pps.list$raw_segment_lls
-      } else {
-        fs.pps.list <- estimate_fs_pp_norm_ll(seg.to.guide.lst, next.guide.lst, 
-                                              nr.segs, geom.p, sgrna.log.like.list,
-                                              ll.of.placement)
-        fs.pps <- fs.pps.list$seg_pp
-        fs.lls <- fs.pps.list$segment_lls
-        fs.total.lls <- fs.pps.list$total_ll
-        raw.seg.ll <- fs.pps.list$raw_segment_lls
-      }
-      
-      max.fs.pps.idx <- which(fs.pps == max(fs.pps)[1])
-      fs.lls.max <- fs.lls[max.fs.pps.idx][1]
-      fs.placement.ll[fs] <- fs.lls.max
-      
-      fs.placement.raw.ll[fs] <- raw.seg.ll[max.fs.pps.idx][1]
-      
-      posteriors[fs, ] <- fs.pps
-      
-      fs.total.ll[fs] <- fs.total.lls
-      
-      segment.lls[fs-1,] <- fs.lls
-      
-      # compute CS
-      fs.delta.idx <- compute_CS_from_pp(fs.pps, cs.params)
-      new.delta.mtx[fs, fs.delta.idx] <- 1
-    }
-    
-    if(sum(new.delta.mtx - delta.mtx) == 0){
-      delta.conv <- TRUE
-    } else {
-      delta.mtx <- new.delta.mtx
-    }
+  k.idx <- nrow(posteriors)
+  if(! fix.hypers){
+    k.idx <- 2
+    fs.placement.ll <- fs.placement.ll[1]
+    fs.total.ll <- fs.total.ll[1]
+    fs.placement.raw.ll <- fs.placement.raw.ll[1]
+    segment.lls <- matrix(0, ncol = ncol(delta.mtx), nrow = nrow(posteriors)-1)
   }
+  
+  # delta.conv <- FALSE
+  # conv.counter <- 1
+  # 
+  # while(! delta.conv & conv.counter < 10){
+    
+  new.delta.mtx <- delta.mtx
+  for(fs in k.idx:nrow(new.delta.mtx)){
+    ll.of.placement <- c() 
+    temp.delta.mtx <- new.delta.mtx
+    temp.delta.mtx[fs, ] <- 0
+    fs.config <- colSums(temp.delta.mtx)
+
+    # Compute the ll for each RE length for both replicates, combine the lls and then add to the ll total
+    # set up the data structues as lists to access the different replicates
+    layer.guide.ll <- compute_perGuide_fs_ll(fs.config, guide.to.seg.lst) # processed.pp
+    sgrna.log.like.list <- list()
+    data.mat.list <- list()
+    data.total.list <- list()
+    
+    for(repl in 1:length(data)){
+      temp.hypers <- list(alpha0 = hyper$alpha0[[repl]], alpha1 = hyper$alpha1[[repl]])
+      temp.data <- data[[repl]]
+      temp.data.counts <- temp.data[, c(1:(ncol(temp.data) - 1))]
+      temp.data.totals <- temp.data[, ncol(temp.data)]
+      
+      data.mat.list[[repl]] <- temp.data.counts
+      data.total.list[[repl]] <- temp.data.totals
+      
+      temp.sgrna.log.like <- estimate_relics_sgrna_log_like(temp.hypers, temp.data, layer.guide.ll, guide.efficiency)
+      sgrna.log.like.list[[repl]] <- temp.sgrna.log.like
+      
+    }
+    
+    fs.pps <- c()
+    if(area.of.effect == 'normal'){
+      # to Do!
+      fs.pps.list <- estimate_fs_AoE_pp_norm_ll(hyper, data.mat.list, data.total.list, guide.to.seg.lst,
+                                                seg.to.guide.lst, next.guide.lst, nr.segs, geom.p, 
+                                                sgrna.log.like.list, seg.adjust = 0, 
+                                                total.segs = length(seg.to.guide.lst),
+                                                guide.dist.to.seg, ll.of.placement, fs.config)
+      fs.pps <- fs.pps.list$seg_pp
+      fs.lls <- fs.pps.list$segment_lls
+      fs.total.lls <- fs.pps.list$total_ll
+      raw.seg.ll <- fs.pps.list$raw_segment_lls
+    } else {
+      fs.pps.list <- estimate_fs_pp_norm_ll(seg.to.guide.lst, next.guide.lst, 
+                                            nr.segs, geom.p, sgrna.log.like.list,
+                                            ll.of.placement, fs.config)
+      fs.pps <- fs.pps.list$seg_pp
+      fs.lls <- fs.pps.list$segment_lls
+      fs.total.lls <- fs.pps.list$total_ll
+      raw.seg.ll <- fs.pps.list$raw_segment_lls
+    }
+    
+    max.fs.pps.idx <- which(fs.pps == max(fs.pps)[1])
+    fs.lls.max <- fs.lls[max.fs.pps.idx][1]
+    fs.placement.ll[fs] <- fs.lls.max
+    
+    fs.placement.raw.ll[fs] <- raw.seg.ll[max.fs.pps.idx][1]
+    
+    posteriors[fs, ] <- fs.pps
+    
+    fs.total.ll[fs] <- fs.total.lls
+    
+    segment.lls[fs-1,] <- fs.lls
+    
+    # compute CS
+    fs.delta.idx <- compute_CS_from_pp(fs.pps, cs.params)
+    new.delta.mtx[fs, fs.delta.idx] <- 1
+  }
+  
+  delta.mtx <- new.delta.mtx
+  # if(sum(new.delta.mtx - delta.mtx) == 0){
+  #   delta.conv <- TRUE
+  # } else {
+  #   delta.mtx <- new.delta.mtx
+  # }
+  # }
 
   out.list <- list(posteriors = posteriors,
                    deltas = delta.mtx,
@@ -1247,7 +1257,7 @@ relics_estimate_FS_CS <- function(input.posteriors, hyper, data, known.reg,
                                            seg.to.guide.lst, next.guide.lst, nr.segs, geom.p, 
                                            sgrna.log.like.list, seg.adjust = 0, 
                                            total.segs = length(seg.to.guide.lst),
-                                           guide.dist.to.seg, ll.of.placement)
+                                           guide.dist.to.seg, ll.of.placement, fs.config)
       fs.pps <- fs.pps.list$seg_pp
       fs.lls <- fs.pps.list$segment_lls
       fs.total.lls <- fs.pps.list$total_ll
@@ -1255,7 +1265,7 @@ relics_estimate_FS_CS <- function(input.posteriors, hyper, data, known.reg,
     } else {
       fs.pps.list <- estimate_fs_pp_norm_ll(seg.to.guide.lst, next.guide.lst, 
                                        nr.segs, geom.p, sgrna.log.like.list,
-                                       ll.of.placement)
+                                       ll.of.placement, fs.config)
       fs.pps <- fs.pps.list$seg_pp
       fs.lls <- fs.pps.list$segment_lls
       fs.total.lls <- fs.pps.list$total_ll
@@ -1310,7 +1320,7 @@ relics_estimate_FS_CS <- function(input.posteriors, hyper, data, known.reg,
 estimate_fs_AoE_pp_norm_ll <- function(hyper, in.data.list, in.data.totals, guide.to.seg.lst,
                                   seg.to.guide.lst, next.guide.lst, nr.segs = 10, geom.p = 0.1,
                                   sg.ll.list, seg.adjust = 0, total.segs, guide.dist.to.seg,
-                                  ll.of.placement) {
+                                  ll.of.placement, fs.config) {
   
   # set up a list, the length of the number of segments
   # each element contains a vector, which contains the ll of that segment being overlapped by a regulatory element
@@ -1349,7 +1359,9 @@ estimate_fs_AoE_pp_norm_ll <- function(hyper, in.data.list, in.data.totals, guid
       
       temp.nonGuide.ll <- sum(sg.ll.list[[repl]][temp.nonGuide.idx,1])
       
-      if(sum(temp.guide.ll) + temp.nonGuide.ll < null.model.ll.list[[repl]]){
+      if(fs.config[seg] == 1){
+        temp.segment.ll <- temp.segment.ll + null.model.ll.list[[repl]] + log(dgeom(1, geom.p) / geom.norm.factr)
+      } else if(sum(temp.guide.ll) + temp.nonGuide.ll < null.model.ll.list[[repl]]){
         temp.segment.ll <- temp.segment.ll + null.model.ll.list[[repl]] + log(dgeom(1, geom.p) / geom.norm.factr)
       } else {
         temp.segment.ll <- temp.segment.ll + sum(temp.guide.ll) + temp.nonGuide.ll + log(dgeom(1, geom.p) / geom.norm.factr)
@@ -1388,7 +1400,9 @@ estimate_fs_AoE_pp_norm_ll <- function(hyper, in.data.list, in.data.totals, guid
           
           temp.nonGuide.ll <- sum(sg.ll.list[[repl]][temp.nonGuide.idx,1])
           
-          if(sum(temp.guide.ll) + temp.nonGuide.ll < null.model.ll.list[[repl]]){
+          if(1 %in% fs.config[temp.stretch.segs]){
+            temp.stretch.ll <- temp.stretch.ll + null.model.ll.list[[repl]] + log(dgeom(1, geom.p) / geom.norm.factr)
+          } else if(sum(temp.guide.ll) + temp.nonGuide.ll < null.model.ll.list[[repl]]){
             temp.stretch.ll <- temp.stretch.ll + null.model.ll.list[[repl]] + log(dgeom(1, geom.p) / geom.norm.factr)
           } else {
             temp.stretch.ll <- temp.stretch.ll + sum(temp.guide.ll) + temp.nonGuide.ll + log(dgeom(1, geom.p) / geom.norm.factr)
@@ -1433,20 +1447,37 @@ estimate_fs_AoE_pp_norm_ll <- function(hyper, in.data.list, in.data.totals, guid
 }
 
 
-
-#' @title Compute the credible set from the PP to update the delat matrix
-#' @param hyper: list, hyperparameters
-#' @param in.data.list: list, each element contains a replicate, the total column has already been removed
-#' @param in.data.totals: list, each element contains the per-guide totals for a replicate
-#' @param seg.to.guide.lst: list, each element is a segment, contains a list with guide_idx, nonGuide_idx
-#' @param next.guide.lst: list that contains the index of $next_guide_idx and next_nonGuide_idx
-#' @param nr.segs: max number of segemnts that can be combined
-#' @param geom.p: probability of the geometic distribution used to calculate the probability of there being x segments in the regulatory element
-#' @param sg.ll.list: list, each element is a data frame per.guide log likelihood given the posteriors for a replicate and alt. ll (total_guide_ll, alt_only_ll)
-#' @return log likelihood for each segment
+#' @title Compute the credible set from the PP to update the delta matrix.
+#' @param input.pp: vector of pp
+#' @param cs.params: list, $cs_sw_size
+#' @return index of optimal CS
 #' @export compute_CS_from_pp()
 
 compute_CS_from_pp <- function(input.pp, cs.params){
+  
+  top.dow.cs.idx <- compute_CS_from_pp_topDown(input.pp, cs.params)
+  
+  if(cs.params$compute_sw_pp){
+    sw.cs.idx <- compute_CS_from_pp_SW(input.pp, cs.params)
+    
+    if(sum(input.pp[top.dow.cs.idx]) > sum(input.pp[sw.cs.idx])){
+      return(top.dow.cs.idx)
+    } else {
+      return(sw.cs.idx)
+    }
+  } else {
+    return(top.dow.cs.idx)
+  }
+}
+
+
+#' @title Compute the credible set from the PP to update the delat matrix
+#' @param input.pp: vector of pp
+#' @param cs.params: list, $min_cs_pp, $cs_threshold, $max_cs_seg, $cs_type, $min_cs_sum
+#' @return index of optimal CS
+#' @export compute_CS_from_pp_topDown()
+
+compute_CS_from_pp_topDown <- function(input.pp, cs.params){
   
   median.pp <- median(input.pp)
   
@@ -1510,6 +1541,39 @@ compute_CS_from_pp <- function(input.pp, cs.params){
 }
 
 
+#' @title Compute the credible set from the PP to update the delata matrix. Use a sliding window to determine optimal CS idx
+#' @param input.pp: vector of pp
+#' @param cs.params: list, $cs_sw_size
+#' @return index of optimal CS
+#' @export compute_CS_from_pp_SW()
+
+compute_CS_from_pp_SW <- function(input.pp, cs.params){
+  
+  window.size <- cs.params$cs_sw_size
+  sw.idx.matrix <- matrix(0, ncol = window.size, nrow = length(input.pp) - window.size + 1)
+  sw.pp <- vector('numeric', length = length(input.pp) - window.size + 1)
+  
+  for(i in 1:(length(input.pp) - window.size + 1)){
+    
+    temp.sw.idx <- c(1:window.size) + (i-1)
+    sw.idx.matrix[i,] <- temp.sw.idx
+    sw.pp[i] <- sum(input.pp[temp.sw.idx])
+    
+  }
+  
+  max.sw.pp.idx <- sw.idx.matrix[which(sw.pp == max(sw.pp)[1])[1],]
+  
+  if(sum(input.pp[max.sw.pp.idx]) < cs.params$min_cs_sum){
+    return(NULL)
+  } else {
+    return(max.sw.pp.idx)
+  }
+  
+}
+
+
+
+
 #' @title Compute the log likelihood of each possible configuration of the placement of a fs amonst a set of segments
 #' @param hyper: list, hyperparameters
 #' @param in.data.list: list, each element contains a replicate, the total column has already been removed
@@ -1522,7 +1586,7 @@ compute_CS_from_pp <- function(input.pp, cs.params){
 #' @return log likelihood for each segment
 #' @export estimate_fs_pp_norm_ll()
 
-estimate_fs_pp_norm_ll <- function(seg.to.guide.lst, next.guide.lst, nr.segs = 10, geom.p = 0.1, sg.ll.list, ll.of.placement) {
+estimate_fs_pp_norm_ll <- function(seg.to.guide.lst, next.guide.lst, nr.segs = 10, geom.p = 0.1, sg.ll.list, ll.of.placement, fs.config) {
   
   # set up a list, the length of the number of segments
   # each element contains a vector, which contains the ll of that segment being overlapped by a regulatory element
@@ -1549,7 +1613,9 @@ estimate_fs_pp_norm_ll <- function(seg.to.guide.lst, next.guide.lst, nr.segs = 1
     for(repl in 1:length(sg.ll.list)){ 
       temp.guide.ll <- sum(sg.ll.list[[repl]][temp.guide.idx,2])
       temp.nonGuide.ll <- sum(sg.ll.list[[repl]][temp.nonGuide.idx,1])
-      if(temp.guide.ll + temp.nonGuide.ll < null.model.ll.list[[repl]]){
+      if(fs.config[seg] == 1){
+        temp.segment.ll <- temp.segment.ll + null.model.ll.list[[repl]] + log(dgeom(1, geom.p) / geom.norm.factr)
+      } else if(temp.guide.ll + temp.nonGuide.ll < null.model.ll.list[[repl]]){
         temp.segment.ll <- temp.segment.ll + null.model.ll.list[[repl]] + log(dgeom(1, geom.p) / geom.norm.factr)
       } else {
         temp.segment.ll <- temp.segment.ll + temp.guide.ll + temp.nonGuide.ll + log(dgeom(1, geom.p) / geom.norm.factr)
@@ -1577,7 +1643,9 @@ estimate_fs_pp_norm_ll <- function(seg.to.guide.lst, next.guide.lst, nr.segs = 1
           temp.guide.ll <- sum(sg.ll.list[[repl]][temp.guide.idx,2])
           temp.nonGuide.ll <- sum(sg.ll.list[[repl]][temp.nonGuide.idx,1])
 
-          if(temp.guide.ll + temp.nonGuide.ll < null.model.ll.list[[repl]]){
+          if(1 %in% fs.config[temp.stretch.segs]){
+            temp.stretch.ll <- temp.stretch.ll + null.model.ll.list[[repl]] + log(dgeom(1, geom.p) / geom.norm.factr)
+          } else if(temp.guide.ll + temp.nonGuide.ll < null.model.ll.list[[repl]]){
             temp.stretch.ll <- temp.stretch.ll + null.model.ll.list[[repl]] + log(dgeom(1, geom.p) / geom.norm.factr)
           } else {
             temp.stretch.ll <- temp.stretch.ll + temp.guide.ll + temp.nonGuide.ll + log(dgeom(1, geom.p) / geom.norm.factr)
@@ -3682,6 +3750,16 @@ check_parameter_list <- function(input.parameter.list, data.file.split, RELICS_3
     out.parameter.list$hyper_adj <- 1
   }
   out.parameter.list$cs_params <- list()
+  if(! 'compute_sw_pp' %in% par.given){
+    out.parameter.list$cs_params$compute_sw_pp <- TRUE
+  } else {
+    out.parameter.list$cs_params$compute_sw_pp <- input.parameter.list$compute_sw_pp
+  }
+  if(! 'cs_sw_size' %in% par.given){
+    out.parameter.list$cs_params$cs_sw_size <- 10
+  } else {
+    out.parameter.list$cs_params$cs_sw_size <- input.parameter.list$cs_sw_size
+  }
   if(! 'min_cs_sum' %in% par.given){
     out.parameter.list$cs_params$min_cs_sum <- 0.01
   } else {
@@ -3996,6 +4074,12 @@ read_analysis_parameters <- function(parameter.file.loc){
     
     if('hyper_adj' == parameter.id){
       out.parameter.list$hyper_adj <- as.numeric(strsplit(parameter,':')[[1]][2])
+    }
+    if('compute_sw_pp' == parameter.id){
+      out.parameter.list$compute_sw_pp <- as.logical(strsplit(parameter,':')[[1]][2])
+    }
+    if('cs_sw_size' == parameter.id){
+      out.parameter.list$cs_sw_size <- as.numeric(strsplit(parameter,':')[[1]][2])
     }
     if('min_cs_sum' == parameter.id){
       out.parameter.list$min_cs_sum <- as.numeric(strsplit(parameter,':')[[1]][2])
