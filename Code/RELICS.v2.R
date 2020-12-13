@@ -397,6 +397,10 @@ run_RELICS_6 <- function(input.data, final.layer.nr, out.dir = NULL,
   for(i in 1:final.layer.nr){
     print(paste0('Computing FS: ', i))
     
+    if(i == 11){
+      browser()
+    }
+    
     fs.data <- relics_compute_FS_rel_CS_placement(input.param = relics.param,
                                               input.hyper = relics.hyper,
                                               input.data.list = input.data,
@@ -565,6 +569,8 @@ initialize_fs_results_w_rel_pp <- function(input.delta, input.pp, input.data.lis
   fs.result.lists$conditional_fs_ll <- temp.cond.fs.ll - total.model.ll # (the ll contribution of a single FS conditional on all other FS present) - (the total model ll)
   fs.result.lists$total_model_ll_w_pp <- total.model.ll
   fs.result.lists$conditional_fs_ll_w_pp <- temp.cond.fs.ll - total.model.ll
+  fs.result.lists$total_model_ll_w_rel_pp <- total.model.ll
+  fs.result.lists$conditional_fs_ll_w_rel_pp <- temp.cond.fs.ll - total.model.ll
   fs.result.lists$fs_placement_ll <- 0 # the ll of placing a FS as this location and nowhere else (max ll of segment ll)
   fs.result.lists$fs_placement_raw_ll <- 0
   fs.result.lists$fs_total_ll <- 0 # the total ll of all the FS placement on all the segments
@@ -640,6 +646,8 @@ record_fs_results_w_rel_pp <- function(input.results.list, analysis.parameters, 
                       conditional_fs_ll = c(0, input.results.list$conditional_fs_ll),
                       total_model_ll_w_pp = input.results.list$total_model_ll_w_pp,
                       conditional_fs_ll_w_pp = c(0, input.results.list$conditional_fs_ll_w_pp),
+                      total_model_ll_w_rel_pp = input.results.list$total_model_ll_w_rel_pp,
+                      conditional_fs_ll_w_rel_pp = c(0, input.results.list$conditional_fs_ll_w_rel_pp),
                       fs_placement_ll = input.results.list$fs_placement_ll,
                       fs_placement_raw_ll = input.results.list$fs_placement_raw_ll,
                       fs_total_ll = input.results.list$fs_total_ll,
@@ -689,31 +697,99 @@ plot_fs_ll_stats_w_rel_pp_deltas <- function(out.dir, fs.nr, input.fs.results){
   par(mfrow = c(3,2))
   
   # plot the progression of the total model ll with each FS
-  plot(x = c(0:(length(input.fs.results$total_model_ll) - 1) ), y = input.fs.results$total_model_ll, 
+  plot(x = c(0:(length(input.fs.results$total_model_ll) - 1) ), y = round(input.fs.results$total_model_ll, 2), 
        main = 'Total Model ll progression', xlab = 'Nr. FS', ylab = 'll')
   
   # plot the conditional ll improvement with each FS added
-  plot(x = c(1:length(input.fs.results$conditional_fs_ll)), y = input.fs.results$conditional_fs_ll, 
+  plot(x = c(1:length(input.fs.results$conditional_fs_ll)), y = round(input.fs.results$conditional_fs_ll, 2), 
        main = 'Conditional ll contribution of each FS', xlab = 'Nr. FS', ylab = 'll')
   
   # plot the progression of the total model ll with each FS
-  plot(x = c(0:(length(input.fs.results$total_model_ll_w_pp) - 1) ), y = input.fs.results$total_model_ll_w_pp, 
+  plot(x = c(0:(length(input.fs.results$total_model_ll_w_pp) - 1) ), y = round(input.fs.results$total_model_ll_w_pp, 2), 
        main = 'Total Model ll progression (w/ pp)', xlab = 'Nr. FS', ylab = 'll')
   
   # plot the conditional ll improvement with each FS added
-  plot(x = c(1:length(input.fs.results$conditional_fs_ll_w_pp)), y = input.fs.results$conditional_fs_ll_w_pp, 
+  plot(x = c(1:length(input.fs.results$conditional_fs_ll_w_pp)), y = round(input.fs.results$conditional_fs_ll_w_pp, 2), 
        main = 'Cond. ll contribution of each FS (w/ pp)', xlab = 'Nr. FS', ylab = 'll')
   
   # plot the progression of the total model ll with each FS
-  plot(x = c(0:(length(input.fs.results$total_model_ll_w_pp) - 1) ), y = input.fs.results$total_model_ll_w_rel_pp, 
+  plot(x = c(0:(length(input.fs.results$total_model_ll_w_pp) - 1) ), y = round(input.fs.results$total_model_ll_w_rel_pp, 2), 
        main = 'Total Model ll progression (rel pp)', xlab = 'Nr. FS', ylab = 'll')
   
   # plot the conditional ll improvement with each FS added
-  plot(x = c(1:length(input.fs.results$conditional_fs_ll_w_pp)), y = input.fs.results$conditional_fs_ll_w_rel_pp, 
+  plot(x = c(1:length(input.fs.results$conditional_fs_ll_w_pp)), y = round(input.fs.results$conditional_fs_ll_w_rel_pp, 2), 
        main = 'Cond. ll contribution of each FS (rel pp)', xlab = 'Nr. FS', ylab = 'll')
   
   dev.off()
 }
+
+
+#' @title compute the model lls fit
+#' @param input.pp, matrix of posterior probabilities
+#' @param dirichlet.hyper: hyper parameters
+#' @param input.data.list, list: $guide_to_seg_lst, $data, $true_pos_seg, $overlapMat, $guide_to_seg_lst, $seg_to_guide_lst
+#' @param guide.efficiency: data.frame of guide efficiences. Either vector of guide efficiency or NULL
+#' @param fix.hypers: logical, whether the hyperparameters are fixed
+#' @param input.model.ll: vector of ll for a given model
+#' @return list: total_model_ll, per_fs_ll (the model.ll increase for each FS, taking into account all other FS), model_ll_increase (the step-by-step increase in model ll with each FS)
+#' @export compute_model_ll_fit()
+
+compute_model_ll_fit <- function(input.pp, input.data.list, guide.efficiency, dirichlet.hyper, 
+                                      fix.hypers, input.model.ll){
+  
+  total.model.ll <- input.model.ll
+  
+  # take the sum across all weighted FS placements
+  # compute the model ll
+  combined.pp <- colSums(input.pp)
+  combined.pp[combined.pp > 1] <- 1
+  dirichlet.guide.ll <- compute_perGuide_fs_ll(combined.pp, input.data.list$guide_to_seg_lst)
+  
+  temp.total.model.ll <- 0
+  
+  for(i in 1:length(input.data.list$data)){
+    temp.hypers <- list(alpha0 = dirichlet.hyper$alpha0[[i]], alpha1 = dirichlet.hyper$alpha1[[i]])
+    temp.sgRNa.ll <- estimate_relics_sgrna_log_like(temp.hypers,
+                                                    input.data.list$data[[i]],
+                                                    dirichlet.guide.ll,
+                                                    guide.efficiency)
+    temp.dirichlet.ll <- sum(temp.sgRNa.ll$total_guide_ll)
+    temp.total.model.ll <- temp.total.model.ll + temp.dirichlet.ll
+  }
+  
+  total.model.ll <- c(total.model.ll, temp.total.model.ll)
+  
+  # compute the conditional contribution of each FS to the model (but not FS0)
+  conditional.fs.ll <- c()
+  
+  for(fs in 2:nrow(input.pp)){
+    
+    temp.pp <- input.pp
+    temp.pp[fs,] <- 0
+    temp.pp.sum <- colSums(temp.pp)
+    temp.pp.sum[temp.pp.sum > 1] <- 1
+    condit.guide.ll <- compute_perGuide_fs_ll(temp.pp.sum, input.data.list$guide_to_seg_lst)
+    
+    temp.cond.fs.ll <- 0
+    for(i in 1:length(input.data.list$data)){
+      temp.hypers <- list(alpha0 = dirichlet.hyper$alpha0[[i]], alpha1 = dirichlet.hyper$alpha1[[i]])
+      temp.cond.sgRNa.ll <- estimate_relics_sgrna_log_like(temp.hypers,
+                                                           input.data.list$data[[i]],
+                                                           condit.guide.ll,
+                                                           guide.efficiency)
+      temp.cond.fs.ll <- temp.cond.fs.ll +  sum(temp.cond.sgRNa.ll$total_guide_ll)
+    }
+    
+    conditional.fs.ll <- c(conditional.fs.ll, temp.cond.fs.ll - temp.total.model.ll)
+  }
+  
+  out.list <- list(total_model_ll = total.model.ll,
+                   conditional_fs_ll = conditional.fs.ll)
+  
+  return(out.list)
+  
+}
+
 
 
 #' @title Compute the placement of functional sequences and credible sets while accounting for the prior of adding fs
@@ -769,13 +845,13 @@ relics_compute_FS_rel_CS_placement <- function(input.param,
                                                           fs.result.lists, fs.prior,
                                                           deltas, cs.params, rel.posteriors)
   
-  dirichlet.pp.model.lls <- compute_model_sans_priors(fs.model.list$posteriors, input.data.list, 
+  dirichlet.pp.model.lls <- compute_model_ll_fit(fs.model.list$posteriors, input.data.list, 
                                                       guide.efficiency, dirichlet.hyper, fix.hypers, 
-                                                      fs.result.lists, fs.prior)
+                                                      fs.result.lists$total_model_ll_w_pp)
   
-  dirichlet.rel.pp.model.lls <- compute_model_sans_priors(fs.model.list$rel_posteriors, input.data.list, 
+  dirichlet.rel.pp.model.lls <- compute_model_ll_fit(fs.model.list$rel_posteriors, input.data.list, 
                                                       guide.efficiency, dirichlet.hyper, fix.hypers, 
-                                                      fs.result.lists, fs.prior)
+                                                      fs.result.lists$total_model_ll_w_rel_pp)
   
   dirichlet.delta.model.lls <- compute_model_w_deltas(fs.model.list$deltas, input.data.list, 
                                                       guide.efficiency, dirichlet.hyper, fix.hypers, 
@@ -1004,16 +1080,15 @@ compute_rel_CS_from_pp_SW <- function(input.pp, cs.params){
   max.sw.pp.idx <- idx.range
   max.sw.rel.pp <- input.pp[max.sw.pp.idx] / max.idx.total.pp
   
-  out.list <- list(cs_idx = max.sw.pp.idx,
-                   rel_cs_pp = max.sw.rel.pp,
-                   cs_total_pp = max.sw.pp)
-  
   if(sum(input.pp[max.sw.pp.idx]) < cs.params$min_cs_sum){
     out.list <- list(cs_idx = NULL,
                      rel_cs_pp = 0,
                      cs_total_pp = 0)
-    return(NULL)
+    return(out.list)
   } else {
+    out.list <- list(cs_idx = max.sw.pp.idx,
+                     rel_cs_pp = max.sw.rel.pp,
+                     cs_total_pp = max.sw.pp)
     return(out.list)
   }
   
