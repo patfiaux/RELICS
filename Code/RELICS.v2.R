@@ -212,7 +212,7 @@ RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.
                    iter = 0)
   record_ll_ratio(analysis.parameters$hyper_pars, data.setup, out.pars)
   
-  analysis.parameters <- set_up_fs_priors(analysis.parameters)
+  analysis.parameters <- set_up_fs_priors(analysis.parameters, data.setup)
   
   if(RELICS_7){
     run_RELICS_7(input.data = data.setup,
@@ -375,12 +375,18 @@ set_up_fs_priors <- function(input.params, input.data.setup){
     total.range <- nrow(data.segs) * avg.seg.size
     expected.fs.nr <- round(total.range / 50000)
     out.params$expected_fs_nr <- expected.fs.nr
+    print(paste0("Setting 'expected_fs_nr' to ",out.params$expected_fs_nr) )
   }
   if(! 'max_fs_nr' %in% param.names){
-    out.params$max_fs_nr <- max(3, round(0.3 * out.params$expected_fs_nr))
+    out.params$max_fs_nr <- out.params$expected_fs_nr + max(3, round(0.3 * out.params$expected_fs_nr))
+    print(paste0("Setting 'max_fs_nr' to ",out.params$max_fs_nr) )
+  }
+  if(out.params$expected_fs_nr > out.params$max_fs_nr ){
+    out.params$max_fs_nr <- out.params$expected_fs_nr + 3
+    print(paste0("Adjusting 'max_fs_nr' to ",out.params$max_fs_nr) )
   }
   if(! 'fs_prior' %in% param.names){
-    out.params$fs_prior <- dbinom(c(0:(out.params$max_fs_nr - 1)), 
+    out.params$fs_prior <- dbinom(c(0:(out.params$max_fs_nr)), 
                                   size = out.params$max_fs_nr, 
                                   prob = out.params$expected_fs_nr / out.params$max_fs_nr)
   }
@@ -444,7 +450,7 @@ run_RELICS_7 <- function(input.data, final.layer.nr, out.dir = NULL,
   relics.hyper <- input.hypers #c()
   hyper.components <- input.hyper.components
   
-  relics.param <- init_relics_mtxs_v2(relics.hyper, input.data, local.max, recompute.fs0)
+  relics.param <- initialize_relics_mtxs(relics.hyper, input.data, local.max, recompute.fs0)
   
   coverg.tol <- rep(input.convergence.tol, final.layer.nr)
   
@@ -455,7 +461,7 @@ run_RELICS_7 <- function(input.data, final.layer.nr, out.dir = NULL,
                                                relics.hyper, 
                                                fix.hypers)
   
-  for(i in 1:final.layer.nr){
+  for(i in 1:analysis.parameters$max_fs_nr){
     print(paste0('Computing FS: ', i))
     
     fs.data <- compute_FS_placement(input.param = relics.param,
@@ -504,7 +510,7 @@ run_RELICS_7 <- function(input.data, final.layer.nr, out.dir = NULL,
     relics.hyper$L <- relics.hyper$L + 1
     relics.param$pps <- rbind(fs.result.lists$posteriors, rep(0, ncol(relics.param$pps)))
     relics.param$deltas <- rbind(fs.result.lists$deltas, rep(0, ncol(relics.param$deltas)))
-    relics.param$rel_pps <- rbind(fs.result.lists$rel_posteriors, rep(0, ncol(relics.param$pps)))
+    relics.param$cs_pps <- rbind(fs.result.lists$cs_posteriors, rep(0, ncol(relics.param$pps)))
     
     # if the hyper parameters are reestimated after convergence of the posteriors
     if(! fix.hypers & !iterative.hyper.est){
@@ -547,6 +553,42 @@ run_RELICS_7 <- function(input.data, final.layer.nr, out.dir = NULL,
     }
   }
   
+}
+
+
+#' @title Set initial hyper parameters, generate the fs posterior matrix and delta matrix
+#' @param hyper: hyperparameters
+#' @param in.data.list: list, $seg_info, $fs0_idx
+#' @param local.max: whether local.max is computed
+#' @param recompute.fs0: logical, whether FS0 should be recomputed
+#' @return list
+#' @export initialize_relics_mtxs()
+
+initialize_relics_mtxs <- function(hyper, in.data.list, local.max, recompute.fs0) {
+  param <- list()
+  
+  #  posterior probabilities
+  param$pps <- matrix(0, nrow=hyper$L+1, ncol= nrow(in.data.list$seg_info)) #nrow(in.data.list$overlapMat))
+  
+  # first row is special and contains posterior probs of known regulatory elements
+  param$pps[1, in.data.list$fs0_idx] <- 1
+  
+  param$deltas <- param$pps
+  param$cs_pps <- param$pps
+  
+  param$ll_rt <- list()
+  
+  if(local.max){
+    param$ll_rt <- matrix(0, nrow=hyper$L+1, ncol= nrow(in.data.list$seg_info))
+  }
+  
+  if(recompute.fs0){
+    param$pps[1,] <- 0
+    param$deltas[1,] <- 0
+    param$cs_pps[1,] <- 0
+  }
+  
+  return(param)
 }
 
 
@@ -735,7 +777,10 @@ record_relics_results <- function(input.results.list, analysis.parameters, input
   
   ll_ratio_recording(input.data, analysis.parameters, relics.hyper, fs.iter, file.extension)
   
-  if(! analysis.parameters$fix_hypers){
+  if(fs.iter == 1){
+    hyperparameter_recording(list(bkg_hyper = hyper.components$bkg_alpha, fs_hyper = hyper.components$FS_alpha, bkg_disp = hyper.components$bkg_dispersion), 
+                             fs.iter, hyper.components, analysis.parameters, file.extension) 
+  } else if(! analysis.parameters$fix_hypers){
     hyperparameter_recording(list(bkg_hyper = hyper.components$bkg_alpha, fs_hyper = hyper.components$FS_alpha, bkg_disp = hyper.components$bkg_dispersion), 
                              fs.iter, hyper.components, analysis.parameters, file.extension) 
   }
@@ -786,10 +831,10 @@ record_relics_results <- function(input.results.list, analysis.parameters, input
               sep = '\t', quote = F, row.names = F, col.names = F)
   
   ll.df <- data.frame(FS = c(0:(length(input.results.list$total_model_ll)-1)),
-                      model_ll = input.results.list$total_model_ll_w_prior,
                       fs_ll_contrib = c(0, input.results.list$conditional_fs_ll_w_prior),
-                      raw_model_ll = input.results.list$total_model_ll,
                       raw_fs_ll_contrib = c(0, input.results.list$conditional_fs_ll),
+                      model_ll = input.results.list$total_model_ll_w_prior,
+                      raw_model_ll = input.results.list$total_model_ll,
                       cs_raw_pp = input.results.list$cs_total_pp,
                       stringsAsFactors = F)
   
@@ -819,7 +864,7 @@ initialize_fs_result_list <- function(input.delta, input.pp, input.data.list, gu
   fs.result.lists <- list()
   fs.result.lists$posteriors <- input.pp
   fs.result.lists$deltas <- input.delta
-  fs.result.lists$rel_posteriors <- input.pp
+  fs.result.lists$cs_posteriors <- input.pp
   
   dirichlet.guide.ll <- compute_perGuide_fs_ll(colSums(input.delta), input.data.list$guide_to_seg_lst)
   total.model.ll <- 0
@@ -907,7 +952,7 @@ compute_FS_placement <- function(input.param,
   dirichlet.hyper <- input.hyper
   posteriors <- input.param$pps
   deltas <- input.param$deltas
-  rel.posteriors <- input.param$rel_pps
+  cs.posteriors <- input.param$cs_pps
   
   ################33
   # posteriors
@@ -918,22 +963,21 @@ compute_FS_placement <- function(input.param,
   fs.model.list <- estimate_FS_CS(posteriors,
                                   dirichlet.hyper,
                                   input.data.list$data,
-                                  input.data.list$true_pos_seg,
                                   input.data.list$guide_to_seg_lst,
                                   input.data.list$seg_to_guide_lst,
                                   input.data.list$next_guide_lst,
-                                  nr.segs, geom.p, guide.efficiency,
-                                  local.max, local.max.range, area.of.effect,
+                                  nr.segs, geom.p, guide.efficiency, 
+                                  area.of.effect,
                                   guide.dist.to.seg, fix.hypers,
-                                  fs.result.lists, fs.prior,
-                                  deltas, cs.params, rel.posteriors)
+                                  fs.result.lists,
+                                  deltas, cs.params, cs.posteriors)
   
   # dirichlet.pp.model.lls <- compute_model_ll_fit(fs.model.list$posteriors, input.data.list, 
   #                                                guide.efficiency, dirichlet.hyper, fix.hypers, 
   #                                                fs.result.lists$total_model_ll_w_pp)
   
   model.lls <- compute_model_fit(fs.model.list$cs_posteriors, input.data.list, 
-                                 guide.efficiency, dirichlet.hyper, fix.hypers, 
+                                 guide.efficiency, dirichlet.hyper, 
                                  fs.result.lists$total_model_ll)
   
   # dirichlet.delta.model.lls <- compute_model_w_deltas(fs.model.list$deltas, input.data.list, 
@@ -943,8 +987,9 @@ compute_FS_placement <- function(input.param,
   ordered.fs.list <- order_FS(fs.model.list, model.lls)
   
   model.lls.w.prior <- compute_model_ll_fit_w_priors(ordered.fs.list$cs_posteriors, input.data.list, 
-                                                     guide.efficiency, dirichlet.hyper, fix.hypers, 
+                                                     guide.efficiency, dirichlet.hyper, fs.prior,
                                                      fs.result.lists$total_model_ll_w_prior,
+                                                     ordered.fs.list$deltas,
                                                      fs.ll.signif)
   
   out.list <- list(posteriors = ordered.fs.list$posteriors,
@@ -975,14 +1020,13 @@ compute_FS_placement <- function(input.param,
 #' @param input.data.list, list: $guide_to_seg_lst, $data, $true_pos_seg, $overlapMat, $guide_to_seg_lst, $seg_to_guide_lst
 #' @param guide.efficiency: data.frame of guide efficiences. Either vector of guide efficiency or NULL
 #' @param fix.hypers: logical, whether the hyperparameters are fixed
-#' @param fs.results.list: list, contain at least $total_model_ll, $conditional_fs_ll, $model_fs_ll
 #' @param input.model.ll: vector of ll for a given model
 #' @param fs.ll.signif: chi-square max. value for significance
 #' @return list: total_model_ll, per_fs_ll (the model.ll increase for each FS, taking into account all other FS), model_ll_increase (the step-by-step increase in model ll with each FS)
 #' @export compute_model_ll_fit_w_priors()
 
 compute_model_ll_fit_w_priors <- function(input.pp, input.data.list, guide.efficiency, 
-                                          dirichlet.hyper, fs.results.list, 
+                                          dirichlet.hyper, 
                                           fs.prior, input.model.ll, input.deltas,
                                           fs.ll.signif){
   
@@ -1041,9 +1085,9 @@ compute_model_ll_fit_w_priors <- function(input.pp, input.data.list, guide.effic
   conditional.fs.ll.diff <- diff(conditional.fs.ll)
   
   out.deltas <- input.deltas
-  non.signif.idx <- which(conditional.fs.ll.diff < fs.ll.signif)
+  non.signif.idx <- which(2 * conditional.fs.ll.diff < fs.ll.signif)
   if(length(non.signif.idx) > 0){
-    out.deltas[non.signif.idx,] <- 0
+    out.deltas[non.signif.idx + 1,] <- 0
   }
   
   out.list <- list(total_model_ll_w_prior = total.model.ll,
@@ -1132,16 +1176,16 @@ compute_model_fit <- function(input.pp, input.data.list, guide.efficiency,
 
 order_FS <- function(input.fs.list, input.model.lls){
   
-  fs.order.idx <- order(input.model.lls$conditional_fs_ll[2:length(input.model.lls$conditional_fs_ll)])
+  fs.order.idx <- order(input.model.lls$conditional_fs_ll[1:length(input.model.lls$conditional_fs_ll)], decreasing = T)
   
   ordered.pp <- input.fs.list$posteriors[c(1,fs.order.idx+1),]
   ordered.cs.pp <- input.fs.list$cs_posteriors[c(1,fs.order.idx+1),]
   ordered.delta <- input.fs.list$deltas[c(1,fs.order.idx+1),]
-  ordered.lls <- input.fs.list$segment_lls[c(1,fs.order.idx+1),]
-  ordered.cs.pp <- input.fs.list$cs_total_pp[c(1,fs.order.idx+1)]
+  ordered.lls <- input.fs.list$segment_lls[fs.order.idx,]
+  ordered.cs.pp.total <- input.fs.list$cs_total_pp[c(1,fs.order.idx+1)]
   
-  ordered.model.ll <- input.model.lls$total_model_ll[c(1,fs.order.idx+1)]
-  ordered.model.cond.ll <- input.model.lls$conditional_fs_ll[c(1,fs.order.idx+1)]
+  ordered.model.ll <- input.model.lls$total_model_ll #[c(1,fs.order.idx+1)], don't order this
+  ordered.model.cond.ll <- input.model.lls$conditional_fs_ll[fs.order.idx]
   
   out.list <- list(posteriors = ordered.pp,
                    deltas = ordered.delta,
@@ -1149,29 +1193,23 @@ order_FS <- function(input.fs.list, input.model.lls){
                    total_model_ll = ordered.model.ll,
                    conditional_fs_ll = ordered.model.cond.ll,
                    segment_lls = ordered.lls,
-                   cs_total_pp = ordered.cs.pp)
+                   cs_total_pp = ordered.cs.pp.total)
   
   return(out.list)
   
 }
 
 
-
-
 #' @title use the PP to compute the credible set and place the FS
 #' @param input.posteriors: posterior probabilies of each FS
 #' @param hyper: hyperparameters
-#' @param posteriors: matrix of posterior probabilities
 #' @param data: list, each element is a replicate
-#' @param known.reg: region positions of the known regions
 #' @param guide.to.seg.lst: mapping of guides to segments
 #' @param seg.to.guide.lst: mapping of segments to guides, both $guide_idx, $nonGuide_idx
 #' @param next.guide.lst: list that contains the index of $next_guide_idx and next_nonGuide_idx
 #' @param nr.segs: max number of segemnts that can be combined
 #' @param geom.p: probability of the geometic distribution used to calculate the probability of there being x segments in the regulatory element
 #' @param guide.efficiency: data.frame of guide efficiences. Either vector of guide efficiency or NULL
-#' @param local.max: logical, whether a local maximum should be computed
-#' @param local.max.range: number of segments to include in addition to the the ones with highest PP (one way, so multiply by 2 for total nr of segs)
 #' @param area.of.effect: type of area of effect. Currently either 'normal' or 'uniform'
 #' @param guide.dist.to.seg, list of lists, pre-computed distances of guides to FS
 #' @param fix.hypers, logical, whether the hyperparameters are supposed to be fixed
@@ -1182,11 +1220,11 @@ order_FS <- function(input.fs.list, input.model.lls){
 #' @return log likelihood for each region
 #' @export estimate_FS_CS()
 
-estimate_FS_CS <- function(input.posteriors, hyper, data, known.reg,
+estimate_FS_CS <- function(input.posteriors, hyper, data,
                            guide.to.seg.lst, seg.to.guide.lst,
                            next.guide.lst, nr.segs = 10,
                            geom.p = 0.1, guide.efficiency,
-                           local.max, local.max.range, area.of.effect,
+                           area.of.effect,
                            guide.dist.to.seg, fix.hypers, fs.result.lists,
                            input.delta, cs.params, input.cs.posteriors) {
   
