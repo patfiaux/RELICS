@@ -494,7 +494,7 @@ run_RELICS_7 <- function(input.data, final.layer.nr, out.dir = NULL,
     if(i == final.layer.nr){
       print('Max. FS nr. reached.')
       record_relics_results(fs.data, analysis.parameters, input.data, i, relics.hyper, hyper.components, '_finalFS')
-      if(fs.data$conditional_fs_ll_w_prior[i+1] > analysis.parameters$fs_ll_signif){
+      if(fs.data$conditional_fs_ll_w_prior[i] > analysis.parameters$fs_ll_signif){
         print(paste0('RELICS probably found all FS given the expected number (', analysis.parameters$expected_fs_nr,')'))
       } else {
         print(paste0('Given the expected number (', analysis.parameters$expected_fs_nr,") RELICS might be able to detect more FS.\t 
