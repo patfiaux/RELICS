@@ -11,6 +11,88 @@ suppressMessages(library(gtools)) # for getting all combinations when computing 
 suppressMessages(library(splines)) # enables computing of splines
 
 
+#' @title RELICS 2.0 analysis function. Uses IBSS to return a set of functional sequences FS for CRISPR regulatory screens
+#' @param input.parameter.file: location of file containing all analysis parameters
+#' @param input.parameter.list: RELICS analysis parameters in list format. Default = NULL
+#' @param data.file.split: logical, whether counts are separate from info, default = FALSE
+#' @param record.all.fs: logical, if information of all intermediate FS should be recorded, in addition to the final setof FS
+#' @param return.init.hypers: logical, whether the hyperparamters should be returned after initial computing
+#' @return list of final per-layer posteriors
+#' @export RELICS()
+
+RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.split = FALSE,
+                   record.all.fs = FALSE, return.init.hypers = FALSE){
+
+  analysis.parameters <- read_parameters(input.parameter.list, input.parameter.file, data.file.split)
+
+  data.setup <- set_up_RELICS_data(analysis.parameters, data.file.split,
+                                   guide.offset = analysis.parameters$crisprEffectRange,
+                                   repl_pools = analysis.parameters$repl_groups,
+                                   labelHierarchy = analysis.parameters$labelHierarchy,
+                                   fs0.label = analysis.parameters$FS0_label,
+                                   file.save.dir = paste0(analysis.parameters$out_dir, '/', analysis.parameters$dataName),
+                                   save.files = analysis.parameters$save_input_files,
+                                   min.seg.dist = analysis.parameters$seg_dist)
+
+  
+  
+  # # obtain hyperparameters()
+  analysis.parameters <- compute_hyperparameters(analysis.parameters, data.setup)
+
+  data.setup$fixed_ge_coeff <- analysis.parameters$fixed_ge_coeff
+  # # if guide efficiency scores are provided, calculate guide efficiency and include in the model
+  if(! is.null(data.setup$guide_efficiency_scores)){
+
+    if(! analysis.parameters$fixed_ge_coeff){
+
+      temp.relics.params <- init_relics_param(analysis.parameters$hyper_pars, data.setup, analysis.parameters$local_max, FALSE)
+
+      ge.list <- recompute_ge_coefficients(temp.relics.params,
+                                           analysis.parameters$hyper_par_components, #analysis.parameters$hyper_pars,
+                                           data.setup$data,
+                                           data.setup$guide_to_seg_lst,
+                                           data.setup$guide_efficiency_scores,
+                                           c(0, rep(1, ncol(data.setup$guide_efficiency_scores))))
+
+      data.setup$guide_efficiency <- ge.list$guide_efficiency
+      data.setup$ge_coeff <- ge.list$ge_coeff
+    }
+
+  }
+
+  # plot the per-segment ll-ratio
+  out.pars <- list(out_dir = paste0(analysis.parameters$out_dir, '/', analysis.parameters$dataName),
+                   iter = 0)
+  record_ll_ratio(analysis.parameters$hyper_pars, data.setup, out.pars)
+  
+  analysis.parameters <- set_up_fs_priors(analysis.parameters, data.setup)
+  
+  run_RELICS_7(input.data = data.setup,
+               final.layer.nr = analysis.parameters$min_FS_nr,
+               out.dir = paste0(analysis.parameters$out_dir, '/', analysis.parameters$dataName),
+               input.hypers = analysis.parameters$hyper_pars,
+               input.hyper.components = analysis.parameters$hyper_par_components,
+               fix.hypers = analysis.parameters$fix_hypers,
+               nr.segs = analysis.parameters$nr_segs,
+               geom.p = analysis.parameters$geom_p,
+               fs.correlation.cutoff = analysis.parameters$fs_correlation_cutoff,
+               input.min.rs.pp = analysis.parameters$min_fs_pp,
+               auto.stop = analysis.parameters$auto_stop,
+               record.all.fs = record.all.fs,
+               input.convergence.tol = analysis.parameters$convergence_tol,
+               one.dispersion = analysis.parameters$one_dispersion,
+               recompute.fs0 = analysis.parameters$recompute_fs0,
+               local.max = analysis.parameters$local_max,
+               local.max.range = analysis.parameters$local_max_range,
+               pool.names = analysis.parameters$pool_names,
+               mean.var.type = analysis.parameters$mean_var_type,
+               pp.calculation = analysis.parameters$pp_calculation,
+               analysis.parameters = analysis.parameters,
+               guide.dist.to.seg = data.setup$guide_dist_to_seg)
+  
+}
+
+
 #' @title helper function, manages the reading in of the analysis parameters
 #' @param input.parameter.file: location of file containing all analysis parameters
 #' @param input.parameter.list: RELICS analysis parameters in list format. Default = NULL
@@ -18,17 +100,17 @@ suppressMessages(library(splines)) # enables computing of splines
 #' @return list: all parameters embedded in a list
 #' @export read_parameters()
 
-read_parameters <- function(input.parameter.list, input.parameter.file, data.file.split, RELICS_3 = FALSE, RELICS_4 = FALSE){
+read_parameters <- function(input.parameter.list, input.parameter.file, data.file.split){
   
   analysis.parameters <- list()
   
   if(!is.null(input.parameter.list)){
     print('Using provided parameter list')
-    analysis.parameters <- check_parameter_list(input.parameter.list, data.file.split, RELICS_3, RELICS_4)
+    analysis.parameters <- check_parameter_list(input.parameter.list, data.file.split)
   } else {
     print('Reading in provided parameter file')
     analysis.parameters <- read_analysis_parameters(input.parameter.file)
-    analysis.parameters <- check_parameter_list(analysis.parameters, data.file.split, RELICS_3, RELICS_4)
+    analysis.parameters <- check_parameter_list(analysis.parameters, data.file.split)
   }
   
   # if parameters are missing, then do not run the analysis
@@ -38,6 +120,645 @@ read_parameters <- function(input.parameter.list, input.parameter.file, data.fil
   }
   
   return(analysis.parameters)
+}
+
+
+#' @title given hyper parameters and guide efficiency (optional), report the per-segment ll ratio
+#' @param input.hypers: list: hyper parameters
+#' @param input.data: list: $seg_to_guide_lst, $guide_efficiency_scores (and $guide_efficiency if former not NULL)
+#' @param input.ge: guide efficiency
+#' @param input.seg.to.guide.lst: list: hyper parameters
+#' @return list with parameters for running RELICS or logical FALSE if required parameter is missing
+#' @export record_ll_ratio()
+
+record_ll_ratio <- function(input.hypers, input.data, input.parameters){
+  
+  not.used <- c()
+  guide.efficiency <- NULL
+  if(! is.null(input.data$guide_efficiency_scores)){
+    guide.efficiency <- input.data$guide_efficiency
+  }
+  
+  ll.rt <- vector('numeric', length = length(input.data$seg_to_guide_lst))
+  for(i in 1:length(input.data$data)){
+    temp.data <- input.data$data[[i]]
+    temp.hyper <- list(alpha0 = input.hypers$alpha0[[i]],
+                       alpha1 = input.hypers$alpha1[[i]])
+    
+    guide.model.ll <- estimate_relics_sgrna_log_like(temp.hyper, temp.data, not.used, guide.efficiency, return.model.ll = TRUE)
+    temp.ll.rt <- compute_local_ll_ratio(guide.model.ll, input.data$seg_to_guide_lst)
+    ll.rt <- ll.rt + temp.ll.rt
+  }
+  
+  # combine with segment info
+  segment.info <- input.data$seg_info
+  segment.info$score <- ll.rt
+  
+  # create bedgraph
+  to.bg.list <- list(seg_llRt = segment.info)
+  
+  # write bedgraph to output
+  out.dir <- paste0(input.parameters$out_dir, '_FS', input.parameters$iter)
+  create_bedgraphs(to.bg.list, out.dir)
+}
+
+
+#' @title Ensure that all required parameters for RELICS are correct and add default parameters where not specified
+#' @param input.parameter.list: list: required: 'dataName','repl_groups', 'CountFileLoc', 'sgRNAInfoFileLoc', 'min_FS_nr', 'crisprSystem', 'FS0_label'
+#' @return list with parameters for running RELICS or logical FALSE if required parameter is missing
+#' @export check_parameter_list()
+
+check_parameter_list <- function(input.parameter.list, data.file.split){
+  
+  out.parameter.list <- input.parameter.list
+  
+  par.given <- names(input.parameter.list)
+  
+  # set default to TRUE. But if not background is provided, then switch to false
+  out.parameter.list$background_label_specified <- TRUE
+  
+  
+  if(! 'fs_signif' %in% par.given){
+    out.parameter.list$fs_signif <- 0.05
+  }
+  if(! 'plot_raw_pp' %in% par.given){
+    out.parameter.list$plot_raw_pp <- FALSE
+  }
+  if(! 'plot_raw_cs_pp' %in% par.given){
+    out.parameter.list$plot_raw_cs_pp <- FALSE
+  }
+  if(! 'plot_cs_pp' %in% par.given){
+    out.parameter.list$plot_cs_pp <- FALSE
+  }
+  if(! 'plot_segment_lls' %in% par.given){
+    out.parameter.list$plot_segment_lls <- FALSE
+  }
+  if(! 'record_pp' %in% par.given){
+    out.parameter.list$record_pp <- FALSE
+  }
+  if(! 'record_cs_pp' %in% par.given){
+    out.parameter.list$record_cs_pp <- FALSE
+  }
+  if(! 'record_deltas' %in% par.given){
+    out.parameter.list$record_deltas <- FALSE
+  }
+  
+  if(! 'hyper_adj' %in% par.given){
+    out.parameter.list$hyper_adj <- 1
+  }
+  out.parameter.list$cs_params <- list()
+  if(! 'cs_sw_continous' %in% par.given){
+    out.parameter.list$cs_params$cs_sw_continous <- TRUE
+  } else {
+    out.parameter.list$cs_params$cs_sw_continous <- input.parameter.list$cs_sw_continous
+  }
+  if(! 'compute_sw_pp' %in% par.given){
+    out.parameter.list$cs_params$compute_sw_pp <- TRUE
+  } else {
+    out.parameter.list$cs_params$compute_sw_pp <- input.parameter.list$compute_sw_pp
+  }
+  if(! 'cs_sw_size' %in% par.given){
+    out.parameter.list$cs_params$cs_sw_size <- 10
+  } else {
+    out.parameter.list$cs_params$cs_sw_size <- input.parameter.list$cs_sw_size
+  }
+  if(! 'min_cs_sum' %in% par.given){
+    out.parameter.list$cs_params$min_cs_sum <- 0.01
+  } else {
+    out.parameter.list$cs_params$min_cs_sum <- input.parameter.list$min_cs_sum
+  }
+  if(! 'min_cs_pp' %in% par.given){
+    out.parameter.list$cs_params$min_cs_pp <- 0.01
+  } else {
+    out.parameter.list$cs_params$min_cs_pp <- input.parameter.list$min_cs_pp
+  }
+  if(! 'cs_type' %in% par.given){
+    out.parameter.list$cs_params$cs_type <- 'broad'
+  } else {
+    out.parameter.list$cs_params$cs_type <- input.parameter.list$cs_type
+  }
+  if(! 'max_cs_nr' %in% par.given){
+    out.parameter.list$cs_params$max_cs_nr <- 20
+  } else {
+    out.parameter.list$cs_params$max_cs_nr <- input.parameter.list$max_cs_nr
+  }
+  if(! 'cs_threshold' %in% par.given){
+    out.parameter.list$cs_params$cs_threshold <- 0.9
+  } else {
+    out.parameter.list$cs_params$cs_threshold <- input.parameter.list$cs_threshold
+  }
+  if(! 'max_cs_seg' %in% par.given){
+    out.parameter.list$cs_params$max_cs_seg <- 10
+  } else {
+    out.parameter.list$cs_params$max_cs_seg <- input.parameter.list$max_cs_seg
+  }
+  if(! 'max_mu' %in% par.given){
+    out.parameter.list$max_mu <- 50
+  }
+  if(! 'max_size' %in% par.given){
+    out.parameter.list$max_size <- 100
+  }
+  if(! 'record_posteriors_w_priors' %in% par.given){
+    out.parameter.list$record_posteriors_w_priors <- FALSE
+  }
+  if(! 'record_posteriors' %in% par.given){
+    out.parameter.list$record_posteriors <- FALSE
+  }
+  if(! 'record_segment_lls' %in% par.given){
+    out.parameter.list$record_segment_lls <- FALSE
+  }
+  if(! 'model_dispersion' %in% par.given){
+    if(! 'mean_var_type' %in% par.given){
+      out.parameter.list$mean_var_type <- 'spline'
+      out.parameter.list$model_dispersion <- TRUE
+    } else {
+      out.parameter.list$model_dispersion <- FALSE
+    }
+  }
+  if('mean_var_type' %in% par.given){
+    if(out.parameter.list$model_dispersion & !out.parameter.list$mean_var_type == 'spline'){
+      out.parameter.list$mean_var_type <- 'spline'
+    }
+  }
+  if(!'mean_var_type' %in% par.given){
+    out.parameter.list$mean_var_type <- 'spline'
+  }
+  if(! 'estimateSpline' %in% par.given){
+    out.parameter.list$estimateSpline <- TRUE
+  }
+  if(! 'nr_disp_bins' %in% par.given){
+    out.parameter.list$nr_disp_bins <- 20
+  }
+  if(! 'pp_calculation' %in% par.given){
+    out.parameter.list$pp_calculation <- 'v4'
+  }
+  if(! 'out_dir' %in% par.given){
+    out.parameter.list$out_dir <- getwd()
+  }
+  if(! 'convergence_tol' %in% par.given){
+    out.parameter.list$convergence_tol <- 0.1
+  }
+  if(! 'fix_hypers' %in% par.given){
+    out.parameter.list$fix_hypers <- FALSE
+  }
+  if(! 'recompute_fs0' %in% par.given){
+    out.parameter.list$recompute_fs0 <- FALSE
+  }
+  if(! 'local_max' %in% par.given){
+    out.parameter.list$local_max <- FALSE
+  }
+  if(! 'local_max_range' %in% par.given){
+    out.parameter.list$local_max_range <- 5
+  }
+  if(! 'iterative_hyper_est' %in% par.given){
+    out.parameter.list$iterative_hyper_est <- FALSE
+  }
+  if(! 'nr_segs' %in% par.given){
+    out.parameter.list$nr_segs <- 10
+  }
+  if(! 'geom_p' %in% par.given){
+    #probability of success for geometric distribution
+    out.parameter.list$geom_p <- 0.1
+  }
+  if(! 'fs_correlation_cutoff' %in% par.given){
+    out.parameter.list$fs_correlation_cutoff <- 0.1
+  }
+  if(! 'min_fs_pp' %in% par.given){
+    out.parameter.list$min_fs_pp <- 0.1
+  }
+  if(! 'auto_stop' %in% par.given){
+    out.parameter.list$auto_stop <- TRUE
+  }
+  if(! 'seg_dist' %in% par.given){
+    out.parameter.list$seg_dist <- 100
+  }
+  if(! 'save_input_files' %in% par.given){
+    out.parameter.list$save_input_files <- FALSE
+  }
+  if(! 'background_label' %in% par.given){
+    out.parameter.list$background_label_specified <- FALSE
+  }
+  if(! 'one_dispersion' %in% par.given){
+    out.parameter.list$one_dispersion <- TRUE
+  }
+  if(! 'dualToSingle' %in% par.given){
+    out.parameter.list$dualToSingle <- FALSE
+  }
+  if(! 'pool_names' %in% par.given){
+    out.parameter.list$pool_names <- NULL
+  }
+  
+  # guide efficiency related parameters
+  if('guide_efficiency_loc' %in% par.given){
+    temp.ge.file <- read.csv(input.parameter.list$guide_efficiency_loc, stringsAsFactors = F)
+    if(! 'guide_efficiency_cols' %in% par.given){
+      print(paste0("Error: Guide efficiency file provided but no column index given. Please provide a numeric input for 'guide_efficiency_cols'."))
+      missing.parameters <- TRUE
+    } else {
+      out.parameter.list$guide_efficiency_scores <- temp.ge.file[,input.parameter.list$guide_efficiency_cols, drop = FALSE]
+    }
+    
+    # check if fixed
+    if(! 'fixed_ge_coeff' %in% par.given){
+      out.parameter.list$fixed_ge_coeff <- FALSE
+      # check if betas are provided, else give default
+    } else {
+      out.parameter.list$fixed_ge_coeff <- input.parameter.list$fixed_ge_coeff
+    }
+    
+    if(! 'ge_beta_estimation' %in% par.given){
+      out.parameter.list$ge_beta_estimation <- FALSE
+    } else {
+      out.parameter.list$ge_beta_estimation <- input.parameter.list$ge_beta_estimation
+    }
+    
+  } else {
+    out.parameter.list$guide_efficiency_scores <- NULL
+    out.parameter.list$fixed_ge_coeff <- NULL
+  }
+  
+  # l2fc related parameters
+  if('l2fc_groups' %in% par.given){
+    out.parameter.list$l2fc_groups <- input.parameter.list$l2fc_groups
+    if('l2fc_slidWind' %in% par.given){
+      out.parameter.list$l2fc_slidWind <- input.parameter.list$l2fc_slidWind
+    } else {
+      out.parameter.list$l2fc_slidWind <- TRUE
+    }
+    
+    if(out.parameter.list$l2fc_slidWind){
+      if('l2fc_slidWind_guideNr' %in% par.given){
+        out.parameter.list$l2fc_slidWind_guideNr <- input.parameter.list$l2fc_slidWind_guideNr
+      } else {
+        out.parameter.list$l2fc_slidWind_guideNr <- 10
+      }
+      
+      if('l2fc_slidWind_maxGap' %in% par.given){
+        out.parameter.list$l2fc_slidWind_maxGap <- input.parameter.list$l2fc_slidWind_maxGap
+      } else {
+        out.parameter.list$l2fc_slidWind_maxGap <- 3000
+      }
+    }
+  }
+  
+  # type of area of effect. options are 'normal' (default), 'uniform', 'logistic' (need to implement)
+  if(! 'areaOfEffect_type' %in% par.given){
+    out.parameter.list$areaOfEffect_type <- 'normal'
+  }
+  
+  minimum.parameters <- c()
+  if(data.file.split){
+    minimum.parameters <- c('dataName','repl_groups', 'CountFileLoc', 'sgRNAInfoFileLoc', 'min_FS_nr', 'crisprSystem', 'FS0_label')
+  } else {
+    minimum.parameters <- c('dataName','repl_groups', 'DataInputFileLoc', 'min_FS_nr', 'crisprSystem', 'FS0_label')
+  }
+  
+  par.given <- names(input.parameter.list)
+  missing.parameters <- FALSE
+  
+  for(i in 1:length(minimum.parameters)){
+    
+    if(! minimum.parameters[i] %in% par.given){
+      
+      print(paste0('Missing parameter: ', minimum.parameters[i]))
+      missing.parameters <- TRUE
+    }
+    
+    # for the info file, make sure that the guides are ordered and contain no NAs
+    if('sgRNAInfoFileLoc' == minimum.parameters[i] | 'DataInputFileLoc' == minimum.parameters[i]){
+      test.info <- c()
+      if('sgRNAInfoFileLoc' == minimum.parameters[i]){
+        test.info <- read.csv(input.parameter.list$sgRNAInfoFileLoc, stringsAsFactors = F)
+      } else {
+        test.info <- read.csv(input.parameter.list$DataInputFileLoc, stringsAsFactors = F)
+      }
+      
+      # for the info file, check if the label hierarch is given, else establish it from the info file
+      if(!'labelHierarchy' %in% par.given){
+        temp.info <- test.info #read.csv(input.parameter.list$sgRNAInfoFileLoc, stringsAsFactors = F)
+        out.parameter.list$labelHierarchy <- c()
+        counted.lables <- table(temp.info$label)
+        
+        while(length(counted.lables) > 1){
+          max.lab.pos <- which(counted.lables == max(counted.lables)[1])[1]
+          max.lab.name <- names(counted.lables)[max.lab.pos]
+          
+          out.parameter.list$labelHierarchy <- c(out.parameter.list$labelHierarchy, max.lab.name)
+          
+          counted.lables <- counted.lables[-max.lab.pos]
+        }
+        
+        # then last part
+        out.parameter.list$labelHierarchy <- c(out.parameter.list$labelHierarchy, names(counted.lables))
+      }
+    }
+    
+    # # for the crisprSystem, check if effect range is given, else use default
+    if(minimum.parameters[i] == 'crisprSystem'){
+      if(! out.parameter.list$crisprSystem %in% c('CRISPRi', 'CRISPRa', 'Cas9', 'CRISPRcas9', 'dualCRISPR')){
+        print(paste0('Please provide a valid CRISPR system: CRISPRi, CRISPRa, Cas9 (or CRISPRcas9) or dualCRISPR'))
+        missing.parameters <- TRUE
+      }
+    }
+  }
+  
+  if(out.parameter.list$areaOfEffect_type == 'uniform'){
+    if(! 'crisprEffectRange' %in% par.given){
+      if(out.parameter.list$crisprSystem == 'CRISPRi' | out.parameter.list$crisprSystem == 'CRISPRa'){
+        out.parameter.list$crisprEffectRange <- 500
+      } else if(out.parameter.list$crisprSystem %in% c('Cas9','CRISPRcas9') ){
+        out.parameter.list$crisprEffectRange <- 10
+      } else if(out.parameter.list$crisprSystem == 'dualCRISPR'){
+        out.parameter.list$crisprEffectRange <- 0
+      } else {
+        print("Error: please specify a valid CRISPR system for the 'uniform' area of effect (Cas9 (or CRISPRcas9), CRISPRi, CRISPRa, dualCRISPR)")
+        break()
+      }
+    }
+  }
+  
+  if(out.parameter.list$areaOfEffect_type == 'normal'){
+    if(! 'normal_areaOfEffect_sd' %in% par.given){
+      if(out.parameter.list$crisprSystem %in% c('CRISPRi', 'CRISPRa', 'dualCRISPRi', 'dualCRISPRa') ){
+        out.parameter.list$normal_areaOfEffect_sd <- 170
+        if(! 'crisprEffectRange' %in% par.given){
+          out.parameter.list$crisprEffectRange <- 415
+        }
+      } else if(out.parameter.list$crisprSystem %in% c('Cas9','CRISPRcas9', 'dualCRISPR') ){
+        out.parameter.list$normal_areaOfEffect_sd <- 8.5
+        if(! 'crisprEffectRange' %in% par.given){
+          out.parameter.list$crisprEffectRange <- 21
+        }
+      } else {
+        print("Error: please specify a valid CRISPR system for the 'uniform' area of effect (Cas9 (or CRISPRcas9), CRISPRi, CRISPRa, dualCRISPR)")
+        break()
+      }
+    }
+  }
+  
+  if(out.parameter.list$crisprSystem == 'dualCRISPR' & (! 'deletionProb' %in% par.given)){
+    out.parameter.list$deletionProb <- 0.1
+  }
+  
+  if(missing.parameters){
+    return(FALSE)
+  } else {
+    return(out.parameter.list)
+  }
+}
+
+
+#' @title Read in the RELICS parameters from an input file
+#' @param parameter.file.loc: string, location of the parameter file
+#' @return list with parameters for running RELICS
+#' @export read_analysis_parameters()
+
+read_analysis_parameters <- function(parameter.file.loc){
+  raw.parameters <- scan(parameter.file.loc,what='character')
+  out.parameter.list <- list()
+  
+  for(parameter in raw.parameters){
+    
+    parameter.id <- strsplit(parameter,':')[[1]][1]
+    
+    if('fs_signif' == parameter.id){
+      out.parameter.list$fs_signif <- as.numeric(strsplit(parameter,':')[[1]][2])
+    }
+    if('plot_raw_pp' == parameter.id){
+      out.parameter.list$plot_raw_pp <- as.logical(strsplit(parameter,':')[[1]][2])
+    }
+    if('plot_raw_cs_pp' == parameter.id){
+      out.parameter.list$plot_raw_cs_pp <- as.logical(strsplit(parameter,':')[[1]][2])
+    }
+    if('plot_cs_pp' == parameter.id){
+      out.parameter.list$plot_cs_pp <- as.logical(strsplit(parameter,':')[[1]][2])
+    }
+    if('plot_segment_lls' == parameter.id){
+      out.parameter.list$plot_segment_lls <- as.logical(strsplit(parameter,':')[[1]][2])
+    }
+    if('record_pp' == parameter.id){
+      out.parameter.list$record_pp <- as.logical(strsplit(parameter,':')[[1]][2])
+    }
+    if('record_cs_pp' == parameter.id){
+      out.parameter.list$record_cs_pp <- as.logical(strsplit(parameter,':')[[1]][2])
+    }
+    if('record_deltas' == parameter.id){
+      out.parameter.list$record_deltas <- as.logical(strsplit(parameter,':')[[1]][2])
+    }
+    if('expected_fs_nr' == parameter.id){
+      out.parameter.list$expected_fs_nr <- as.numeric(strsplit(parameter,':')[[1]][2])
+    }
+    if('max_fs_nr' == parameter.id){
+      out.parameter.list$max_fs_nr <- as.numeric(strsplit(parameter,':')[[1]][2])
+    }
+    
+    if('hyper_adj' == parameter.id){
+      out.parameter.list$hyper_adj <- as.numeric(strsplit(parameter,':')[[1]][2])
+    }
+    if('cs_sw_continous' == parameter.id){
+      out.parameter.list$cs_sw_continous <- as.logical(strsplit(parameter,':')[[1]][2])
+    }
+    if('compute_sw_pp' == parameter.id){
+      out.parameter.list$compute_sw_pp <- as.logical(strsplit(parameter,':')[[1]][2])
+    }
+    if('cs_sw_size' == parameter.id){
+      out.parameter.list$cs_sw_size <- as.numeric(strsplit(parameter,':')[[1]][2])
+    }
+    if('min_cs_sum' == parameter.id){
+      out.parameter.list$min_cs_sum <- as.numeric(strsplit(parameter,':')[[1]][2])
+    }
+    if('min_cs_pp' == parameter.id){
+      out.parameter.list$min_cs_pp <- as.numeric(strsplit(parameter,':')[[1]][2])
+    }
+    if('cs_type' == parameter.id){
+      out.parameter.list$cs_type <- strsplit(parameter,':')[[1]][2]
+    }
+    if('cs_threshold' == parameter.id){
+      out.parameter.list$cs_threshold <- as.numeric(strsplit(parameter,':')[[1]][2])
+    }
+    if('max_cs_nr' == parameter.id){
+      out.parameter.list$max_cs_nr <- as.numeric(strsplit(parameter,':')[[1]][2])
+    }
+    if('max_cs_seg' == parameter.id){
+      out.parameter.list$max_cs_seg <- as.numeric(strsplit(parameter,':')[[1]][2])
+    }
+    if('max_mu' == parameter.id){
+      out.parameter.list$max_mu <- as.numeric(strsplit(parameter,':')[[1]][2])
+    }
+    if('max_size' == parameter.id){
+      out.parameter.list$max_size <- as.numeric(strsplit(parameter,':')[[1]][2])
+    }
+    if('record_posteriors' == parameter.id){
+      out.parameter.list$record_posteriors <- as.logical(strsplit(parameter,':')[[1]][2])
+    }
+    if('record_segment_lls' == parameter.id){
+      out.parameter.list$record_segment_lls <- as.logical(strsplit(parameter,':')[[1]][2])
+    }
+    if('fs_prior' == parameter.id){
+      out.parameter.list$fs_prior <- lapply(strsplit(strsplit(strsplit(parameter,':')[[1]][2],';')[[1]],','), as.numeric)
+      names(out.parameter.list$repl_groups) <- c('mean', 'sd')
+    }
+    if('model_dispersion' == parameter.id){
+      out.parameter.list$model_dispersion <- as.logical(strsplit(parameter,':')[[1]][2])
+    }
+    if('repl_spline_df' == parameter.id){
+      out.parameter.list$repl_spline_df <- lapply(strsplit(strsplit(strsplit(parameter,':')[[1]][2],';')[[1]],','), as.numeric)
+      names(out.parameter.list$repl_spline_df) <- paste0('df_repl_',c(1:length(out.parameter.list$repl_groups)))
+    }
+    if('estimateSpline' == parameter.id){
+      out.parameter.list$estimateSpline <- as.logical(strsplit(parameter,':')[[1]][2])
+    }
+    if('nr_disp_bins' == parameter.id){
+      out.parameter.list$nr_disp_bins <- as.numeric(strsplit(parameter,':')[[1]][2])
+    }
+    if('pp_calculation' == parameter.id){
+      out.parameter.list$pp_calculation <- strsplit(parameter,':')[[1]][2]
+    }
+    if('out_dir' == parameter.id){
+      out.parameter.list$out_dir <- strsplit(parameter,':')[[1]][2]
+    }
+    if('convergence_tol' == parameter.id){
+      out.parameter.list$convergence_tol <- as.numeric(strsplit(parameter,':')[[1]][2])
+    }
+    if('fix_hypers' == parameter.id){
+      out.parameter.list$fix_hypers <- as.logical(strsplit(parameter,':')[[1]][2])
+    }
+    if('recompute_fs0' == parameter.id){
+      out.parameter.list$recompute_fs0 <- as.logical(strsplit(parameter,':')[[1]][2])
+    }
+    if('local_max' == parameter.id){
+      out.parameter.list$local_max <- as.logical(strsplit(parameter,':')[[1]][2])
+    }
+    if('local_max_range' == parameter.id){
+      out.parameter.list$local_max_range <- as.numeric(strsplit(parameter,':')[[1]][2])
+    }
+    if('iterative_hyper_est' == parameter.id){
+      out.parameter.list$iterative_hyper_est <- as.logical(strsplit(parameter,':')[[1]][2])
+    }
+    if('nr_segs' == parameter.id){
+      out.parameter.list$nr_segs <- as.numeric(strsplit(parameter,':')[[1]][2])
+    }
+    if('geom_p' == parameter.id){
+      #probability of success for geometric distribution
+      out.parameter.list$geom_p <- as.numeric(strsplit(parameter,':')[[1]][2])
+      #geom.norm.factr <- pgeom(nr.segs, geom.p)
+    }
+    if('fs_correlation_cutoff' == parameter.id){
+      out.parameter.list$fs_correlation_cutoff <- as.numeric(strsplit(parameter,':')[[1]][2])
+    }
+    if('min_fs_pp' == parameter.id){
+      out.parameter.list$min_fs_pp <- as.numeric(strsplit(parameter,':')[[1]][2])
+    }
+    if('auto_stop' == parameter.id){
+      out.parameter.list$auto_stop <- as.logical(strsplit(parameter,':')[[1]][2])
+    }
+    if(parameter.id == 'labelHierarchy'){
+      out.parameter.list$labelHierarchy <- strsplit(strsplit(parameter.id,':')[[1]][2],',')[[1]]
+    }
+    if('dataName' == parameter.id){
+      out.parameter.list$dataName <- strsplit(parameter,':')[[1]][2]
+    }
+    if('repl_groups' == parameter.id){
+      out.parameter.list$repl_groups <- lapply(strsplit(strsplit(strsplit(parameter,':')[[1]][2],';')[[1]],','), as.numeric)
+      names(out.parameter.list$repl_groups) <- paste0('repl_',c(1:length(out.parameter.list$repl_groups)))
+    }
+    if('pool_names' == parameter.id){
+      out.parameter.list$pool_names <- lapply(strsplit(strsplit(strsplit(parameter,':')[[1]][2],';')[[1]],','), as.numeric)
+      names(out.parameter.list$pool_names) <- paste0('repl_',c(1:length(out.parameter.list$pool_names)))
+    }
+    if('DataInputFileLoc' == parameter.id){
+      out.parameter.list$DataInputFileLoc <- strsplit(parameter,':')[[1]][2]
+    }
+    if('CountFileLoc' == parameter.id){
+      out.parameter.list$CountFileLoc <- strsplit(parameter,':')[[1]][2]
+    }
+    if('sgRNAInfoFileLoc' == parameter.id){
+      out.parameter.list$sgRNAInfoFileLoc <- strsplit(parameter,':')[[1]][2]
+    }
+    if('min_FS_nr' == parameter.id){
+      out.parameter.list$min_FS_nr <- as.numeric(strsplit(parameter,':')[[1]][2])
+    }
+    if('crisprSystem' == parameter.id){
+      out.parameter.list$crisprSystem <- strsplit(parameter,':')[[1]][2]
+    }
+    if('dualToSingle' == parameter.id){
+      out.parameter.list$dualToSingle <- as.logical(strsplit(parameter,':')[[1]][2])
+    }
+    if('FS0_label' == parameter.id){
+      out.parameter.list$FS0_label <- strsplit(parameter,':')[[1]][2]
+    }
+    if('background_label' == parameter.id){
+      out.parameter.list$background_label <- strsplit(parameter,':')[[1]][2]
+    }
+    if('alpha0' == parameter.id){
+      out.parameter.list$alpha0 <- lapply(strsplit(strsplit(strsplit(parameter,':')[[1]][2],';')[[1]],','), as.numeric)
+      names(out.parameter.list$alpha0) <- paste0('repl_',c(1:length(out.parameter.list$alpha0)))
+    }
+    if('alpha1' == parameter.id){
+      out.parameter.list$alpha1 <- lapply(strsplit(strsplit(strsplit(parameter,':')[[1]][2],';')[[1]],','), as.numeric)
+      names(out.parameter.list$alpha1) <- paste0('repl_',c(1:length(out.parameter.list$alpha1)))
+    }
+    if('seg_dist' == parameter.id){
+      out.parameter.list$seg_dist <- as.numeric(strsplit(parameter,':')[[1]][2])
+    }
+    
+  }
+  # aggregate alpha0 and alpha1 if provided
+  if('alpha0' %in% names(out.parameter.list) & 'alpha1' %in% names(out.parameter.list)){
+    out.parameter.list$hyper_pars <- list(alpha0 = out.parameter.list$alpha0, alpha1 = out.parameter.list$alpha1, L = 1)
+  }
+  if('one_dispersion' == parameter.id){
+    out.parameter.list$one_dispersion <- as.logical(strsplit(parameter,':')[[1]][2])
+  }
+  
+  ##############################################
+  # guide efficiency related parameters
+  # location of file (can be same as info, or total combines, or separate)
+  if('guide_efficiency_loc' == parameter.id){
+    out.parameter.list$guide_efficiency_loc <- strsplit(parameter,':')[[1]][2]
+  }
+  # cloumns to use for GE
+  if('guide_efficiency_cols' == parameter.id){
+    out.parameter.list$guide_efficiency_cols <- as.numeric(strsplit(parameter,':')[[1]][2])
+  }
+  # boolean whether to simply use given guide coefficients or trying to estimate them
+  if('fixed_ge_coeff' == parameter.id){
+    out.parameter.list$fixed_ge_coeff <- as.logical(strsplit(parameter,':')[[1]][2])
+  }
+  
+  
+  # l2fc parameters
+  if('l2fc_groups' == parameter.id){
+    out.parameter.list$l2fc_groups <- lapply(strsplit(strsplit(strsplit(parameter,':')[[1]][2],';')[[1]],','), as.numeric)
+    names(out.parameter.list$l2fc_groups) <- paste0('repl_',c(1:length(out.parameter.list$l2fc_groups)))
+  }
+  if('l2fc_slidWind' == parameter.id){
+    out.parameter.list$l2fc_slidWind <- as.logical(strsplit(parameter,':')[[1]][2])
+  }
+  if('l2fc_slidWind_guideNr' == parameter.id){
+    out.parameter.list$l2fc_slidWind_guideNr <- as.numeric(strsplit(parameter,':')[[1]][2])
+  }
+  if('l2fc_slidWind_maxGap' == parameter.id){
+    out.parameter.list$l2fc_slidWind_maxGap <- as.numeric(strsplit(parameter,':')[[1]][2])
+  }
+  
+  # area of effect parameters
+  if('areaOfEffect_type' == parameter.id){
+    out.parameter.list$areaOfEffect_type <- as.numeric(strsplit(parameter,':')[[1]][2])
+  }
+  if('normal_areaOfEffect_sd' == parameter.id){
+    out.parameter.list$normal_areaOfEffect_sd <- as.numeric(strsplit(parameter,':')[[1]][2])
+  }
+  
+  if('mean_var_type' == parameter.id){
+    out.parameter.list$mean_var_type <- strsplit(parameter,':')[[1]][2]
+  }
+  
+  if('deletionProb' == parameter.id){
+    out.parameter.list$deletionProb <- as.numeric(strsplit(parameter,':')[[1]][2])
+  }
+  
+  return(out.parameter.list)
 }
 
 
@@ -121,7 +842,7 @@ record_orig_fs0_alphas <- function(input.fs0.list, analysis.parameters, pool.nam
   alpha.names <- c(paste(rep('FS', length(input.fs0.list)), 'r', c(1:length(input.fs0.list)), sep = '_'))
   
   alpha.matrix <- matrix(0, nrow = total.rows, ncol = total.cols)
-
+  
   if(! is.null(pool.names)){
     temp.pool.names <- unique(unlist(pool.names))
     
@@ -133,7 +854,7 @@ record_orig_fs0_alphas <- function(input.fs0.list, analysis.parameters, pool.nam
       alpha1.scores[match(pool.names[[i]], temp.pool.names)] <- round(temp.fs.alpha, 3)
       
       alpha.matrix[i,] <- alpha1.scores
-
+      
       out.alpha.df <- cbind(alpha.names, alpha.matrix)
       
       colnames(out.alpha.df) <- c('hyperPar_type', temp.pool.names)
@@ -153,207 +874,7 @@ record_orig_fs0_alphas <- function(input.fs0.list, analysis.parameters, pool.nam
   }
   
   write.csv(out.alpha.df, file = out.dir, row.names = F, quote = F)
-
-}
-
-
-#' @title RELICS 2.0 analysis function. Uses IBSS to return a set of functional sequences FS for CRISPR regulatory screens
-#' @param input.parameter.file: location of file containing all analysis parameters
-#' @param input.parameter.list: RELICS analysis parameters in list format. Default = NULL
-#' @param data.file.split: logical, whether counts are separate from info, default = FALSE
-#' @param record.all.fs: logical, if information of all intermediate FS should be recorded, in addition to the final setof FS
-#' @param return.init.hypers: logical, whether the hyperparamters should be returned after initial computing
-#' @return list of final per-layer posteriors
-#' @export RELICS()
-
-RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.split = FALSE,
-                   record.all.fs = FALSE, return.init.hypers = FALSE, RELICS_3 = FALSE, 
-                   RELICS_4 = FALSE, RELICS_5 = FALSE, RELICS_6 = FALSE, RELICS_7 = FALSE){
-
-  analysis.parameters <- read_parameters(input.parameter.list, input.parameter.file, data.file.split, RELICS_3 = RELICS_3, RELICS_4 = RELICS_4)
-
-  data.setup <- set_up_RELICS_data(analysis.parameters, data.file.split,
-                                   guide.offset = analysis.parameters$crisprEffectRange,
-                                   repl_pools = analysis.parameters$repl_groups,
-                                   labelHierarchy = analysis.parameters$labelHierarchy,
-                                   fs0.label = analysis.parameters$FS0_label,
-                                   file.save.dir = paste0(analysis.parameters$out_dir, '/', analysis.parameters$dataName),
-                                   save.files = analysis.parameters$save_input_files,
-                                   min.seg.dist = analysis.parameters$seg_dist)
-
   
-  
-  # # obtain hyperparameters()
-  analysis.parameters <- compute_hyperparameters(analysis.parameters, data.setup)
-
-  data.setup$fixed_ge_coeff <- analysis.parameters$fixed_ge_coeff
-  # # if guide efficiency scores are provided, calculate guide efficiency and include in the model
-  if(! is.null(data.setup$guide_efficiency_scores)){
-
-    if(! analysis.parameters$fixed_ge_coeff){
-
-      temp.relics.params <- init_relics_param(analysis.parameters$hyper_pars, data.setup, analysis.parameters$local_max, FALSE)
-
-      ge.list <- recompute_ge_coefficients(temp.relics.params,
-                                           analysis.parameters$hyper_par_components, #analysis.parameters$hyper_pars,
-                                           data.setup$data,
-                                           data.setup$guide_to_seg_lst,
-                                           data.setup$guide_efficiency_scores,
-                                           c(0, rep(1, ncol(data.setup$guide_efficiency_scores))))
-
-      data.setup$guide_efficiency <- ge.list$guide_efficiency
-      data.setup$ge_coeff <- ge.list$ge_coeff
-    }
-
-  }
-
-  # plot the per-segment ll-ratio
-  out.pars <- list(out_dir = paste0(analysis.parameters$out_dir, '/', analysis.parameters$dataName),
-                   iter = 0)
-  record_ll_ratio(analysis.parameters$hyper_pars, data.setup, out.pars)
-  
-  analysis.parameters <- set_up_fs_priors(analysis.parameters, data.setup)
-  
-  if(RELICS_7){
-    run_RELICS_7(input.data = data.setup,
-                 final.layer.nr = analysis.parameters$min_FS_nr,
-                 out.dir = paste0(analysis.parameters$out_dir, '/', analysis.parameters$dataName),
-                 input.hypers = analysis.parameters$hyper_pars,
-                 input.hyper.components = analysis.parameters$hyper_par_components,
-                 fix.hypers = analysis.parameters$fix_hypers,
-                 nr.segs = analysis.parameters$nr_segs,
-                 geom.p = analysis.parameters$geom_p,
-                 fs.correlation.cutoff = analysis.parameters$fs_correlation_cutoff,
-                 input.min.rs.pp = analysis.parameters$min_fs_pp,
-                 auto.stop = analysis.parameters$auto_stop,
-                 record.all.fs = record.all.fs,
-                 input.convergence.tol = analysis.parameters$convergence_tol,
-                 one.dispersion = analysis.parameters$one_dispersion,
-                 recompute.fs0 = analysis.parameters$recompute_fs0,
-                 local.max = analysis.parameters$local_max,
-                 local.max.range = analysis.parameters$local_max_range,
-                 pool.names = analysis.parameters$pool_names,
-                 mean.var.type = analysis.parameters$mean_var_type,
-                 pp.calculation = analysis.parameters$pp_calculation,
-                 analysis.parameters = analysis.parameters,
-                 guide.dist.to.seg = data.setup$guide_dist_to_seg)
-  } else if(RELICS_6){
-    run_RELICS_6(input.data = data.setup,
-                 final.layer.nr = analysis.parameters$min_FS_nr,
-                 out.dir = paste0(analysis.parameters$out_dir, '/', analysis.parameters$dataName),
-                 input.hypers = analysis.parameters$hyper_pars,
-                 input.hyper.components = analysis.parameters$hyper_par_components,
-                 fix.hypers = analysis.parameters$fix_hypers,
-                 nr.segs = analysis.parameters$nr_segs,
-                 geom.p = analysis.parameters$geom_p,
-                 fs.correlation.cutoff = analysis.parameters$fs_correlation_cutoff,
-                 input.min.rs.pp = analysis.parameters$min_fs_pp,
-                 auto.stop = analysis.parameters$auto_stop,
-                 record.all.fs = record.all.fs,
-                 input.convergence.tol = analysis.parameters$convergence_tol,
-                 one.dispersion = analysis.parameters$one_dispersion,
-                 recompute.fs0 = analysis.parameters$recompute_fs0,
-                 local.max = analysis.parameters$local_max,
-                 local.max.range = analysis.parameters$local_max_range,
-                 pool.names = analysis.parameters$pool_names,
-                 mean.var.type = analysis.parameters$mean_var_type,
-                 pp.calculation = analysis.parameters$pp_calculation,
-                 analysis.parameters = analysis.parameters,
-                 guide.dist.to.seg = data.setup$guide_dist_to_seg)
-  } else if(RELICS_5){
-    run_RELICS_5(input.data = data.setup,
-                 final.layer.nr = analysis.parameters$min_FS_nr,
-                 out.dir = paste0(analysis.parameters$out_dir, '/', analysis.parameters$dataName),
-                 input.hypers = analysis.parameters$hyper_pars,
-                 input.hyper.components = analysis.parameters$hyper_par_components,
-                 fix.hypers = analysis.parameters$fix_hypers,
-                 nr.segs = analysis.parameters$nr_segs,
-                 geom.p = analysis.parameters$geom_p,
-                 fs.correlation.cutoff = analysis.parameters$fs_correlation_cutoff,
-                 input.min.rs.pp = analysis.parameters$min_fs_pp,
-                 auto.stop = analysis.parameters$auto_stop,
-                 record.all.fs = record.all.fs,
-                 input.convergence.tol = analysis.parameters$convergence_tol,
-                 one.dispersion = analysis.parameters$one_dispersion,
-                 recompute.fs0 = analysis.parameters$recompute_fs0,
-                 local.max = analysis.parameters$local_max,
-                 local.max.range = analysis.parameters$local_max_range,
-                 pool.names = analysis.parameters$pool_names,
-                 mean.var.type = analysis.parameters$mean_var_type,
-                 pp.calculation = analysis.parameters$pp_calculation,
-                 analysis.parameters = analysis.parameters,
-                 guide.dist.to.seg = data.setup$guide_dist_to_seg)
-  } else if(RELICS_4){
-    run_RELICS_4(input.data = data.setup,
-                 final.layer.nr = analysis.parameters$min_FS_nr,
-                 out.dir = paste0(analysis.parameters$out_dir, '/', analysis.parameters$dataName),
-                 input.hypers = analysis.parameters$hyper_pars,
-                 input.hyper.components = analysis.parameters$hyper_par_components,
-                 fix.hypers = analysis.parameters$fix_hypers,
-                 nr.segs = analysis.parameters$nr_segs,
-                 geom.p = analysis.parameters$geom_p,
-                 fs.correlation.cutoff = analysis.parameters$fs_correlation_cutoff,
-                 input.min.rs.pp = analysis.parameters$min_fs_pp,
-                 auto.stop = analysis.parameters$auto_stop,
-                 record.all.fs = record.all.fs,
-                 input.convergence.tol = analysis.parameters$convergence_tol,
-                 one.dispersion = analysis.parameters$one_dispersion,
-                 recompute.fs0 = analysis.parameters$recompute_fs0,
-                 local.max = analysis.parameters$local_max,
-                 local.max.range = analysis.parameters$local_max_range,
-                 pool.names = analysis.parameters$pool_names,
-                 mean.var.type = analysis.parameters$mean_var_type,
-                 pp.calculation = analysis.parameters$pp_calculation,
-                 analysis.parameters = analysis.parameters,
-                 guide.dist.to.seg = data.setup$guide_dist_to_seg)
-  } else if(RELICS_3){
-    run_RELICS_3(input.data = data.setup,
-                 final.layer.nr = analysis.parameters$min_FS_nr,
-                 out.dir = paste0(analysis.parameters$out_dir, '/', analysis.parameters$dataName),
-                 input.hypers = analysis.parameters$hyper_pars,
-                 input.hyper.components = analysis.parameters$hyper_par_components,
-                 fix.hypers = analysis.parameters$fix_hypers,
-                 nr.segs = analysis.parameters$nr_segs,
-                 geom.p = analysis.parameters$geom_p,
-                 fs.correlation.cutoff = analysis.parameters$fs_correlation_cutoff,
-                 input.min.rs.pp = analysis.parameters$min_fs_pp,
-                 auto.stop = analysis.parameters$auto_stop,
-                 record.all.fs = record.all.fs,
-                 input.convergence.tol = analysis.parameters$convergence_tol,
-                 one.dispersion = analysis.parameters$one_dispersion,
-                 recompute.fs0 = analysis.parameters$recompute_fs0,
-                 local.max = analysis.parameters$local_max,
-                 local.max.range = analysis.parameters$local_max_range,
-                 pool.names = analysis.parameters$pool_names,
-                 mean.var.type = analysis.parameters$mean_var_type,
-                 pp.calculation = analysis.parameters$pp_calculation,
-                 analysis.parameters = analysis.parameters,
-                 guide.dist.to.seg = data.setup$guide_dist_to_seg)
-  } else {
-    run_RELICS_2(input.data = data.setup,
-                 final.layer.nr = analysis.parameters$min_FS_nr,
-                 out.dir = paste0(analysis.parameters$out_dir, '/', analysis.parameters$dataName),
-                 input.hypers = analysis.parameters$hyper_pars,
-                 input.hyper.components = analysis.parameters$hyper_par_components,
-                 fix.hypers = analysis.parameters$fix_hypers,
-                 nr.segs = analysis.parameters$nr_segs,
-                 geom.p = analysis.parameters$geom_p,
-                 fs.correlation.cutoff = analysis.parameters$fs_correlation_cutoff,
-                 input.min.rs.pp = analysis.parameters$min_fs_pp,
-                 auto.stop = analysis.parameters$auto_stop,
-                 record.all.fs = record.all.fs,
-                 input.convergence.tol = analysis.parameters$convergence_tol,
-                 one.dispersion = analysis.parameters$one_dispersion,
-                 recompute.fs0 = analysis.parameters$recompute_fs0,
-                 local.max = analysis.parameters$local_max,
-                 local.max.range = analysis.parameters$local_max_range,
-                 pool.names = analysis.parameters$pool_names,
-                 mean.var.type = analysis.parameters$mean_var_type,
-                 pp.calculation = analysis.parameters$pp_calculation,
-                 analysis.parameters = analysis.parameters,
-                 guide.dist.to.seg = data.setup$guide_dist_to_seg) 
-  }
-
 }
 
 
@@ -396,7 +917,6 @@ set_up_fs_priors <- function(input.params, input.data.setup){
   
   return(out.params)
 }
-
 
 
 #' @title Run RELICS v7. Iteratively place FS. Calculate the CS by selecting best FS length. Terminate based on max FS nr or min PP
@@ -751,20 +1271,20 @@ record_relics_results <- function(input.results.list, analysis.parameters, input
                            input.results.list$deltas)
   }
   if(analysis.parameters$plot_raw_cs_pp){
-    display_relics_fs_as_tiff(input.results.list$cs_posteriors,
-                              input.data$segLabels,
-                              paste0(out.dir, file.extension, '_k_', fs.iter, '_raw_cs_PP'),
-                              analysis.parameters$min_fs_pp,
-                              input.data$seg_info,
-                              input.results.list$deltas)
+    plot_relics_pp_as_tiff(input.results.list$cs_posteriors,
+                           input.data$segLabels,
+                           paste0(out.dir, file.extension, '_k_', fs.iter, '_raw_cs_PP'),
+                           analysis.parameters$min_fs_pp,
+                           input.data$seg_info,
+                           input.results.list$deltas)
   }
   if(analysis.parameters$plot_cs_pp){
-    display_relics_fs_as_tiff(input.results.list$posteriors_w_prior,
-                              input.data$segLabels,
-                              paste0(out.dir, file.extension, '_k_', fs.iter, '_cs_PP'),
-                              analysis.parameters$min_fs_pp,
-                              input.data$seg_info,
-                              input.results.list$deltas)
+    plot_relics_pp_as_tiff(input.results.list$posteriors_w_prior,
+                           input.data$segLabels,
+                           paste0(out.dir, file.extension, '_k_', fs.iter, '_cs_PP'),
+                           analysis.parameters$min_fs_pp,
+                           input.data$seg_info,
+                           input.results.list$deltas)
   }
   if(analysis.parameters$plot_segment_lls){
     display_relics_segLLs_as_tiff(segment.lls,
@@ -843,9 +1363,7 @@ record_relics_results <- function(input.results.list, analysis.parameters, input
   write.csv(ll.df, file = paste0(out.dir, file.extension, '_k', fs.iter, '_model_lls.csv'), row.names = F)
   
   create_bedgraphs(to.bg.list, paste0(out.dir, file.extension, '_k', fs.iter) )
-  
-  # currently not recording effect sizes
-  # effect_size_recording(input.results.list, input.data, analysis.parameters, hyper.components, file.extension, fs.iter)
+
 }
 
 
@@ -1231,7 +1749,6 @@ estimate_FS_CS <- function(input.posteriors, hyper, data,
   new.delta.mtx <- delta.mtx
   new.cs.posteriors <- cs.posteriors
   for(fs in k.idx:nrow(new.delta.mtx)){
-    ll.of.placement <- c() 
     new.delta.mtx[fs, ] <- 0
     new.cs.posteriors[fs, ] <- 0
     fs.config <- colSums(new.cs.posteriors)
@@ -1263,7 +1780,7 @@ estimate_FS_CS <- function(input.posteriors, hyper, data,
                                                     seg.to.guide.lst, next.guide.lst, nr.segs, geom.p, 
                                                     sgrna.log.like.list, seg.adjust = 0, 
                                                     total.segs = length(seg.to.guide.lst),
-                                                    guide.dist.to.seg, ll.of.placement, fs.config)
+                                                    guide.dist.to.seg, fs.config)
       fs.pps <- fs.pps.list$seg_pp
       fs.lls <- fs.pps.list$segment_lls
     } else {
@@ -1309,7 +1826,7 @@ compute_CS <- function(input.pp, cs.params){
   window.size <- cs.params$cs_sw_size
   sw.idx.list <- list()
   max.sw.pp <- 0
-  max.sw.idx <- c()
+  max.sw.idx <- 1
   max.idx.total.pp <- 0
   sw.pp <- vector('numeric', length = length(input.pp) - window.size + 1)
   median.pp <- median(input.pp)
@@ -1319,26 +1836,30 @@ compute_CS <- function(input.pp, cs.params){
     temp.sw.idx <- c(1:window.size) + (i-1)
     temp.pp <- input.pp[temp.sw.idx]
     temp.pp.sum <- sum(temp.pp)
-    temp.sw.idx.ordered <- temp.sw.idx[order(temp.pp, decreasing = TRUE)]
-    temp.pp.ordered <- temp.pp[order(temp.pp, decreasing = TRUE)]
     
-    # compute the relative proportion of the CS
-    temp.sw.idx.pass <- c()
-    for(j in 1:length(temp.sw.idx.ordered)){
-      temp.sw.pp.sum <- sum(temp.pp.ordered[1:j])
-      temp.fract.pp <- temp.sw.pp.sum / temp.pp.sum
-      temp.sw.idx.pass <- c(temp.sw.idx.pass, temp.sw.idx.ordered[j])
-      if(temp.fract.pp > cs.params$cs_threshold){
-        if(temp.sw.pp.sum > max.sw.pp){
-          max.sw.pp <- temp.sw.pp.sum
-          max.sw.idx <- temp.sw.idx.pass
-          max.idx.total.pp <- temp.pp.sum
+    if(temp.pp.sum > 0){
+      temp.sw.idx.ordered <- temp.sw.idx[order(temp.pp, decreasing = TRUE)]
+      temp.pp.ordered <- temp.pp[order(temp.pp, decreasing = TRUE)]
+      
+      # compute the relative proportion of the CS
+      temp.sw.idx.pass <- c()
+      for(j in 1:length(temp.sw.idx.ordered)){
+        temp.sw.pp.sum <- sum(temp.pp.ordered[1:j])
+        temp.fract.pp <- temp.sw.pp.sum / temp.pp.sum
+        temp.sw.idx.pass <- c(temp.sw.idx.pass, temp.sw.idx.ordered[j])
+        if(temp.fract.pp > cs.params$cs_threshold){
+          if(temp.sw.pp.sum > max.sw.pp){
+            max.sw.pp <- temp.sw.pp.sum
+            max.sw.idx <- temp.sw.idx.pass
+            max.idx.total.pp <- temp.pp.sum
+          }
+          sw.idx.list[[i]] <- temp.sw.idx.pass
+          sw.pp[i] <- temp.sw.pp.sum
+          break()
         }
-        sw.idx.list[[i]] <- temp.sw.idx.pass
-        sw.pp[i] <- temp.sw.pp.sum
-        break()
       }
     }
+    
   }
   
   # the the FS output is to be continuous, set the idx to the range from min to max idx
@@ -1360,766 +1881,6 @@ compute_CS <- function(input.pp, cs.params){
   } else {
     out.list <- list(cs_idx = max.sw.pp.idx,
                      cs_pp = max.sw.cs.pp,
-                     cs_total_pp = max.sw.pp)
-    return(out.list)
-  }
-  
-}
-
-
-#' @title Run RELICS v6. Iteratively place FS. Calculate the CS by selecting best FS length
-#' @param input.data: list: $guide_to_seg_lst, $data, $fs0_idx, $overlapMat, $guide_to_seg_lst, $seg_to_guide_lst
-#' @param final.layer.nr: number of layers to go up to
-#' @param out.dir: directory to which all files are to be written. Default = NULL
-#' @param adjust.tol: whether convergence tolerance should be adjusted dynamically as layers are computed (increasingly more rigorous)
-#' @param fix.hypers: whether the input parameters remain unchanged or are altered after calculation of posteriors. Default = FALSE
-#' @param iterative.hyper.est: whether hyper parameters are to be estimated iteratively with the posteriors (TRUE) or after convergence of posteriors (FALSE)
-#' @param input.hypers: list, $alpha0, $alpha1, both elements contain lists of length wequal to nr. replicates (input.hypers$alpha0[[1]])
-#' @param nr.segs, number of segments to consider for the length of a regulatory element
-#' @param geom.p: proababilty of the genometric distribution to penalize for enhancers of increasing length
-#' @param fs.correlation.cutoff: what correlation between layers determines stopping of layer calculation (default: 0.1)
-#' @param input.min.rs.pp: minimum posterior required to be part of a regulatory set
-#' @param auto.stop: whether or not computations should be stopped after recomended stopping point
-#' @param record.all.fs: logical, if information of all intermediate FS should be recorded, in addition to the final set of FS
-#' @param one.dispersion: whether there should be one or 2 dispersions estimated for the 2 hyper parameters
-#' @param recompute.fs0: logical, whether FS0 is to be set to 0 or keep the initial assignment
-#' @param local.max: logical, whether a local maximum should be computed
-#' @param local.max.range: number of segments to include in addition to the the ones with highest PP (one way, so multiply by 2 for total nr of segs)
-#' @param pool.names, if not NULL, the names of the pools to be used when recording output
-#' @param mean.var.type: type of mean-variance relationship
-#' @param pp.calculation: what version to use when calculating PP. 'v2'is for computing with normal AoE
-#' @param analysis.parameters: list, contains various elements used for analysis
-#' @param guide.dist.to.seg, list of lists, pre-computed distances of guides to FS
-#' @return list of final per-layer posteriors
-#' @export run_RELICS_6()
-
-run_RELICS_6 <- function(input.data, final.layer.nr, out.dir = NULL,
-                         fix.hypers = FALSE,
-                         iterative.hyper.est = FALSE,
-                         input.hypers = NULL,
-                         input.hyper.components,
-                         nr.segs = 10,
-                         geom.p = 0.1,
-                         fs.correlation.cutoff = 0.1,
-                         input.min.rs.pp = 0.1,
-                         auto.stop = TRUE,
-                         record.all.fs,
-                         input.convergence.tol = 0.01,
-                         adjust.tol = TRUE,
-                         one.dispersion = TRUE,
-                         recompute.fs0,
-                         local.max, local.max.range,
-                         pool.names,
-                         mean.var.type,
-                         pp.calculation,
-                         analysis.parameters,
-                         guide.dist.to.seg){
-  
-  relics.hyper <- input.hypers #c()
-  hyper.components <- input.hyper.components
-  
-  relics.param <- init_relics_mtxs_v2(relics.hyper, input.data, local.max, recompute.fs0)
-  
-  coverg.tol <- rep(input.convergence.tol, final.layer.nr)
-  
-  fs.result.lists <- initialize_fs_results_w_rel_pp(relics.param$deltas, 
-                                                   relics.param$pps, 
-                                                   input.data, 
-                                                   input.data$guide_efficiency,
-                                                   relics.hyper, 
-                                                   fix.hypers)
-  
-  for(i in 1:final.layer.nr){
-    print(paste0('Computing FS: ', i))
-    
-    fs.data <- relics_compute_FS_rel_CS_placement(input.param = relics.param,
-                                              input.hyper = relics.hyper,
-                                              input.data.list = input.data,
-                                              input.tol = coverg.tol[i],
-                                              nr.segs, geom.p,
-                                              min.pp = input.min.rs.pp, input.data$guide_efficiency,
-                                              one.dispersion,
-                                              local.max, local.max.range, analysis.parameters$areaOfEffect_type,
-                                              guide.dist.to.seg,
-                                              fix.hypers,
-                                              fs.result.lists,
-                                              analysis.parameters$fs_prior,
-                                              analysis.parameters$cs_params)
-    
-    # fs.data already contains the most recent additions
-    if(record.all.fs){
-      
-      record_fs_results_w_rel_pp(fs.data, analysis.parameters, input.data, i, relics.hyper, hyper.components, '')
-      
-    }
-    
-    if(sum(fs.data$deltas[i+1,]) < 1){
-      print('No more FS to detect.')
-      break()
-    }
-    
-    # update the results
-    fs.result.lists <- fs.data
-    
-    # prep the parameters for the next iteration (both the posteriors and hypers)
-    relics.hyper$L <- relics.hyper$L + 1
-    relics.param$pps <- rbind(fs.result.lists$posteriors, rep(0, ncol(relics.param$pps)))
-    relics.param$deltas <- rbind(fs.result.lists$deltas, rep(0, ncol(relics.param$deltas)))
-    relics.param$rel_pps <- rbind(fs.result.lists$rel_posteriors, rep(0, ncol(relics.param$pps)))
-    
-    # if the hyper parameters are reestimated after convergence of the posteriors
-    if(! fix.hypers & !iterative.hyper.est){
-      
-      relics.hyper.list <- c()
-      if(analysis.parameters$model_dispersion){
-        relics.hyper.list <- recompute_dirichlet_hypers_w_deltas(relics.param, 
-                                                                 input.data$guide_to_seg_lst, 
-                                                                 hyper.components, 
-                                                                 input.data$data, 
-                                                                 input.data$guide_efficiency, 
-                                                                 relics.hyper,
-                                                                 analysis.parameters)
-      } else {
-        relics.hyper.list <- recompute_hyper_parameters_w_deltas(relics.param,
-                                                                 relics.hyper,
-                                                                 hyper.components,
-                                                                 input.data$data,
-                                                                 input.data$guide_to_seg_lst,
-                                                                 input.data$guide_efficiency,
-                                                                 analysis.parameters)
-      }
-      
-      relics.hyper <- relics.hyper.list$hyper_pars
-      hyper.components <- relics.hyper.list$hyper_par_components
-    }
-    
-    if(! is.null(input.data$guide_efficiency_scores)){
-      if(! input.data$fixed_ge_coeff){
-        ge.list <- recompute_ge_coefficients_w_deltas(relics.param,
-                                                      hyper.components, #relics.hyper,
-                                                      input.data$data,
-                                                      input.data$guide_to_seg_lst,
-                                                      input.data$guide_efficiency_scores,
-                                                      input.data$ge_coeff)
-        
-        input.data$guide_efficiency <- ge.list$guide_efficiency
-        input.data$ge_coeff <- ge.list$ge_coeff
-      }
-    }
-  }
-  
-}
-
-
-#' @title Set initial hyper parameters, generate the fs posterior matrix and delta matrix
-#' @param hyper: hyperparameters
-#' @param in.data.list: list, $seg_info, $fs0_idx
-#' @param local.max: whether local.max is computed
-#' @param recompute.fs0: logical, whether FS0 should be recomputed
-#' @return list
-#' @export init_relics_mtxs_v2()
-
-init_relics_mtxs_v2 <- function(hyper, in.data.list, local.max, recompute.fs0) {
-  param <- list()
-  
-  #  posterior probabilities
-  param$pps <- matrix(0, nrow=hyper$L+1, ncol= nrow(in.data.list$seg_info)) #nrow(in.data.list$overlapMat))
-  
-  # first row is special and contains posterior probs of known regulatory elements
-  param$pps[1, in.data.list$fs0_idx] <- 1
-  
-  param$deltas <- param$pps
-  param$rel_pps <- param$pps
-  
-  param$ll_rt <- list()
-  
-  if(local.max){
-    param$ll_rt <- matrix(0, nrow=hyper$L+1, ncol= nrow(in.data.list$seg_info))
-  }
-  
-  if(recompute.fs0){
-    param$pps[1,] <- 0
-    param$deltas[1,] <- 0
-    param$rel_pps[1,] <- 0
-  }
-  
-  return(param)
-}
-
-
-#' @title initialize the results list
-#' @param input.pp, matrix of posterior probabilities
-#' @param dirichlet.hyper: hyper parameters
-#' @param input.data.list, list: $guide_to_seg_lst, $data, $true_pos_seg, $overlapMat, $guide_to_seg_lst, $seg_to_guide_lst
-#' @param guide.efficiency: data.frame of guide efficiences. Either vector of guide efficiency or NULL
-#' @param fix.hypers: logical, whether the hyperparameters are fixed
-#' @return list: posteriors, total_model_ll, conditional_fs_ll, model_fs_ll, fs_placement_ll, fs_total_ll
-#' @export initialize_fs_results_w_rel_pp()
-
-initialize_fs_results_w_rel_pp <- function(input.delta, input.pp, input.data.list, guide.efficiency, 
-                                          dirichlet.hyper, fix.hypers){
-  
-  fs.result.lists <- list()
-  fs.result.lists$posteriors <- input.pp
-  fs.result.lists$deltas <- input.delta
-  fs.result.lists$rel_posteriors <- input.pp
-  
-  dirichlet.guide.ll <- compute_perGuide_fs_ll(colSums(input.delta), input.data.list$guide_to_seg_lst)
-  total.model.ll <- 0
-  for(i in 1:length(input.data.list$data)){
-    temp.hypers <- list(alpha0 = dirichlet.hyper$alpha0[[i]], alpha1 = dirichlet.hyper$alpha1[[i]])
-    temp.sgRNa.ll <- estimate_relics_sgrna_log_like(temp.hypers,
-                                                    input.data.list$data[[i]],
-                                                    dirichlet.guide.ll,
-                                                    guide.efficiency)
-    
-    temp.dirichlet.ll <- sum(temp.sgRNa.ll$total_guide_ll)
-    total.model.ll <- total.model.ll + temp.dirichlet.ll
-  }
-  
-  # technically delta, but doesn't matter in this situation
-  temp.pp <- input.pp
-  temp.pp[1,] <- 0
-  temp.pp.sum <- colSums(temp.pp)
-  temp.pp.sum[temp.pp.sum > 1] <- 1
-  condit.guide.ll <- compute_perGuide_fs_ll(temp.pp.sum, input.data.list$guide_to_seg_lst)
-  
-  temp.cond.fs.ll <- 0
-  
-  for(r in 1:length(input.data.list$data)){
-    temp.hypers <- list(alpha0 = dirichlet.hyper$alpha0[[r]], alpha1 = dirichlet.hyper$alpha1[[r]])
-    temp.cond.sgRNa.ll <- estimate_relics_sgrna_log_like(temp.hypers,
-                                                         input.data.list$data[[r]],
-                                                         condit.guide.ll,
-                                                         guide.efficiency)
-    temp.cond.fs.ll <- temp.cond.fs.ll +  sum(temp.cond.sgRNa.ll$total_guide_ll)
-    
-  }
-  
-  fs.result.lists$total_model_ll <- total.model.ll
-  fs.result.lists$conditional_fs_ll <- temp.cond.fs.ll - total.model.ll # (the ll contribution of a single FS conditional on all other FS present) - (the total model ll)
-  fs.result.lists$total_model_ll_w_pp <- total.model.ll
-  fs.result.lists$conditional_fs_ll_w_pp <- temp.cond.fs.ll - total.model.ll
-  fs.result.lists$total_model_ll_w_rel_pp <- total.model.ll
-  fs.result.lists$conditional_fs_ll_w_rel_pp <- temp.cond.fs.ll - total.model.ll
-  fs.result.lists$fs_placement_ll <- 0 # the ll of placing a FS as this location and nowhere else (max ll of segment ll)
-  fs.result.lists$fs_placement_raw_ll <- 0
-  fs.result.lists$fs_total_ll <- 0 # the total ll of all the FS placement on all the segments
-  fs.result.lists$cs_total_pp <- 0 # the total ll of all the FS placement on all the segments
-  fs.result.lists$segment_lls <- c()
-  
-  return(fs.result.lists)
-}
-
-
-#' @title Wrapper function for recording the output from the most recent run
-#' @param input.results.list: lest, each element keeps track of results from a number of FS identified
-#' @param analysis.parameters: list containing all the analysis parameters
-#' @param input.data: list containing the counts
-#' @param relics.hyper: list, RELICS hyperparameters, alpha0 and alpha1, each list of df, one for each repl
-#' @param hyper.components: hyperpparameter components (alpha0 and alpha1 proportions and dispersions)
-#' @param file.extension: extension for files, either '', '_final', or '_recommendedFinal'
-#' @param fs.iter: current FS interation
-#' @return list with updated input.results.list
-#' @export record_fs_results_w_rel_pp()
-
-record_fs_results_w_rel_pp <- function(input.results.list, analysis.parameters, input.data, fs.iter, relics.hyper, hyper.components, file.extension){
-  
-  
-  record.posteriors <- input.results.list$posteriors
-  out.dir <- paste0(analysis.parameters$out_dir, '/', analysis.parameters$dataName)
-  
-  segment.lls <- input.results.list$segment_lls
-  
-  # plot the outputs
-  if(analysis.parameters$record_posteriors){
-    display_relics_fs_as_tiff(record.posteriors,
-                              input.data$segLabels,
-                              paste0(out.dir, file.extension, '_k_', fs.iter, '_PP'),
-                              analysis.parameters$min_fs_pp,
-                              input.data$seg_info)
-    display_relics_fs_as_tiff(input.results.list$rel_posteriors,
-                              input.data$segLabels,
-                              paste0(out.dir, file.extension, '_k_', fs.iter, '_rel_PP'),
-                              analysis.parameters$min_fs_pp,
-                              input.data$seg_info)
-  }
-  if(analysis.parameters$record_segment_lls){
-    display_relics_segLLs_as_tiff(segment.lls,
-                                  input.data$segLabels,
-                                  paste0(out.dir, file.extension, '_k_', fs.iter, '_segLLs'),
-                                  analysis.parameters$min_fs_pp,
-                                  input.data$seg_info)
-  }
-  
-  plot_fs_ll_stats_w_rel_pp_deltas(out.dir, fs.iter, input.results.list)
-  
-  ll_ratio_recording(input.data, analysis.parameters, relics.hyper, fs.iter)
-  
-  hyperparameter_recording(list(bkg_hyper = hyper.components$bkg_alpha, fs_hyper = hyper.components$FS_alpha, bkg_disp = hyper.components$bkg_dispersion), 
-                           fs.iter, hyper.components, analysis.parameters, file.extension)
-  
-  write.table(record.posteriors, file = paste0(out.dir, file.extension, '_k', fs.iter,'_pp.csv'), row.names = F, col.names = F, sep = ',')
-  write.table(input.results.list$deltas, file = paste0(out.dir, file.extension, '_k', fs.iter,'_deltas.csv'), row.names = F, col.names = F, sep = ',')
-  write.table(input.results.list$rel_posteriors, file = paste0(out.dir, file.extension, '_k', fs.iter,'_rel_pp.csv'), row.names = F, col.names = F, sep = ',')
-  
-  # record the segments with FS probabilities above the threshold.
-  all.seg.fs.df.final <- extract_fs_locations(record.posteriors, input.data$seg_info, analysis.parameters$min_fs_pp)
-  write.table(all.seg.fs.df.final, file = paste0(out.dir, file.extension, '_k', fs.iter,'_pp_FS_locations.bed'),
-              sep = '\t', quote = F, row.names = F, col.names = F)
-  
-  all.seg.fs.df.final <- extract_fs_locations(input.results.list$deltas, input.data$seg_info, analysis.parameters$min_fs_pp)
-  write.table(all.seg.fs.df.final, file = paste0(out.dir, file.extension, '_k', fs.iter,'_delta_FS_locations.bed'),
-              sep = '\t', quote = F, row.names = F, col.names = F)
-  
-  ll.df <- data.frame(FS = c(0:(length(input.results.list$total_model_ll)-1)) ,
-                      total_model_ll = input.results.list$total_model_ll,
-                      conditional_fs_ll = c(0, input.results.list$conditional_fs_ll),
-                      total_model_ll_w_pp = input.results.list$total_model_ll_w_pp,
-                      conditional_fs_ll_w_pp = c(0, input.results.list$conditional_fs_ll_w_pp),
-                      total_model_ll_w_rel_pp = input.results.list$total_model_ll_w_rel_pp,
-                      conditional_fs_ll_w_rel_pp = c(0, input.results.list$conditional_fs_ll_w_rel_pp),
-                      fs_placement_ll = input.results.list$fs_placement_ll,
-                      fs_placement_raw_ll = input.results.list$fs_placement_raw_ll,
-                      fs_total_ll = input.results.list$fs_total_ll,
-                      cs_total_pp = input.results.list$cs_total_pp,
-                      stringsAsFactors = F)
-  
-  # record all the model lls
-  write.csv(ll.df, file = paste0(out.dir, file.extension, '_k', fs.iter, '_model_lls.csv'), row.names = F)
-  
-  # guide efficiency vars:
-  if(! is.null(input.data$fixed_ge_coeff) && ! input.data$fixed_ge_coeff){
-    record.ge.coeff <- input.data$ge_coeff#[[fs.iter]]
-    ge.coff.df <- data.frame(ge_coeff = c('beta0', paste0('beta', 1:ncol(input.data$guide_efficiency_scores))),
-                             ge_coeff_scores = round(record.ge.coeff, 3))
-    write.csv(ge.coff.df, file = paste0(out.dir, file.extension, '_k', fs.iter, '_ge_coeff.csv'), row.names = F)
-  }
-  
-  total.record.posteriors <- colSums(record.posteriors)
-  total.record.posteriors[which(total.record.posteriors > 1)] <- 1
-  out.bedgraph <- input.data$seg_info
-  out.bedgraph$score <- total.record.posteriors
-  to.bg.list <- list(total_pp = out.bedgraph)
-  
-  total.rel.posteriors <- colSums(input.results.list$rel_posteriors)
-  total.rel.posteriors[which(total.rel.posteriors > 1)] <- 1
-  rel.pp.bedgraph <- input.data$seg_info
-  rel.pp.bedgraph$score <- total.rel.posteriors
-  to.bg.list$rel_pp <- rel.pp.bedgraph
-  
-  create_bedgraphs(to.bg.list, paste0(out.dir, file.extension, '_k', fs.iter) )
-  
-  # currently not recording effect sizes
-  # effect_size_recording(input.results.list, input.data, analysis.parameters, hyper.components, file.extension, fs.iter)
-}
-
-
-#' @title plot the ll results
-#' @param input.fs.results: list, with all the results
-#' @param fs.nr: how many FS have been calculated
-#' @param out.dir: directory to which to write
-#' @return list: $pp_ordered, $layer_ll_ordered
-#' @export plot_fs_ll_stats_w_rel_pp_deltas()
-
-plot_fs_ll_stats_w_rel_pp_deltas <- function(out.dir, fs.nr, input.fs.results){
-  
-  pdf(paste0(out.dir, '_k', fs.nr, '_summaryStatPlots.pdf'))
-  par(mfrow = c(3,2))
-  
-  # plot the progression of the total model ll with each FS
-  plot(x = c(0:(length(input.fs.results$total_model_ll) - 1) ), y = round(input.fs.results$total_model_ll, 2), 
-       main = 'Total Model ll progression', xlab = 'Nr. FS', ylab = 'll')
-  
-  # plot the conditional ll improvement with each FS added
-  plot(x = c(1:length(input.fs.results$conditional_fs_ll)), y = round(input.fs.results$conditional_fs_ll, 2), 
-       main = 'Conditional ll contribution of each FS', xlab = 'Nr. FS', ylab = 'll')
-  
-  # plot the progression of the total model ll with each FS
-  plot(x = c(0:(length(input.fs.results$total_model_ll_w_pp) - 1) ), y = round(input.fs.results$total_model_ll_w_pp, 2), 
-       main = 'Total Model ll progression (w/ pp)', xlab = 'Nr. FS', ylab = 'll')
-  
-  # plot the conditional ll improvement with each FS added
-  plot(x = c(1:length(input.fs.results$conditional_fs_ll_w_pp)), y = round(input.fs.results$conditional_fs_ll_w_pp, 2), 
-       main = 'Cond. ll contribution of each FS (w/ pp)', xlab = 'Nr. FS', ylab = 'll')
-  
-  # plot the progression of the total model ll with each FS
-  plot(x = c(0:(length(input.fs.results$total_model_ll_w_pp) - 1) ), y = round(input.fs.results$total_model_ll_w_rel_pp, 2), 
-       main = 'Total Model ll progression (rel pp)', xlab = 'Nr. FS', ylab = 'll')
-  
-  # plot the conditional ll improvement with each FS added
-  plot(x = c(1:length(input.fs.results$conditional_fs_ll_w_pp)), y = round(input.fs.results$conditional_fs_ll_w_rel_pp, 2), 
-       main = 'Cond. ll contribution of each FS (rel pp)', xlab = 'Nr. FS', ylab = 'll')
-  
-  dev.off()
-}
-
-
-#' @title compute the model lls fit
-#' @param input.pp, matrix of posterior probabilities
-#' @param dirichlet.hyper: hyper parameters
-#' @param input.data.list, list: $guide_to_seg_lst, $data, $true_pos_seg, $overlapMat, $guide_to_seg_lst, $seg_to_guide_lst
-#' @param guide.efficiency: data.frame of guide efficiences. Either vector of guide efficiency or NULL
-#' @param fix.hypers: logical, whether the hyperparameters are fixed
-#' @param input.model.ll: vector of ll for a given model
-#' @return list: total_model_ll, per_fs_ll (the model.ll increase for each FS, taking into account all other FS), model_ll_increase (the step-by-step increase in model ll with each FS)
-#' @export compute_model_ll_fit()
-
-compute_model_ll_fit <- function(input.pp, input.data.list, guide.efficiency, dirichlet.hyper, 
-                                      fix.hypers, input.model.ll){
-  
-  total.model.ll <- input.model.ll
-  
-  # take the sum across all weighted FS placements
-  # compute the model ll
-  combined.pp <- colSums(input.pp)
-  combined.pp[combined.pp > 1] <- 1
-  dirichlet.guide.ll <- compute_perGuide_fs_ll(combined.pp, input.data.list$guide_to_seg_lst)
-  
-  temp.total.model.ll <- 0
-  
-  for(i in 1:length(input.data.list$data)){
-    temp.hypers <- list(alpha0 = dirichlet.hyper$alpha0[[i]], alpha1 = dirichlet.hyper$alpha1[[i]])
-    temp.sgRNa.ll <- estimate_relics_sgrna_log_like(temp.hypers,
-                                                    input.data.list$data[[i]],
-                                                    dirichlet.guide.ll,
-                                                    guide.efficiency)
-    temp.dirichlet.ll <- sum(temp.sgRNa.ll$total_guide_ll)
-    temp.total.model.ll <- temp.total.model.ll + temp.dirichlet.ll
-  }
-  
-  total.model.ll <- c(total.model.ll, temp.total.model.ll)
-  
-  # compute the conditional contribution of each FS to the model (but not FS0)
-  conditional.fs.ll <- c()
-  cond.pp <- matrix(0, ncol = ncol(input.pp), nrow = nrow(input.pp))
-  for(fs in 1:nrow(input.pp)){
-    
-    cond.pp[fs,] <- input.pp[fs,]
-    temp.pp.sum <- colSums(cond.pp)
-    temp.pp.sum[temp.pp.sum > 1] <- 1
-    condit.guide.ll <- compute_perGuide_fs_ll(temp.pp.sum, input.data.list$guide_to_seg_lst)
-    
-    temp.cond.fs.ll <- 0
-    for(i in 1:length(input.data.list$data)){
-      temp.hypers <- list(alpha0 = dirichlet.hyper$alpha0[[i]], alpha1 = dirichlet.hyper$alpha1[[i]])
-      temp.cond.sgRNa.ll <- estimate_relics_sgrna_log_like(temp.hypers,
-                                                           input.data.list$data[[i]],
-                                                           condit.guide.ll,
-                                                           guide.efficiency)
-      temp.cond.fs.ll <- temp.cond.fs.ll +  sum(temp.cond.sgRNa.ll$total_guide_ll)
-    }
-    
-    conditional.fs.ll <- c(conditional.fs.ll, temp.cond.fs.ll)
-  }
-  
-  conditional.fs.ll.diff <- diff(conditional.fs.ll)
-  
-  out.list <- list(total_model_ll = total.model.ll,
-                   conditional_fs_ll = conditional.fs.ll.diff)
-  
-  return(out.list)
-  
-}
-
-
-
-#' @title Compute the placement of functional sequences and credible sets while accounting for the prior of adding fs
-#' @param input.param, list containing the matrix for the posteriors
-#' @param input.hyper: hyper parameters
-#' @param input.data.list, list: $guide_to_seg_lst, $data, $true_pos_seg, $overlapMat, $guide_to_seg_lst, $seg_to_guide_lst
-#' @param input.tol: nr of layers to create
-#' @param nr.segs: max. length a functional segment is considered to have
-#' @param geom.p: proababilty of the genometric distribution to penalize for enhancers of increasing length
-#' @param min.pp: minimum posterior required to be part of a regulatory set
-#' @param guide.efficiency: data.frame of guide efficiences. Either vector of guide efficiency or NULL
-#' @param one.dispersion: whether the hyper parameters should be estimated with one or two dispersions
-#' @param local.max: logical, whether a local maximum should be computed
-#' @param local.max.range: number of segments to include in addition to the the ones with highest PP (one way, so multiply by 2 for total nr of segs)
-#' @param area.of.effect: type of area of effect. Currently either 'normal' or 'uniform'
-#' @param guide.dist.to.seg, list of lists, pre-computed distances of guides to FS
-#' @param fix.hypers: logical, whether hyperparameters are to be fixed
-#' @return ll_tract, posterior_trace_list, alpha0_est, alpha1_est, max_iter_reached, fs_ll_rt_trace
-#' @export relics_compute_FS_rel_CS_placement()
-
-relics_compute_FS_rel_CS_placement <- function(input.param,
-                                           input.hyper,
-                                           input.data.list,
-                                           input.tol = 0.001,
-                                           nr.segs = 10, geom.p = 0.1,
-                                           min.pp = 0.1,
-                                           guide.efficiency,
-                                           one.dispersion,
-                                           local.max, local.max.range,  
-                                           area.of.effect,
-                                           guide.dist.to.seg, 
-                                           fix.hypers,
-                                           fs.result.lists,
-                                           fs.prior,
-                                           cs.params){
-  
-  
-  dirichlet.hyper <- input.hyper
-  posteriors <- input.param$pps
-  deltas <- input.param$deltas
-  rel.posteriors <- input.param$rel_pps
-
-  fs.model.list <- relics_estimate_FS_rel_CS_placement(posteriors,
-                                                          dirichlet.hyper,
-                                                          input.data.list$data,
-                                                          input.data.list$true_pos_seg,
-                                                          input.data.list$guide_to_seg_lst,
-                                                          input.data.list$seg_to_guide_lst,
-                                                          input.data.list$next_guide_lst,
-                                                          nr.segs, geom.p, guide.efficiency,
-                                                          local.max, local.max.range, area.of.effect,
-                                                          guide.dist.to.seg, fix.hypers,
-                                                          fs.result.lists, fs.prior,
-                                                          deltas, cs.params, rel.posteriors)
-  
-  dirichlet.pp.model.lls <- compute_model_ll_fit(fs.model.list$posteriors, input.data.list, 
-                                                      guide.efficiency, dirichlet.hyper, fix.hypers, 
-                                                      fs.result.lists$total_model_ll_w_pp)
-  
-  dirichlet.rel.pp.model.lls <- compute_model_ll_fit(fs.model.list$rel_posteriors, input.data.list, 
-                                                      guide.efficiency, dirichlet.hyper, fix.hypers, 
-                                                      fs.result.lists$total_model_ll_w_rel_pp)
-  
-  dirichlet.delta.model.lls <- compute_model_w_deltas(fs.model.list$deltas, input.data.list, 
-                                                      guide.efficiency, dirichlet.hyper, fix.hypers, 
-                                                      fs.result.lists)
-  
-  out.list <- list(posteriors = fs.model.list$posteriors,
-                   deltas = fs.model.list$deltas,
-                   rel_posteriors = fs.model.list$rel_posteriors,
-                   total_model_ll = dirichlet.delta.model.lls$total_model_ll,
-                   conditional_fs_ll = dirichlet.delta.model.lls$conditional_fs_ll,
-                   total_model_ll_w_pp = dirichlet.pp.model.lls$total_model_ll,
-                   conditional_fs_ll_w_pp = dirichlet.pp.model.lls$conditional_fs_ll,
-                   total_model_ll_w_rel_pp = dirichlet.rel.pp.model.lls$total_model_ll,
-                   conditional_fs_ll_w_rel_pp = dirichlet.rel.pp.model.lls$conditional_fs_ll,
-                   fs_placement_ll = fs.model.list$fs_placement_ll,
-                   fs_placement_raw_ll = fs.model.list$fs_placement_raw_ll,
-                   fs_total_ll = fs.model.list$fs_total_ll,
-                   segment_lls = fs.model.list$segment_lls,
-                   cs_total_pp = fs.model.list$cs_total_pp)
-  
-  return(out.list)
-}
-
-
-#' @title use estimated posterior probabilities for identifying credible sets
-#' @param hyper: hyperparameters
-#' @param posteriors: matrix of posterior probabilities
-#' @param data: list, each element is a replicate
-#' @param known.reg: region positions of the known regions
-#' @param guide.to.seg.lst: mapping of guides to segments
-#' @param seg.to.guide.lst: mapping of segments to guides, both $guide_idx, $nonGuide_idx
-#' @param next.guide.lst: list that contains the index of $next_guide_idx and next_nonGuide_idx
-#' @param nr.segs: max number of segemnts that can be combined
-#' @param geom.p: probability of the geometic distribution used to calculate the probability of there being x segments in the regulatory element
-#' @param guide.efficiency: data.frame of guide efficiences. Either vector of guide efficiency or NULL
-#' @param local.max: logical, whether a local maximum should be computed
-#' @param local.max.range: number of segments to include in addition to the the ones with highest PP (one way, so multiply by 2 for total nr of segs)
-#' @param area.of.effect: type of area of effect. Currently either 'normal' or 'uniform'
-#' @param guide.dist.to.seg, list of lists, pre-computed distances of guides to FS
-#' @param fix.hypers, logical, whether the hyperparameters are supposed to be fixed
-#' @param fs.result.lists, list, requires $fs_placement_ll, $fs_total_ll
-#' @param input.delta: delta matrix, containing the placement of FS
-#' @return log likelihood for each region
-#' @export relics_estimate_FS_rel_CS_placement()
-
-relics_estimate_FS_rel_CS_placement <- function(input.posteriors, hyper, data, known.reg,
-                                                   guide.to.seg.lst, seg.to.guide.lst,
-                                                   next.guide.lst, nr.segs = 10,
-                                                   geom.p = 0.1, guide.efficiency,
-                                                   local.max, local.max.range, area.of.effect,
-                                                   guide.dist.to.seg, fix.hypers, fs.result.lists,
-                                                   fs.prior, input.delta, cs.params, input.rel.posteriors) {
-  
-  posteriors <- input.posteriors
-  delta.mtx <- input.delta
-  rel.posteriors <- input.rel.posteriors
-  
-  segment.lls <- fs.result.lists$segment_lls
-  if(is.null(segment.lls)){
-    segment.lls <- matrix(0, ncol = ncol(delta.mtx))
-  } else {
-    segment.lls <- rbind(segment.lls, rep(0, ncol(delta.mtx)))
-  }
-  
-  n.sgrna <- length(guide.to.seg.lst)
-  n.region <- length(seg.to.guide.lst)
-  fs.placement.ll <- c(fs.result.lists$fs_placement_ll, 0)
-  fs.placement.raw.ll <- c(fs.result.lists$fs_placement_raw_ll, 0)
-  fs.total.ll <- c(fs.result.lists$fs_total_ll, 0)
-  cs.total.pp <- c(fs.result.lists$cs_total_pp, 0)
-
-  k.idx <- nrow(posteriors)
-  if(! fix.hypers){
-    k.idx <- 2
-    fs.placement.ll <- fs.placement.ll[1]
-    fs.total.ll <- fs.total.ll[1]
-    fs.placement.raw.ll <- fs.placement.raw.ll[1]
-    segment.lls <- matrix(0, ncol = ncol(delta.mtx), nrow = nrow(posteriors)-1)
-  }
-  
-  new.delta.mtx <- delta.mtx
-  new.rel.posteriors <- rel.posteriors
-  for(fs in k.idx:nrow(new.delta.mtx)){
-    ll.of.placement <- c() 
-    # temp.delta.mtx <- new.delta.mtx
-    # temp.delta.mtx[fs, ] <- 0
-    new.delta.mtx[fs, ] <- 0
-    
-    # temp.rel.pp <- new.rel.posteriors
-    # temp.rel.pp[fs,] <- 0
-    new.rel.posteriors[fs, ] <- 0
-    fs.config <- colSums(new.rel.posteriors)
-    
-    # Compute the ll for each RE length for both replicates, combine the lls and then add to the ll total
-    # set up the data structues as lists to access the different replicates
-    layer.guide.ll <- compute_perGuide_fs_ll(fs.config, guide.to.seg.lst) # processed.pp
-    sgrna.log.like.list <- list()
-    data.mat.list <- list()
-    data.total.list <- list()
-    
-    for(repl in 1:length(data)){
-      temp.hypers <- list(alpha0 = hyper$alpha0[[repl]], alpha1 = hyper$alpha1[[repl]])
-      temp.data <- data[[repl]]
-      temp.data.counts <- temp.data[, c(1:(ncol(temp.data) - 1))]
-      temp.data.totals <- temp.data[, ncol(temp.data)]
-      
-      data.mat.list[[repl]] <- temp.data.counts
-      data.total.list[[repl]] <- temp.data.totals
-      
-      temp.sgrna.log.like <- estimate_relics_sgrna_log_like(temp.hypers, temp.data, layer.guide.ll, guide.efficiency)
-      sgrna.log.like.list[[repl]] <- temp.sgrna.log.like
-      
-    }
-    
-    fs.pps <- c()
-    if(area.of.effect == 'normal'){
-      # to Do!
-      fs.pps.list <- estimate_fs_AoE_pp_norm_RelMax(hyper, data.mat.list, data.total.list, guide.to.seg.lst,
-                                                seg.to.guide.lst, next.guide.lst, nr.segs, geom.p, 
-                                                sgrna.log.like.list, seg.adjust = 0, 
-                                                total.segs = length(seg.to.guide.lst),
-                                                guide.dist.to.seg, fs.config)
-      fs.pps <- fs.pps.list$seg_pp
-      fs.lls <- fs.pps.list$segment_lls
-      fs.total.lls <- fs.pps.list$total_ll
-      raw.seg.ll <- fs.pps.list$raw_segment_lls
-    } else {
-      fs.pps.list <- estimate_fs_pp_norm_RelMax(seg.to.guide.lst, next.guide.lst, 
-                                            nr.segs, geom.p, sgrna.log.like.list,
-                                            ll.of.placement, fs.config)
-      fs.pps <- fs.pps.list$seg_pp
-      fs.lls <- fs.pps.list$segment_lls
-      fs.total.lls <- fs.pps.list$total_ll
-      raw.seg.ll <- fs.pps.list$raw_segment_lls
-    }
-    
-    max.fs.pps.idx <- which(fs.pps == max(fs.pps)[1])
-    fs.lls.max <- fs.lls[max.fs.pps.idx][1]
-    fs.placement.ll[fs] <- fs.lls.max
-    
-    fs.placement.raw.ll[fs] <- raw.seg.ll[max.fs.pps.idx][1]
-    
-    posteriors[fs, ] <- fs.pps
-    
-    fs.total.ll[fs] <- fs.total.lls
-    
-    segment.lls[fs-1,] <- fs.lls
-    
-    # compute CS
-    # need to comput both the idx and the relative pp
-    # $cs_idx, $rel_cs_pp, $cs_total_pp
-    rel.cs.list <- compute_rel_CS_from_pp_SW(fs.pps, cs.params)
-    fs.delta.idx <- rel.cs.list$cs_idx
-    new.delta.mtx[fs, fs.delta.idx] <- 1
-    
-    new.rel.posteriors[fs,fs.delta.idx] <- rel.cs.list$rel_cs_pp
-    cs.total.pp[fs] <- rel.cs.list$cs_total_pp
-
-  }
-  
-  out.list <- list(posteriors = posteriors,
-                   deltas = new.delta.mtx,
-                   fs_placement_ll = fs.placement.ll,
-                   fs_total_ll = fs.total.ll,
-                   fs_placement_raw_ll = fs.placement.raw.ll,
-                   segment_lls = segment.lls,
-                   rel_posteriors = new.rel.posteriors,
-                   cs_total_pp = cs.total.pp)
-  
-  return(out.list)
-  
-}
-
-
-#' @title Compute the credible set from the PP to update the delata matrix. Use a sliding window to determine optimal CS idx
-#' @param input.pp: vector of pp
-#' @param cs.params: list, $cs_sw_size, $cs_threshold
-#' @return index of optimal CS
-#' @export compute_rel_CS_from_pp_SW()
-
-compute_rel_CS_from_pp_SW <- function(input.pp, cs.params){
-  
-  window.size <- cs.params$cs_sw_size
-  sw.idx.list <- list()
-  max.sw.pp <- 0
-  max.sw.idx <- c()
-  max.idx.total.pp <- 0
-  sw.pp <- vector('numeric', length = length(input.pp) - window.size + 1)
-  median.pp <- median(input.pp)
-  
-  for(i in 1:(length(input.pp) - window.size + 1)){
-    
-    temp.sw.idx <- c(1:window.size) + (i-1)
-    temp.pp <- input.pp[temp.sw.idx]
-    temp.pp.sum <- sum(temp.pp)
-    temp.sw.idx.ordered <- temp.sw.idx[order(temp.pp, decreasing = TRUE)]
-    temp.pp.ordered <- temp.pp[order(temp.pp, decreasing = TRUE)]
-    
-    # compute the relative proportion of the CS
-    temp.sw.idx.pass <- c()
-    for(j in 1:length(temp.sw.idx.ordered)){
-      temp.sw.pp.sum <- sum(temp.pp.ordered[1:j])
-      temp.fract.pp <- temp.sw.pp.sum / temp.pp.sum
-      temp.sw.idx.pass <- c(temp.sw.idx.pass, temp.sw.idx.ordered[j])
-      if(temp.fract.pp > cs.params$cs_threshold){
-        if(temp.sw.pp.sum > max.sw.pp){
-          max.sw.pp <- temp.sw.pp.sum
-          max.sw.idx <- temp.sw.idx.pass
-          max.idx.total.pp <- temp.pp.sum
-        }
-        sw.idx.list[[i]] <- temp.sw.idx.pass
-        sw.pp[i] <- temp.sw.pp.sum
-        break()
-      }
-    }
-  }
-  
-  # the the FS output is to be continous, set the idx to the range from min to max idx
-  if(cs.params$cs_sw_continous){
-    min.idx <- min(max.sw.idx)
-    max.idx <- max(max.sw.idx)
-    idx.range <- min.idx:max.idx
-  } else {
-    idx.range <- max.sw.idx
-  }
-  max.sw.pp.idx <- idx.range
-  max.sw.rel.pp <- input.pp[max.sw.pp.idx] / max.idx.total.pp
-  
-  if(sum(input.pp[max.sw.pp.idx]) < cs.params$min_cs_sum){
-    out.list <- list(cs_idx = NULL,
-                     rel_cs_pp = 0,
-                     cs_total_pp = 0)
-    return(out.list)
-  } else {
-    out.list <- list(cs_idx = max.sw.pp.idx,
-                     rel_cs_pp = max.sw.rel.pp,
                      cs_total_pp = max.sw.pp)
     return(out.list)
   }
@@ -2375,150 +2136,6 @@ estimate_fs_pp_norm_RelMax <- function(seg.to.guide.lst, next.guide.lst, nr.segs
 }
 
 
-
-#' @title Run RELICS v5. Iteratively place FS. Calculate the CS to place FS
-#' @param input.data: list: $guide_to_seg_lst, $data, $fs0_idx, $overlapMat, $guide_to_seg_lst, $seg_to_guide_lst
-#' @param final.layer.nr: number of layers to go up to
-#' @param out.dir: directory to which all files are to be written. Default = NULL
-#' @param adjust.tol: whether convergence tolerance should be adjusted dynamically as layers are computed (increasingly more rigorous)
-#' @param fix.hypers: whether the input parameters remain unchanged or are altered after calculation of posteriors. Default = FALSE
-#' @param iterative.hyper.est: whether hyper parameters are to be estimated iteratively with the posteriors (TRUE) or after convergence of posteriors (FALSE)
-#' @param input.hypers: list, $alpha0, $alpha1, both elements contain lists of length wequal to nr. replicates (input.hypers$alpha0[[1]])
-#' @param nr.segs, number of segments to consider for the length of a regulatory element
-#' @param geom.p: proababilty of the genometric distribution to penalize for enhancers of increasing length
-#' @param fs.correlation.cutoff: what correlation between layers determines stopping of layer calculation (default: 0.1)
-#' @param input.min.rs.pp: minimum posterior required to be part of a regulatory set
-#' @param auto.stop: whether or not computations should be stopped after recomended stopping point
-#' @param record.all.fs: logical, if information of all intermediate FS should be recorded, in addition to the final set of FS
-#' @param one.dispersion: whether there should be one or 2 dispersions estimated for the 2 hyper parameters
-#' @param recompute.fs0: logical, whether FS0 is to be set to 0 or keep the initial assignment
-#' @param local.max: logical, whether a local maximum should be computed
-#' @param local.max.range: number of segments to include in addition to the the ones with highest PP (one way, so multiply by 2 for total nr of segs)
-#' @param pool.names, if not NULL, the names of the pools to be used when recording output
-#' @param mean.var.type: type of mean-variance relationship
-#' @param pp.calculation: what version to use when calculating PP. 'v2'is for computing with normal AoE
-#' @param analysis.parameters: list, contains various elements used for analysis
-#' @param guide.dist.to.seg, list of lists, pre-computed distances of guides to FS
-#' @return list of final per-layer posteriors
-#' @export run_RELICS_5()
-
-run_RELICS_5 <- function(input.data, final.layer.nr, out.dir = NULL,
-                         fix.hypers = FALSE,
-                         iterative.hyper.est = FALSE,
-                         input.hypers = NULL,
-                         input.hyper.components,
-                         nr.segs = 10,
-                         geom.p = 0.1,
-                         fs.correlation.cutoff = 0.1,
-                         input.min.rs.pp = 0.1,
-                         auto.stop = TRUE,
-                         record.all.fs,
-                         input.convergence.tol = 0.01,
-                         adjust.tol = TRUE,
-                         one.dispersion = TRUE,
-                         recompute.fs0,
-                         local.max, local.max.range,
-                         pool.names,
-                         mean.var.type,
-                         pp.calculation,
-                         analysis.parameters,
-                         guide.dist.to.seg){
-  
-  relics.hyper <- input.hypers #c()
-  hyper.components <- input.hyper.components
-  
-  relics.param <- init_relics_mtxs(relics.hyper, input.data, local.max, recompute.fs0)
-  
-  coverg.tol <- rep(input.convergence.tol, final.layer.nr)
-  
-  fs.result.lists <- initialize_fs_results_w_delta(relics.param$deltas, 
-                                                   relics.param$pps, 
-                                                    input.data, 
-                                                    input.data$guide_efficiency,
-                                                    relics.hyper, 
-                                                    fix.hypers)
-  
-  for(i in 1:final.layer.nr){
-    print(paste0('Computing FS: ', i))
-    
-    fs.data <- relics_compute_FS_CS_placement(input.param = relics.param,
-                                                    input.hyper = relics.hyper,
-                                                    input.data.list = input.data,
-                                                    input.tol = coverg.tol[i],
-                                                    nr.segs, geom.p,
-                                                    min.pp = input.min.rs.pp, input.data$guide_efficiency,
-                                                    one.dispersion,
-                                                    local.max, local.max.range, analysis.parameters$areaOfEffect_type,
-                                                    guide.dist.to.seg,
-                                                    fix.hypers,
-                                                    fs.result.lists,
-                                                    analysis.parameters$fs_prior,
-                                              analysis.parameters$cs_params)
-
-    # fs.data already contains the most recent additions
-    if(record.all.fs){
-      
-      record_fs_results_w_deltas(fs.data, analysis.parameters, input.data, i, relics.hyper, hyper.components, '')
-      
-    }
-    
-    if(sum(fs.data$deltas[i+1,]) < 1){
-      print('No more FS to detect.')
-      break()
-    }
-    
-    # update the results
-    fs.result.lists <- fs.data
-    
-    # prep the parameters for the next iteration (both the posteriors and hypers)
-    relics.hyper$L <- relics.hyper$L + 1
-    relics.param$pps <- rbind(fs.result.lists$posteriors, rep(0, ncol(relics.param$pps)))
-    relics.param$deltas <- rbind(fs.result.lists$deltas, rep(0, ncol(relics.param$deltas)))
-    
-    # if the hyper parameters are reestimated after convergence of the posteriors
-    if(! fix.hypers & !iterative.hyper.est){
-      
-      relics.hyper.list <- c()
-      if(analysis.parameters$model_dispersion){
-        relics.hyper.list <- recompute_dirichlet_hypers_w_deltas(relics.param, 
-                                                        input.data$guide_to_seg_lst, 
-                                                        hyper.components, 
-                                                        input.data$data, 
-                                                        input.data$guide_efficiency, 
-                                                        relics.hyper,
-                                                        analysis.parameters)
-      } else {
-        relics.hyper.list <- recompute_hyper_parameters_w_deltas(relics.param,
-                                                        relics.hyper,
-                                                        hyper.components,
-                                                        input.data$data,
-                                                        input.data$guide_to_seg_lst,
-                                                        input.data$guide_efficiency,
-                                                        analysis.parameters)
-      }
-      
-      relics.hyper <- relics.hyper.list$hyper_pars
-      hyper.components <- relics.hyper.list$hyper_par_components
-    }
-    
-    if(! is.null(input.data$guide_efficiency_scores)){
-      if(! input.data$fixed_ge_coeff){
-        ge.list <- recompute_ge_coefficients_w_deltas(relics.param,
-                                             hyper.components, #relics.hyper,
-                                             input.data$data,
-                                             input.data$guide_to_seg_lst,
-                                             input.data$guide_efficiency_scores,
-                                             input.data$ge_coeff)
-        
-        input.data$guide_efficiency <- ge.list$guide_efficiency
-        input.data$ge_coeff <- ge.list$ge_coeff
-      }
-    }
-  }
-  
-}
-
-
 #' @title wrapper which returns the updated guide efficiency and the corresponding coefficients used to calculate it
 #' @param hyper.components: hyperparameters components, 
 #' @param param: matrix of all posterior probs
@@ -2571,7 +2188,6 @@ recompute_ge_coefficients_w_deltas <- function(param, hyper.components, data, gu
   
   return(out.list)
 }
-
 
 
 #' @title re-estimate the dirichlet sorting proportions (dispersions are already provided)
@@ -2699,1946 +2315,6 @@ recompute_hyper_parameters_w_deltas <- function(param, hyper, hyper.components, 
 }
 
 
-#' @title Wrapper function for recording the output from the most recent run
-#' @param input.results.list: lest, each element keeps track of results from a number of FS identified
-#' @param analysis.parameters: list containing all the analysis parameters
-#' @param input.data: list containing the counts
-#' @param relics.hyper: list, RELICS hyperparameters, alpha0 and alpha1, each list of df, one for each repl
-#' @param hyper.components: hyperpparameter components (alpha0 and alpha1 proportions and dispersions)
-#' @param file.extension: extension for files, either '', '_final', or '_recommendedFinal'
-#' @param fs.iter: current FS interation
-#' @return list with updated input.results.list
-#' @export record_fs_results_w_deltas()
-
-record_fs_results_w_deltas <- function(input.results.list, analysis.parameters, input.data, fs.iter, relics.hyper, hyper.components, file.extension){
-  
-  
-  record.posteriors <- input.results.list$posteriors
-  out.dir <- paste0(analysis.parameters$out_dir, '/', analysis.parameters$dataName)
-  
-  segment.lls <- input.results.list$segment_lls
-  
-  # plot the outputs
-  if(analysis.parameters$record_posteriors){
-    display_relics_fs_as_tiff(record.posteriors,
-                              input.data$segLabels,
-                              paste0(out.dir, file.extension, '_k_', fs.iter, '_PP'),
-                              analysis.parameters$min_fs_pp,
-                              input.data$seg_info)
-  }
-  if(analysis.parameters$record_segment_lls){
-    display_relics_segLLs_as_tiff(segment.lls,
-                                  input.data$segLabels,
-                                  paste0(out.dir, file.extension, '_k_', fs.iter, '_segLLs'),
-                                  analysis.parameters$min_fs_pp,
-                                  input.data$seg_info)
-  }
-  plot_fs_ll_stats_w_deltas(out.dir, fs.iter, input.results.list)
-  
-  ll_ratio_recording(input.data, analysis.parameters, relics.hyper, fs.iter)
-  
-  hyperparameter_recording(list(bkg_hyper = hyper.components$bkg_alpha, fs_hyper = hyper.components$FS_alpha, bkg_disp = hyper.components$bkg_dispersion), 
-                           fs.iter, hyper.components, analysis.parameters, file.extension)
-  
-  write.table(record.posteriors, file = paste0(out.dir, file.extension, '_k', fs.iter,'_pp.csv'), row.names = F, col.names = F, sep = ',')
-  write.table(input.results.list$deltas, file = paste0(out.dir, file.extension, '_k', fs.iter,'_deltas.csv'), row.names = F, col.names = F, sep = ',')
-  
-  # record the segments with FS probabilities above the threshold.
-  all.seg.fs.df.final <- extract_fs_locations(record.posteriors, input.data$seg_info, analysis.parameters$min_fs_pp)
-  write.table(all.seg.fs.df.final, file = paste0(out.dir, file.extension, '_k', fs.iter,'_pp_FS_locations.bed'),
-              sep = '\t', quote = F, row.names = F, col.names = F)
-  
-  all.seg.fs.df.final <- extract_fs_locations(input.results.list$deltas, input.data$seg_info, analysis.parameters$min_fs_pp)
-  write.table(all.seg.fs.df.final, file = paste0(out.dir, file.extension, '_k', fs.iter,'_delta_FS_locations.bed'),
-              sep = '\t', quote = F, row.names = F, col.names = F)
-  
-  ll.df <- data.frame(FS = c(0:(length(input.results.list$total_model_ll)-1)) ,
-                      total_model_ll = input.results.list$total_model_ll,
-                      conditional_fs_ll = c(0, input.results.list$conditional_fs_ll),
-                      total_model_ll_w_pp = input.results.list$total_model_ll_w_pp,
-                      conditional_fs_ll_w_pp = c(0, input.results.list$conditional_fs_ll_w_pp),
-                      fs_placement_ll = input.results.list$fs_placement_ll,
-                      fs_placement_raw_ll = input.results.list$fs_placement_raw_ll,
-                      fs_total_ll = input.results.list$fs_total_ll,
-                      stringsAsFactors = F)
-  
-  # record all the model lls
-  write.csv(ll.df, file = paste0(out.dir, file.extension, '_k', fs.iter, '_model_lls.csv'), row.names = F)
-  
-  # guide efficiency vars:
-  if(! is.null(input.data$fixed_ge_coeff) && ! input.data$fixed_ge_coeff){
-    record.ge.coeff <- input.data$ge_coeff#[[fs.iter]]
-    ge.coff.df <- data.frame(ge_coeff = c('beta0', paste0('beta', 1:ncol(input.data$guide_efficiency_scores))),
-                             ge_coeff_scores = round(record.ge.coeff, 3))
-    write.csv(ge.coff.df, file = paste0(out.dir, file.extension, '_k', fs.iter, '_ge_coeff.csv'), row.names = F)
-  }
-  
-  total.record.posteriors <- colSums(record.posteriors)
-  total.record.posteriors[which(total.record.posteriors > 1)] <- 1
-  out.bedgraph <- input.data$seg_info
-  out.bedgraph$score <- total.record.posteriors
-  to.bg.list <- list(total_pp = out.bedgraph)
-  
-  create_bedgraphs(to.bg.list, paste0(out.dir, file.extension, '_k', fs.iter) )
-  
-  # currently not recording effect sizes
-  # effect_size_recording(input.results.list, input.data, analysis.parameters, hyper.components, file.extension, fs.iter)
-}
-
-
-#' @title plot the ll results
-#' @param input.fs.results: list, with all the results
-#' @param fs.nr: how many FS have been calculated
-#' @param out.dir: directory to which to write
-#' @return list: $pp_ordered, $layer_ll_ordered
-#' @export plot_fs_ll_stats_w_deltas()
-
-plot_fs_ll_stats_w_deltas <- function(out.dir, fs.nr, input.fs.results){
-  
-  pdf(paste0(out.dir, '_k', fs.nr, '_summaryStatPlots.pdf'))
-  par(mfrow = c(2,2))
-  
-  # plot the progression of the total model ll with each FS
-  plot(x = c(0:(length(input.fs.results$total_model_ll) - 1) ), y = input.fs.results$total_model_ll, 
-       main = 'Total Model ll progression', xlab = 'Nr. FS', ylab = 'll')
-  
-  # plot the conditional ll improvement with each FS added
-  plot(x = c(1:length(input.fs.results$conditional_fs_ll)), y = input.fs.results$conditional_fs_ll, 
-       main = 'Conditional ll contribution of each FS', xlab = 'Nr. FS', ylab = 'll')
-  
-  # plot the progression of the total model ll with each FS
-  plot(x = c(0:(length(input.fs.results$total_model_ll_w_pp) - 1) ), y = input.fs.results$total_model_ll_w_pp, 
-       main = 'Total Model ll progression (w/ pp)', xlab = 'Nr. FS', ylab = 'll')
-  
-  # plot the conditional ll improvement with each FS added
-  plot(x = c(1:length(input.fs.results$conditional_fs_ll_w_pp)), y = input.fs.results$conditional_fs_ll_w_pp, 
-       main = 'Conditional ll contribution of each FS (w/ pp)', xlab = 'Nr. FS', ylab = 'll')
-  
-  # # plot the normalized ll of placing said FS
-  # plot(x = c(1:(length(input.fs.results$fs_placement_ll)-1) ), y = input.fs.results$fs_placement_ll[2:length(input.fs.results$fs_placement_ll)], 
-  #      main = 'Normalized FS placement ll', xlab = 'Nr. FS', ylab = 'll')
-  # 
-  # # plot the total model ll of placing said FS
-  # plot(x = c(1:(length(input.fs.results$fs_total_ll)-1) ), y = input.fs.results$fs_total_ll[2:length(input.fs.results$fs_total_ll)], 
-  #      main = 'Total ll of FS placements', xlab = 'Nr. FS', ylab = 'll')
-  
-  dev.off()
-}
-
-
-#' @title Set initial hyper parameters, generate the fs posterior matrix and delta matrix
-#' @param hyper: hyperparameters
-#' @param in.data.list: list, $seg_info, $fs0_idx
-#' @param local.max: whether local.max is computed
-#' @param recompute.fs0: logical, whether FS0 should be recomputed
-#' @return list
-#' @export init_relics_mtxs()
-
-init_relics_mtxs <- function(hyper, in.data.list, local.max, recompute.fs0) {
-  param <- list()
-  
-  #  posterior probabilities
-  param$pps <- matrix(0, nrow=hyper$L+1, ncol= nrow(in.data.list$seg_info)) #nrow(in.data.list$overlapMat))
-  
-  # first row is special and contains posterior probs of known regulatory elements
-  param$pps[1, in.data.list$fs0_idx] <- 1
-  
-  param$deltas <- param$pps
-  
-  param$ll_rt <- list()
-  
-  if(local.max){
-    param$ll_rt <- matrix(0, nrow=hyper$L+1, ncol= nrow(in.data.list$seg_info))
-  }
-  
-  if(recompute.fs0){
-    param$pps[1,] <- 0
-    param$deltas[1,] <- 0
-  }
-  
-  return(param)
-}
-
-
-#' @title initialize the results list
-#' @param input.pp, matrix of posterior probabilities
-#' @param dirichlet.hyper: hyper parameters
-#' @param input.data.list, list: $guide_to_seg_lst, $data, $true_pos_seg, $overlapMat, $guide_to_seg_lst, $seg_to_guide_lst
-#' @param guide.efficiency: data.frame of guide efficiences. Either vector of guide efficiency or NULL
-#' @param fix.hypers: logical, whether the hyperparameters are fixed
-#' @return list: posteriors, total_model_ll, conditional_fs_ll, model_fs_ll, fs_placement_ll, fs_total_ll
-#' @export initialize_fs_results_w_delta()
-
-initialize_fs_results_w_delta <- function(input.delta, input.pp, input.data.list, guide.efficiency, 
-                                           dirichlet.hyper, fix.hypers){
-  
-  fs.result.lists <- list()
-  fs.result.lists$posteriors <- input.pp
-  fs.result.lists$deltas <- input.delta
-  
-  dirichlet.guide.ll <- compute_perGuide_fs_ll(colSums(input.delta), input.data.list$guide_to_seg_lst)
-  total.model.ll <- 0
-  for(i in 1:length(input.data.list$data)){
-    temp.hypers <- list(alpha0 = dirichlet.hyper$alpha0[[i]], alpha1 = dirichlet.hyper$alpha1[[i]])
-    temp.sgRNa.ll <- estimate_relics_sgrna_log_like(temp.hypers,
-                                                    input.data.list$data[[i]],
-                                                    dirichlet.guide.ll,
-                                                    guide.efficiency)
-    
-    temp.dirichlet.ll <- sum(temp.sgRNa.ll$total_guide_ll)
-    total.model.ll <- total.model.ll + temp.dirichlet.ll
-  }
-  
-  # technically delta, but doesn't matter in this situation
-  temp.pp <- input.pp
-  temp.pp[1,] <- 0
-  temp.pp.sum <- colSums(temp.pp)
-  temp.pp.sum[temp.pp.sum > 1] <- 1
-  condit.guide.ll <- compute_perGuide_fs_ll(temp.pp.sum, input.data.list$guide_to_seg_lst)
-  
-  temp.cond.fs.ll <- 0
-  
-  for(r in 1:length(input.data.list$data)){
-    temp.hypers <- list(alpha0 = dirichlet.hyper$alpha0[[r]], alpha1 = dirichlet.hyper$alpha1[[r]])
-    temp.cond.sgRNa.ll <- estimate_relics_sgrna_log_like(temp.hypers,
-                                                         input.data.list$data[[r]],
-                                                         condit.guide.ll,
-                                                         guide.efficiency)
-    temp.cond.fs.ll <- temp.cond.fs.ll +  sum(temp.cond.sgRNa.ll$total_guide_ll)
-    
-  }
-  
-  fs.result.lists$total_model_ll <- total.model.ll
-  fs.result.lists$conditional_fs_ll <- temp.cond.fs.ll - total.model.ll # (the ll contribution of a single FS conditional on all other FS present) - (the total model ll)
-  fs.result.lists$total_model_ll_w_pp <- total.model.ll
-  fs.result.lists$conditional_fs_ll_w_pp <- temp.cond.fs.ll - total.model.ll
-  fs.result.lists$fs_placement_ll <- 0 # the ll of placing a FS as this location and nowhere else (max ll of segment ll)
-  fs.result.lists$fs_placement_raw_ll <- 0
-  fs.result.lists$fs_total_ll <- 0 # the total ll of all the FS placement on all the segments
-  fs.result.lists$segment_lls <- c()
-  
-  return(fs.result.lists)
-}
-
-
-#' @title Compute the placement of functional sequences and credible sets while accounting for the prior of adding fs
-#' @param input.param, list containing the matrix for the posteriors
-#' @param input.hyper: hyper parameters
-#' @param input.data.list, list: $guide_to_seg_lst, $data, $true_pos_seg, $overlapMat, $guide_to_seg_lst, $seg_to_guide_lst
-#' @param input.tol: nr of layers to create
-#' @param nr.segs: max. length a functional segment is considered to have
-#' @param geom.p: proababilty of the genometric distribution to penalize for enhancers of increasing length
-#' @param min.pp: minimum posterior required to be part of a regulatory set
-#' @param guide.efficiency: data.frame of guide efficiences. Either vector of guide efficiency or NULL
-#' @param one.dispersion: whether the hyper parameters should be estimated with one or two dispersions
-#' @param local.max: logical, whether a local maximum should be computed
-#' @param local.max.range: number of segments to include in addition to the the ones with highest PP (one way, so multiply by 2 for total nr of segs)
-#' @param area.of.effect: type of area of effect. Currently either 'normal' or 'uniform'
-#' @param guide.dist.to.seg, list of lists, pre-computed distances of guides to FS
-#' @param fix.hypers: logical, whether hyperparameters are to be fixed
-#' @return ll_tract, posterior_trace_list, alpha0_est, alpha1_est, max_iter_reached, fs_ll_rt_trace
-#' @export relics_compute_FS_CS_placement()
-
-relics_compute_FS_CS_placement <- function(input.param,
-                                                 input.hyper,
-                                                 input.data.list,
-                                                 input.tol = 0.001,
-                                                 nr.segs = 10, geom.p = 0.1,
-                                                 min.pp = 0.1,
-                                                 guide.efficiency,
-                                                 one.dispersion,
-                                                 local.max, local.max.range,  
-                                                 area.of.effect,
-                                                 guide.dist.to.seg, 
-                                                 fix.hypers,
-                                                 fs.result.lists,
-                                                 fs.prior,
-                                           cs.params){
-  
-  
-  dirichlet.hyper <- input.hyper
-  posteriors <- input.param$pps
-  deltas <- input.param$deltas
-  # out.list <- list(posteriors = posteriors,
-  #                  fs_placement_ll = fs.placement.ll,
-  #                  fs_total_ll = fs.total.ll,
-  #                  fs_placement_raw_ll = fs.placement.raw.ll,
-  #                  segment_lls = segment.lls)
-  # 
-  # return(out.list)
-  fs.model.list <- c()
-  if(cs.params$cs_type == 'broad'){
-    fs.model.list <- relics_estimate_FS_CS(posteriors,
-                                           dirichlet.hyper,
-                                           input.data.list$data,
-                                           input.data.list$true_pos_seg,
-                                           input.data.list$guide_to_seg_lst,
-                                           input.data.list$seg_to_guide_lst,
-                                           input.data.list$next_guide_lst,
-                                           nr.segs, geom.p, guide.efficiency,
-                                           local.max, local.max.range, area.of.effect,
-                                           guide.dist.to.seg, fix.hypers,
-                                           fs.result.lists, fs.prior,
-                                           deltas, cs.params)
-  } else if(cs.params$cs_type == 'narrow'){
-    fs.model.list <- relics_estimate_FS_CS_optimFSplacement(posteriors,
-                                                            dirichlet.hyper,
-                                                            input.data.list$data,
-                                                            input.data.list$true_pos_seg,
-                                                            input.data.list$guide_to_seg_lst,
-                                                            input.data.list$seg_to_guide_lst,
-                                                            input.data.list$next_guide_lst,
-                                                            nr.segs, geom.p, guide.efficiency,
-                                                            local.max, local.max.range, area.of.effect,
-                                                            guide.dist.to.seg, fix.hypers,
-                                                            fs.result.lists, fs.prior,
-                                                            deltas, cs.params)
-  }
-  
-  dirichlet.pp.model.lls <- compute_model_sans_priors(fs.model.list$posteriors, input.data.list, 
-                                                   guide.efficiency, dirichlet.hyper, fix.hypers, 
-                                                   fs.result.lists, fs.prior)
-  
-  dirichlet.delta.model.lls <- compute_model_w_deltas(fs.model.list$deltas, input.data.list, 
-                                                   guide.efficiency, dirichlet.hyper, fix.hypers, 
-                                                   fs.result.lists)
-  
-  out.list <- list(posteriors = fs.model.list$posteriors,
-                   deltas = fs.model.list$deltas,
-                   total_model_ll = dirichlet.delta.model.lls$total_model_ll,
-                   conditional_fs_ll = dirichlet.delta.model.lls$conditional_fs_ll,
-                   total_model_ll_w_pp = dirichlet.pp.model.lls$total_model_ll,
-                   conditional_fs_ll_w_pp = dirichlet.pp.model.lls$conditional_fs_ll,
-                   fs_placement_ll = fs.model.list$fs_placement_ll,
-                   fs_placement_raw_ll = fs.model.list$fs_placement_raw_ll,
-                   fs_total_ll = fs.model.list$fs_total_ll,
-                   segment_lls = fs.model.list$segment_lls)
-  
-  return(out.list)
-}
-
-
-
-#' @title compute the model lls without accounting for the number of priors
-#' @param input.pp, matrix of posterior probabilities
-#' @param dirichlet.hyper: hyper parameters
-#' @param input.data.list, list: $guide_to_seg_lst, $data, $true_pos_seg, $overlapMat, $guide_to_seg_lst, $seg_to_guide_lst
-#' @param guide.efficiency: data.frame of guide efficiences. Either vector of guide efficiency or NULL
-#' @param fix.hypers: logical, whether the hyperparameters are fixed
-#' @param fs.results.list: list, contain at least $total_model_ll, $conditional_fs_ll, $model_fs_ll
-#' @return list: total_model_ll, per_fs_ll (the model.ll increase for each FS, taking into account all other FS), model_ll_increase (the step-by-step increase in model ll with each FS)
-#' @export compute_model_w_deltas()
-
-compute_model_w_deltas <- function(input.deltas, input.data.list, guide.efficiency, dirichlet.hyper, 
-                                      fix.hypers, fs.results.list){
-  
-  total.model.ll <- fs.results.list$total_model_ll
-  
-  # take the sum across all weighted FS placements
-  # compute the model ll
-  combined.deltas <- colSums(input.deltas)
-  dirichlet.guide.ll <- compute_perGuide_fs_ll(combined.deltas, input.data.list$guide_to_seg_lst)
-  
-  temp.total.model.ll <- 0
-  
-  for(i in 1:length(input.data.list$data)){
-    temp.hypers <- list(alpha0 = dirichlet.hyper$alpha0[[i]], alpha1 = dirichlet.hyper$alpha1[[i]])
-    temp.sgRNa.ll <- estimate_relics_sgrna_log_like(temp.hypers,
-                                                    input.data.list$data[[i]],
-                                                    dirichlet.guide.ll,
-                                                    guide.efficiency)
-    temp.dirichlet.ll <- sum(temp.sgRNa.ll$total_guide_ll)
-    temp.total.model.ll <- temp.total.model.ll + temp.dirichlet.ll
-  }
-  
-  total.model.ll <- c(total.model.ll, temp.total.model.ll)
-  
-  # compute the conditional contribution of each FS to the model (but not FS0)
-  conditional.fs.ll <- c()
-  
-  for(fs in 2:nrow(input.deltas)){
-    
-    temp.deltas <- input.deltas
-    temp.deltas[fs,] <- 0
-    temp.deltas.sum <- colSums(temp.deltas)
-    temp.deltas.sum[temp.deltas.sum > 1] <- 1
-    condit.guide.ll <- compute_perGuide_fs_ll(temp.deltas.sum, input.data.list$guide_to_seg_lst)
-    
-    temp.cond.fs.ll <- 0
-    for(i in 1:length(input.data.list$data)){
-      temp.hypers <- list(alpha0 = dirichlet.hyper$alpha0[[i]], alpha1 = dirichlet.hyper$alpha1[[i]])
-      temp.cond.sgRNa.ll <- estimate_relics_sgrna_log_like(temp.hypers,
-                                                           input.data.list$data[[i]],
-                                                           condit.guide.ll,
-                                                           guide.efficiency)
-      temp.cond.fs.ll <- temp.cond.fs.ll +  sum(temp.cond.sgRNa.ll$total_guide_ll)
-    }
-    
-    conditional.fs.ll <- c(conditional.fs.ll, temp.cond.fs.ll - temp.total.model.ll)
-  }
-  
-  out.list <- list(total_model_ll = total.model.ll,
-                   conditional_fs_ll = conditional.fs.ll)
-  
-  return(out.list)
-  
-}
-
-
-
-#' @title use estimated posterior probabilities for identifying credible sets
-#' @param hyper: hyperparameters
-#' @param posteriors: matrix of posterior probabilities
-#' @param data: list, each element is a replicate
-#' @param known.reg: region positions of the known regions
-#' @param guide.to.seg.lst: mapping of guides to segments
-#' @param seg.to.guide.lst: mapping of segments to guides, both $guide_idx, $nonGuide_idx
-#' @param next.guide.lst: list that contains the index of $next_guide_idx and next_nonGuide_idx
-#' @param nr.segs: max number of segemnts that can be combined
-#' @param geom.p: probability of the geometic distribution used to calculate the probability of there being x segments in the regulatory element
-#' @param guide.efficiency: data.frame of guide efficiences. Either vector of guide efficiency or NULL
-#' @param local.max: logical, whether a local maximum should be computed
-#' @param local.max.range: number of segments to include in addition to the the ones with highest PP (one way, so multiply by 2 for total nr of segs)
-#' @param area.of.effect: type of area of effect. Currently either 'normal' or 'uniform'
-#' @param guide.dist.to.seg, list of lists, pre-computed distances of guides to FS
-#' @param fix.hypers, logical, whether the hyperparameters are supposed to be fixed
-#' @param fs.result.lists, list, requires $fs_placement_ll, $fs_total_ll
-#' @param input.delta: delta matrix, containing the placement of FS
-#' @return log likelihood for each region
-#' @export relics_estimate_FS_CS_optimFSplacement()
-
-relics_estimate_FS_CS_optimFSplacement <- function(input.posteriors, hyper, data, known.reg,
-                                  guide.to.seg.lst, seg.to.guide.lst,
-                                  next.guide.lst, nr.segs = 10,
-                                  geom.p = 0.1, guide.efficiency,
-                                  local.max, local.max.range, area.of.effect,
-                                  guide.dist.to.seg, fix.hypers, fs.result.lists,
-                                  fs.prior, input.delta, cs.params) {
-  
-  posteriors <- input.posteriors
-  delta.mtx <- input.delta
-  
-  segment.lls <- fs.result.lists$segment_lls
-  if(is.null(segment.lls)){
-    segment.lls <- matrix(0, ncol = ncol(delta.mtx))
-  } else {
-    segment.lls <- rbind(segment.lls, rep(0, ncol(delta.mtx)))
-  }
-  
-  n.sgrna <- length(guide.to.seg.lst)
-  n.region <- length(seg.to.guide.lst)
-  fs.placement.ll <- c(fs.result.lists$fs_placement_ll, 0)
-  fs.placement.raw.ll <- c(fs.result.lists$fs_placement_raw_ll, 0)
-  fs.total.ll <- c(fs.result.lists$fs_total_ll, 0)
-  
-  k.idx <- nrow(posteriors)
-  if(! fix.hypers){
-    k.idx <- 2
-    fs.placement.ll <- fs.placement.ll[1]
-    fs.total.ll <- fs.total.ll[1]
-    fs.placement.raw.ll <- fs.placement.raw.ll[1]
-    segment.lls <- matrix(0, ncol = ncol(delta.mtx), nrow = nrow(posteriors)-1)
-  }
-  
-  # delta.conv <- FALSE
-  # conv.counter <- 1
-  # 
-  # while(! delta.conv & conv.counter < 10){
-    
-  new.delta.mtx <- delta.mtx
-  for(fs in k.idx:nrow(new.delta.mtx)){
-    ll.of.placement <- c() 
-    temp.delta.mtx <- new.delta.mtx
-    temp.delta.mtx[fs, ] <- 0
-    fs.config <- colSums(temp.delta.mtx)
-
-    # Compute the ll for each RE length for both replicates, combine the lls and then add to the ll total
-    # set up the data structues as lists to access the different replicates
-    layer.guide.ll <- compute_perGuide_fs_ll(fs.config, guide.to.seg.lst) # processed.pp
-    sgrna.log.like.list <- list()
-    data.mat.list <- list()
-    data.total.list <- list()
-    
-    for(repl in 1:length(data)){
-      temp.hypers <- list(alpha0 = hyper$alpha0[[repl]], alpha1 = hyper$alpha1[[repl]])
-      temp.data <- data[[repl]]
-      temp.data.counts <- temp.data[, c(1:(ncol(temp.data) - 1))]
-      temp.data.totals <- temp.data[, ncol(temp.data)]
-      
-      data.mat.list[[repl]] <- temp.data.counts
-      data.total.list[[repl]] <- temp.data.totals
-      
-      temp.sgrna.log.like <- estimate_relics_sgrna_log_like(temp.hypers, temp.data, layer.guide.ll, guide.efficiency)
-      sgrna.log.like.list[[repl]] <- temp.sgrna.log.like
-      
-    }
-    
-    fs.pps <- c()
-    if(area.of.effect == 'normal'){
-      # to Do!
-      fs.pps.list <- estimate_fs_AoE_pp_norm_ll(hyper, data.mat.list, data.total.list, guide.to.seg.lst,
-                                                seg.to.guide.lst, next.guide.lst, nr.segs, geom.p, 
-                                                sgrna.log.like.list, seg.adjust = 0, 
-                                                total.segs = length(seg.to.guide.lst),
-                                                guide.dist.to.seg, ll.of.placement, fs.config)
-      fs.pps <- fs.pps.list$seg_pp
-      fs.lls <- fs.pps.list$segment_lls
-      fs.total.lls <- fs.pps.list$total_ll
-      raw.seg.ll <- fs.pps.list$raw_segment_lls
-    } else {
-      fs.pps.list <- estimate_fs_pp_norm_ll(seg.to.guide.lst, next.guide.lst, 
-                                            nr.segs, geom.p, sgrna.log.like.list,
-                                            ll.of.placement, fs.config)
-      fs.pps <- fs.pps.list$seg_pp
-      fs.lls <- fs.pps.list$segment_lls
-      fs.total.lls <- fs.pps.list$total_ll
-      raw.seg.ll <- fs.pps.list$raw_segment_lls
-    }
-    
-    max.fs.pps.idx <- which(fs.pps == max(fs.pps)[1])
-    fs.lls.max <- fs.lls[max.fs.pps.idx][1]
-    fs.placement.ll[fs] <- fs.lls.max
-    
-    fs.placement.raw.ll[fs] <- raw.seg.ll[max.fs.pps.idx][1]
-    
-    posteriors[fs, ] <- fs.pps
-    
-    fs.total.ll[fs] <- fs.total.lls
-    
-    segment.lls[fs-1,] <- fs.lls
-    
-    # compute CS
-    # fs.delta.idx <- compute_CS_from_pp(fs.pps, cs.params)
-    fs.delta.idx <- compute_CS_from_pp_SW(fs.pps, cs.params)
-    new.delta.mtx[fs, fs.delta.idx] <- 1
-  }
-  
-  delta.mtx <- new.delta.mtx
-  # if(sum(new.delta.mtx - delta.mtx) == 0){
-  #   delta.conv <- TRUE
-  # } else {
-  #   delta.mtx <- new.delta.mtx
-  # }
-  # }
-
-  out.list <- list(posteriors = posteriors,
-                   deltas = delta.mtx,
-                   fs_placement_ll = fs.placement.ll,
-                   fs_total_ll = fs.total.ll,
-                   fs_placement_raw_ll = fs.placement.raw.ll,
-                   segment_lls = segment.lls)
-  
-  return(out.list)
-  
-}
-
-
-#' @title use estimated posterior probabilities for identifying credible sets
-#' @param hyper: hyperparameters
-#' @param posteriors: matrix of posterior probabilities
-#' @param data: list, each element is a replicate
-#' @param known.reg: region positions of the known regions
-#' @param guide.to.seg.lst: mapping of guides to segments
-#' @param seg.to.guide.lst: mapping of segments to guides, both $guide_idx, $nonGuide_idx
-#' @param next.guide.lst: list that contains the index of $next_guide_idx and next_nonGuide_idx
-#' @param nr.segs: max number of segemnts that can be combined
-#' @param geom.p: probability of the geometic distribution used to calculate the probability of there being x segments in the regulatory element
-#' @param guide.efficiency: data.frame of guide efficiences. Either vector of guide efficiency or NULL
-#' @param local.max: logical, whether a local maximum should be computed
-#' @param local.max.range: number of segments to include in addition to the the ones with highest PP (one way, so multiply by 2 for total nr of segs)
-#' @param area.of.effect: type of area of effect. Currently either 'normal' or 'uniform'
-#' @param guide.dist.to.seg, list of lists, pre-computed distances of guides to FS
-#' @param fix.hypers, logical, whether the hyperparameters are supposed to be fixed
-#' @param fs.result.lists, list, requires $fs_placement_ll, $fs_total_ll
-#' @param input.delta: delta matrix, containing the placement of FS
-#' @return log likelihood for each region
-#' @export relics_estimate_FS_CS()
-
-relics_estimate_FS_CS <- function(input.posteriors, hyper, data, known.reg,
-                                        guide.to.seg.lst, seg.to.guide.lst,
-                                        next.guide.lst, nr.segs = 10,
-                                        geom.p = 0.1, guide.efficiency,
-                                        local.max, local.max.range, area.of.effect,
-                                        guide.dist.to.seg, fix.hypers, fs.result.lists,
-                                        fs.prior, input.delta, cs.params) {
-  
-  posteriors <- input.posteriors
-  segment.lls <- fs.result.lists$segment_lls
-  delta.mtx <- input.delta
-  
-  n.sgrna <- length(guide.to.seg.lst)
-  n.region <- length(seg.to.guide.lst)
-  fs.placement.ll <- fs.result.lists$fs_placement_ll
-  fs.placement.raw.ll <- fs.result.lists$fs_placement_raw_ll
-  fs.total.ll <- fs.result.lists$fs_total_ll
-  
-  k.idx <- nrow(posteriors)
-  if(! fix.hypers){
-    k.idx <- 2
-    fs.placement.ll <- fs.placement.ll[1]
-    fs.total.ll <- fs.total.ll[1]
-    fs.placement.raw.ll <- fs.placement.raw.ll[1]
-    segment.lls <- c()
-  }
-  
-  # set posteriors for all rows to be computed to 0
-  posteriors[k.idx:(hyper$L+1),] <- rep(0, n.region)
-  delta.mtx[k.idx:(hyper$L+1),] <- rep(0, n.region)
-  
-  for(l in k.idx:(hyper$L+1)) {
-    ll.of.placement <- c() #dnorm(l, mean = fs.prior$mean, sd = fs.prior$sd, log = T)
-    
-    # sum posteriors from other rows
-    # pp <- colSums(posteriors)
-    fs.config <- colSums(delta.mtx)
-    
-    # # cumulative posterior probability can become greater than 1,
-    # # So we restrict it to 1.  doesn't seem like the ideal solution...
-    # pp[pp > 1.0] <- 1.0
-    
-    # Compute the ll for each RE length for both replicates, combine the lls and then add to the ll total
-    # set up the data structues as lists to access the different replicates
-    layer.guide.ll <- compute_perGuide_fs_ll(fs.config, guide.to.seg.lst) # processed.pp
-    sgrna.log.like.list <- list()
-    data.mat.list <- list()
-    data.total.list <- list()
-    
-    for(repl in 1:length(data)){
-      temp.hypers <- list(alpha0 = hyper$alpha0[[repl]], alpha1 = hyper$alpha1[[repl]])
-      temp.data <- data[[repl]]
-      temp.data.counts <- temp.data[, c(1:(ncol(temp.data) - 1))]
-      temp.data.totals <- temp.data[, ncol(temp.data)]
-      
-      data.mat.list[[repl]] <- temp.data.counts
-      data.total.list[[repl]] <- temp.data.totals
-      
-      temp.sgrna.log.like <- estimate_relics_sgrna_log_like(temp.hypers, temp.data, layer.guide.ll, guide.efficiency)
-      sgrna.log.like.list[[repl]] <- temp.sgrna.log.like
-      
-    }
-    
-    fs.pps <- c()
-    if(area.of.effect == 'normal'){
-      # to Do!
-      fs.pps.list <- estimate_fs_AoE_pp_norm_ll(hyper, data.mat.list, data.total.list, guide.to.seg.lst,
-                                           seg.to.guide.lst, next.guide.lst, nr.segs, geom.p, 
-                                           sgrna.log.like.list, seg.adjust = 0, 
-                                           total.segs = length(seg.to.guide.lst),
-                                           guide.dist.to.seg, ll.of.placement, fs.config)
-      fs.pps <- fs.pps.list$seg_pp
-      fs.lls <- fs.pps.list$segment_lls
-      fs.total.lls <- fs.pps.list$total_ll
-      raw.seg.ll <- fs.pps.list$raw_segment_lls
-    } else {
-      fs.pps.list <- estimate_fs_pp_norm_ll(seg.to.guide.lst, next.guide.lst, 
-                                       nr.segs, geom.p, sgrna.log.like.list,
-                                       ll.of.placement, fs.config)
-      fs.pps <- fs.pps.list$seg_pp
-      fs.lls <- fs.pps.list$segment_lls
-      fs.total.lls <- fs.pps.list$total_ll
-      raw.seg.ll <- fs.pps.list$raw_segment_lls
-    }
-    
-    max.fs.pps.idx <- which(fs.pps == max(fs.pps)[1])
-    posteriors[l, ] <- fs.pps
-    
-    fs.lls.max <- fs.lls[max.fs.pps.idx][1]
-    fs.placement.ll <- c(fs.placement.ll, fs.lls.max)
-    
-    fs.placement.raw.ll <- c(fs.placement.raw.ll, raw.seg.ll[max.fs.pps.idx][1])
-    
-    fs.total.ll <- c(fs.total.ll, fs.total.lls)
-    
-    segment.lls <- rbind(segment.lls, fs.lls)
-    
-    # compute CS
-    # fs.delta.idx <- compute_CS_from_pp(fs.pps, cs.params)
-    fs.delta.idx <- compute_CS_from_pp_SW(fs.pps, cs.params)
-    delta.mtx[l, fs.delta.idx] <- 1
-  }
-  
-  out.list <- list(posteriors = posteriors,
-                   deltas = delta.mtx,
-                   fs_placement_ll = fs.placement.ll,
-                   fs_total_ll = fs.total.ll,
-                   fs_placement_raw_ll = fs.placement.raw.ll,
-                   segment_lls = segment.lls)
-  
-  return(out.list)
-  
-}
-
-
-#' @title Compute the log likelihood of each possible configuration of the placement of a fs. Take into account distance between segment and the guide target site
-#' @param hyper: list, hyperparameters
-#' @param in.data.list: list, each element contains a replicate, the total column has already been removed
-#' @param in.data.totals: list, each element contains the per-guide totals for a replicate
-#' @param guide.to.seg.lst: list, mapping of guides to segments
-#' @param seg.to.guide.lst: list, each element is a segment, contains a list with guide_idx, nonGuide_idx
-#' @param next.guide.lst: list that contains the index of $next_guide_idx and next_nonGuide_idx
-#' @param nr.segs: max number of segemnts that can be combined
-#' @param geom.p: probability of the geometic distribution used to calculate the probability of there being x segments in the regulatory element
-#' @param sg.ll.list: list, each element is a data frame per.guide log likelihood given the posteriors for a replicate and alt. ll (total_guide_ll, alt_only_ll)
-#' @param seg.adjust: numeric, offset used when calculating lmax
-#' @param total.segs: how many segments to calculate PP for, adjusted for lmax, otherwise = length(seg.to.guide.lst)
-#' @param guide.dist.to.seg, list of lists, pre-computed distances of guides to FS
-#' @return list: segment_lls, total_ll, seg_pp
-#' @export estimate_fs_AoE_pp_norm_ll()
-
-estimate_fs_AoE_pp_norm_ll <- function(hyper, in.data.list, in.data.totals, guide.to.seg.lst,
-                                  seg.to.guide.lst, next.guide.lst, nr.segs = 10, geom.p = 0.1,
-                                  sg.ll.list, seg.adjust = 0, total.segs, guide.dist.to.seg,
-                                  ll.of.placement, fs.config) {
-  
-  # set up a list, the length of the number of segments
-  # each element contains a vector, which contains the ll of that segment being overlapped by a regulatory element
-  segment.ll.list <- list()
-  
-  region.priors <- rep(1/total.segs, total.segs)
-  geom.norm.factr <- pgeom(nr.segs, geom.p)
-  
-  total.ll <- log(0)
-  fs.length <- 1
-  
-  null.model.ll.list <- list()
-  for(repl in 1:length(sg.ll.list)){
-    repl.guide.null <- sum(sg.ll.list[[repl]][seg.to.guide.lst[[1]]$guide_idx,1])
-    repl.non.guide.null <- sum(sg.ll.list[[repl]][seg.to.guide.lst[[1]]$nonGuide_idx,1])
-    null.model.ll.list[[repl]] <- repl.guide.null + repl.non.guide.null
-  }
-  
-  # make an initial pass with one-segment length RE placements
-  for(seg in 1:total.segs){
-    curr.seg <- seg + seg.adjust
-    temp.segment.ll <- 0
-    temp.guide.idx<- seg.to.guide.lst[[curr.seg]]$guide_idx
-    temp.nonGuide.idx<- seg.to.guide.lst[[curr.seg]]$nonGuide_idx
-    
-    temp.seg.poi.bkg <- guide.dist.to.seg[[curr.seg]][[fs.length]]
-    
-    for(repl in 1:length(sg.ll.list)){
-      
-      temp.guide.ll <- vector('numeric', length = length(temp.seg.poi.bkg))
-      
-      for(i in 1:length(temp.seg.poi.bkg)){
-        temp.guide.ll[i] <- addlogs(sg.ll.list[[repl]][temp.guide.idx[i],2] + log(1 - temp.seg.poi.bkg[i]),
-                                    sg.ll.list[[repl]][temp.guide.idx[i],1] + log(temp.seg.poi.bkg[i]))
-      }
-      
-      temp.nonGuide.ll <- sum(sg.ll.list[[repl]][temp.nonGuide.idx,1])
-      
-      if(fs.config[seg] == 1){
-        temp.segment.ll <- temp.segment.ll + null.model.ll.list[[repl]] + log(dgeom(1, geom.p) / geom.norm.factr)
-      } else if(sum(temp.guide.ll) + temp.nonGuide.ll < null.model.ll.list[[repl]]){
-        temp.segment.ll <- temp.segment.ll + null.model.ll.list[[repl]] + log(dgeom(1, geom.p) / geom.norm.factr)
-      } else {
-        temp.segment.ll <- temp.segment.ll + sum(temp.guide.ll) + temp.nonGuide.ll + log(dgeom(1, geom.p) / geom.norm.factr)
-      }
-      
-      # temp.segment.ll <- temp.segment.ll + sum(temp.guide.ll) + temp.nonGuide.ll + log(dgeom(1, geom.p) / geom.norm.factr) #+ ll.of.placement
-    }
-    segment.ll.list[[seg]] <- temp.segment.ll
-    total.ll <- addlogs(total.ll, temp.segment.ll)
-  }
-  
-  all.guide.idx <- c(1:nrow(in.data.list[[1]])) # helps to differentitate between guides for null vs alternative
-  
-  # now make a pass through all 2 to nr.segs length segments
-  if(nr.segs > 1){
-    for(ns in 1:(nr.segs-1) ){
-      fs.length <- fs.length + 1
-      for(seg in 1:(total.segs - ns)){
-        temp.stretch.ll <- 0
-        temp.stretch.segs <- c(seg:(seg + ns)) # index of segments to be included as part of the stretch and be updated in this iteration
-        curr.seg <- seg + seg.adjust
-        curr.stretch.segs <- temp.stretch.segs + seg.adjust
-        temp.guide.idx <- c(seg.to.guide.lst[[curr.seg]]$guide_idx, unlist(next.guide.lst[(curr.seg + 1):(curr.seg + ns)]))
-        temp.nonGuide.idx <- all.guide.idx[-temp.guide.idx]
-        
-        temp.seg.poi.bkg <- guide.dist.to.seg[[curr.seg]][[fs.length]]
-        
-        for(repl in 1:length(sg.ll.list)){ # in.data.list
-          
-          temp.guide.ll <- vector('numeric', length = length(temp.seg.poi.bkg))
-          
-          for(i in 1:length(temp.seg.poi.bkg)){
-            temp.guide.ll[i] <- addlogs(sg.ll.list[[repl]][temp.guide.idx[i],2] + log(1 - temp.seg.poi.bkg[i]),
-                                        sg.ll.list[[repl]][temp.guide.idx[i],1] + log(temp.seg.poi.bkg[i]))
-          }
-          
-          temp.nonGuide.ll <- sum(sg.ll.list[[repl]][temp.nonGuide.idx,1])
-          
-          if(1 %in% fs.config[temp.stretch.segs]){
-            temp.stretch.ll <- temp.stretch.ll + null.model.ll.list[[repl]] + log(dgeom(1 + ns, geom.p) / geom.norm.factr)
-          } else if(sum(temp.guide.ll) + temp.nonGuide.ll < null.model.ll.list[[repl]]){
-            temp.stretch.ll <- temp.stretch.ll + null.model.ll.list[[repl]] + log(dgeom(1 + ns, geom.p) / geom.norm.factr)
-          } else {
-            temp.stretch.ll <- temp.stretch.ll + sum(temp.guide.ll) + temp.nonGuide.ll + log(dgeom(1 + ns, geom.p) / geom.norm.factr)
-          }
-          
-          # temp.stretch.ll <- temp.stretch.ll + sum(temp.guide.ll) + temp.nonGuide.ll + log(dgeom(1 + ns, geom.p) / geom.norm.factr) #+ ll.of.placement
-          
-        }
-        
-        total.ll <- addlogs(total.ll, temp.stretch.ll)
-        
-        for(span in 1:length(temp.stretch.segs)){
-          segment.ll.list[[temp.stretch.segs[span]]] <- c(segment.ll.list[[temp.stretch.segs[span]]], temp.stretch.ll)
-        }
-      }
-    }
-  }
-  
-  final.total.ll <- addlogs_vectorized(unlist(segment.ll.list)) # total.ll
-  
-  # normalize the list by the total, and add the logs across the segments
-  segment.lls <- unlist(lapply(segment.ll.list, function(x){
-    x.norm <- x - final.total.ll # total.ll
-    
-    x.norm.sum <- combine_segment_ll(x.norm)
-    x.norm.sum
-  }))
-  segment.posteriors <- exp(segment.lls)
-  
-  raw.segment.lls <- unlist(lapply(segment.ll.list, function(x){
-    x.norm.sum <- combine_segment_ll(x)
-    x.norm.sum
-  }))
-  
-  out.list <- list(segment_lls = segment.lls,
-                   total_ll = final.total.ll, # total.ll,
-                   seg_pp = segment.posteriors,
-                   raw_segment_lls = raw.segment.lls)
-  
-  return(out.list)
-  
-}
-
-
-#' @title Compute the credible set from the PP to update the delta matrix.
-#' @param input.pp: vector of pp
-#' @param cs.params: list, $cs_sw_size
-#' @return index of optimal CS
-#' @export compute_CS_from_pp()
-
-compute_CS_from_pp <- function(input.pp, cs.params){
-  
-  top.dow.cs.idx <- compute_CS_from_pp_topDown(input.pp, cs.params)
-  
-  if(cs.params$compute_sw_pp){
-    sw.cs.idx <- compute_CS_from_pp_SW(input.pp, cs.params)
-    
-    if(sum(input.pp[top.dow.cs.idx]) > sum(input.pp[sw.cs.idx])){
-      return(top.dow.cs.idx)
-    } else {
-      return(sw.cs.idx)
-    }
-  } else {
-    return(top.dow.cs.idx)
-  }
-}
-
-
-#' @title Compute the credible set from the PP to update the delat matrix
-#' @param input.pp: vector of pp
-#' @param cs.params: list, $min_cs_pp, $cs_threshold, $max_cs_seg, $cs_type, $min_cs_sum
-#' @return index of optimal CS
-#' @export compute_CS_from_pp_topDown()
-
-compute_CS_from_pp_topDown <- function(input.pp, cs.params){
-  
-  median.pp <- median(input.pp)
-  
-  if(cs.params$cs_type == 'narrow'){
-    max.seg <- length(input.pp)
-    if(max(input.pp) == median.pp | max(input.pp) < cs.params$min_cs_pp){
-      return(NULL)
-    }
-    max.fs.pps.idx <- which(input.pp == max(input.pp)[1])[1]
-    narrow.cs.idx <- max.fs.pps.idx
-    
-    if(sum(input.pp[narrow.cs.idx]) < cs.params$cs_threshold){
-      for(i in 1:cs.params$max_cs_seg){
-        up.seg <- 0
-        down.seg <- 0
-        if(max(narrow.cs.idx) + 1 <= max.seg){
-          up.seg <- input.pp[max(narrow.cs.idx) + 1]
-        }
-        if(min(narrow.cs.idx) - 1 >= 1){
-          down.seg <- input.pp[min(narrow.cs.idx) - 1]
-        }
-        if(up.seg >= down.seg & up.seg > median.pp & up.seg > cs.params$min_cs_pp){
-          narrow.cs.idx <- c(narrow.cs.idx, max(narrow.cs.idx) + 1)
-        } else if(up.seg < down.seg & down.seg > median.pp & down.seg > cs.params$min_cs_pp){
-          narrow.cs.idx <- c(narrow.cs.idx, min(narrow.cs.idx) - 1)
-        } else {
-          break()
-        }
-        if(sum(input.pp[narrow.cs.idx]) > cs.params$cs_threshold){
-          break()
-        }
-      }
-    }
-    if(sum(input.pp[narrow.cs.idx]) < cs.params$min_cs_sum){
-      return(NULL)
-    } else {
-      return(narrow.cs.idx)
-    }
-  } else if(cs.params$cs_type == 'broad'){
-    top.idx <- order(-input.pp)
-    
-    if(input.pp[top.idx[1]] == median.pp | input.pp[top.idx[1]] < cs.params$min_cs_pp){
-      return(NULL)
-    }
-    broad.cs.idx <- top.idx[1]
-    idx.counter <- 2
-    while(sum(input.pp[broad.cs.idx]) < cs.params$cs_threshold & idx.counter < cs.params$max_cs_nr){
-      if(input.pp[top.idx[idx.counter]] == median.pp | input.pp[top.idx[idx.counter]] < cs.params$min_cs_pp){
-        break()
-      }
-      broad.cs.idx <- c(broad.cs.idx, top.idx[idx.counter])
-      idx.counter <- idx.counter + 1
-    }
-    
-    if(sum(input.pp[broad.cs.idx]) < cs.params$min_cs_sum){
-      return(NULL)
-    } else {
-      return(broad.cs.idx)
-    }
-  }
-}
-
-
-#' @title Compute the credible set from the PP to update the delata matrix. Use a sliding window to determine optimal CS idx
-#' @param input.pp: vector of pp
-#' @param cs.params: list, $cs_sw_size, $cs_threshold
-#' @return index of optimal CS
-#' @export compute_CS_from_pp_SW()
-
-compute_CS_from_pp_SW <- function(input.pp, cs.params){
-  
-  window.size <- cs.params$cs_sw_size
-  sw.idx.list <- list()
-  max.sw.pp <- 0
-  max.sw.idx <- c()
-  sw.pp <- vector('numeric', length = length(input.pp) - window.size + 1)
-  median.pp <- median(input.pp)
-  
-  for(i in 1:(length(input.pp) - window.size + 1)){
-    
-    temp.sw.idx <- c(1:window.size) + (i-1)
-    temp.pp <- input.pp[temp.sw.idx]
-    temp.pp.sum <- sum(temp.pp)
-    temp.sw.idx.ordered <- temp.sw.idx[order(temp.pp, decreasing = TRUE)]
-    temp.pp.ordered <- temp.pp[order(temp.pp, decreasing = TRUE)]
-    
-    # compute the relative proportion of the CS
-    temp.sw.idx.pass <- c()
-    for(j in 1:length(temp.sw.idx.ordered)){
-      temp.sw.pp.sum <- sum(temp.pp.ordered[1:j])
-      temp.fract.pp <- temp.sw.pp.sum / temp.pp.sum
-      temp.sw.idx.pass <- c(temp.sw.idx.pass, temp.sw.idx.ordered[j])
-      if(temp.fract.pp > cs.params$cs_threshold){
-        if(temp.sw.pp.sum > max.sw.pp){
-          max.sw.pp <- temp.sw.pp.sum
-          max.sw.idx <- temp.sw.idx.pass
-        }
-        sw.idx.list[[i]] <- temp.sw.idx.pass
-        sw.pp[i] <- temp.sw.pp.sum
-        break()
-      }
-    }
-  }
-  
-  # the the FS output is to be continous, set the idx to the range from min to max idx
-  if(cs.params$cs_sw_continous){
-    min.idx <- min(max.sw.idx)
-    max.idx <- max(max.sw.idx)
-    idx.range <- min.idx:max.idx
-  } else {
-    idx.range <- max.sw.idx
-  }
-  max.sw.pp.idx <- idx.range
-  
-  if(sum(input.pp[max.sw.pp.idx]) < cs.params$min_cs_sum){
-    return(NULL)
-  } else {
-    return(max.sw.pp.idx)
-  }
-  
-}
-
-
-#' @title Compute the log likelihood of each possible configuration of the placement of a fs amonst a set of segments
-#' @param hyper: list, hyperparameters
-#' @param in.data.list: list, each element contains a replicate, the total column has already been removed
-#' @param in.data.totals: list, each element contains the per-guide totals for a replicate
-#' @param seg.to.guide.lst: list, each element is a segment, contains a list with guide_idx, nonGuide_idx
-#' @param next.guide.lst: list that contains the index of $next_guide_idx and next_nonGuide_idx
-#' @param nr.segs: max number of segemnts that can be combined
-#' @param geom.p: probability of the geometic distribution used to calculate the probability of there being x segments in the regulatory element
-#' @param sg.ll.list: list, each element is a data frame per.guide log likelihood given the posteriors for a replicate and alt. ll (total_guide_ll, alt_only_ll)
-#' @return log likelihood for each segment
-#' @export estimate_fs_pp_norm_ll()
-
-estimate_fs_pp_norm_ll <- function(seg.to.guide.lst, next.guide.lst, nr.segs = 10, geom.p = 0.1, sg.ll.list, ll.of.placement, fs.config) {
-  
-  # set up a list, the length of the number of segments
-  # each element contains a vector, which contains the ll of that segment being overlapped by a regulatory element
-  segment.ll.list <- list()
-  
-  total.segs <- length(seg.to.guide.lst)
-  region.priors <- rep(1/total.segs, total.segs)
-  geom.norm.factr <- pgeom(nr.segs, geom.p)
-  
-  total.ll <- log(0)
-  null.model.ll.list <- list()
-  for(repl in 1:length(sg.ll.list)){
-    repl.guide.null <- sum(sg.ll.list[[repl]][seg.to.guide.lst[[1]]$guide_idx,1])
-    repl.non.guide.null <- sum(sg.ll.list[[repl]][seg.to.guide.lst[[1]]$nonGuide_idx,1])
-    null.model.ll.list[[repl]] <- repl.guide.null + repl.non.guide.null
-  }
-  
-  # make an initial pass with one-segment length RE placements
-  for(seg in 1:total.segs){
-    temp.segment.ll <- 0
-    temp.guide.idx<- seg.to.guide.lst[[seg]]$guide_idx
-    temp.nonGuide.idx<- seg.to.guide.lst[[seg]]$nonGuide_idx
-    
-    for(repl in 1:length(sg.ll.list)){ 
-      temp.guide.ll <- sum(sg.ll.list[[repl]][temp.guide.idx,2])
-      temp.nonGuide.ll <- sum(sg.ll.list[[repl]][temp.nonGuide.idx,1])
-      if(fs.config[seg] == 1){
-        temp.segment.ll <- temp.segment.ll + null.model.ll.list[[repl]] + log(dgeom(1, geom.p) / geom.norm.factr)
-      } else if(temp.guide.ll + temp.nonGuide.ll < null.model.ll.list[[repl]]){
-        temp.segment.ll <- temp.segment.ll + null.model.ll.list[[repl]] + log(dgeom(1, geom.p) / geom.norm.factr)
-      } else {
-        temp.segment.ll <- temp.segment.ll + temp.guide.ll + temp.nonGuide.ll + log(dgeom(1, geom.p) / geom.norm.factr)
-      }
-      # temp.segment.ll <- temp.segment.ll + temp.guide.ll + temp.nonGuide.ll #+ log(dgeom(1, geom.p) / geom.norm.factr) #+ ll.of.placement
-    }
-    segment.ll.list[[seg]] <- temp.segment.ll
-    total.ll <- addlogs(total.ll, temp.segment.ll)
-  }
-  
-  all.guide.idx <- c(1:length(sg.ll.list[[1]][,1])) # helps to differentiate between guides for null vs alternative
-  
-  # now make a pass through all 2 to nr.segs length segments
-  if(nr.segs > 1){
-    for(ns in 1:(nr.segs-1) ){
-
-      for(seg in 1:(total.segs - ns)){
-
-        temp.stretch.ll <- 0
-        temp.stretch.segs <- c(seg:(seg + ns)) # index of segments to be included as part of the stretch and be updated in this iteration
-        temp.guide.idx <- c(seg.to.guide.lst[[seg]]$guide_idx, unlist(next.guide.lst[(seg + 1):(seg + ns)]))
-        temp.nonGuide.idx <- all.guide.idx[-temp.guide.idx]
-
-        for(repl in 1:length(sg.ll.list)){
-          temp.guide.ll <- sum(sg.ll.list[[repl]][temp.guide.idx,2])
-          temp.nonGuide.ll <- sum(sg.ll.list[[repl]][temp.nonGuide.idx,1])
-
-          if(1 %in% fs.config[temp.stretch.segs]){
-            temp.stretch.ll <- temp.stretch.ll + null.model.ll.list[[repl]] + log(dgeom(1 + ns, geom.p) / geom.norm.factr)
-          } else if(temp.guide.ll + temp.nonGuide.ll < null.model.ll.list[[repl]]){
-            temp.stretch.ll <- temp.stretch.ll + null.model.ll.list[[repl]] + log(dgeom(1 + ns, geom.p) / geom.norm.factr)
-          } else {
-            temp.stretch.ll <- temp.stretch.ll + temp.guide.ll + temp.nonGuide.ll + log(dgeom(1 + ns, geom.p) / geom.norm.factr)
-          }
-          # likelihood of this continous stretch of bins to contain a regulatory element
-          # temp.stretch.ll <- temp.stretch.ll + temp.guide.ll + temp.nonGuide.ll + log(dgeom(1 + ns, geom.p) / geom.norm.factr) #+ ll.of.placement
-
-        }
-
-        total.ll <- addlogs(total.ll, temp.stretch.ll)
-
-        for(span in 1:length(temp.stretch.segs)){
-          segment.ll.list[[temp.stretch.segs[span]]] <- c(segment.ll.list[[temp.stretch.segs[span]]], temp.stretch.ll)
-        }
-      }
-    }
-
-  }
-
-  final.total.ll <- addlogs_vectorized(unlist(segment.ll.list)) # total.ll
-  
-  # normalize the list by the total, and add the logs across the segments
-  segment.lls <- unlist(lapply(segment.ll.list, function(x){
-    x.norm <- x - final.total.ll #total.ll
-    x.norm.sum <- combine_segment_ll(x.norm)
-    x.norm.sum
-  }))
-  segment.posteriors <- exp(segment.lls)
-  
-  raw.segment.lls <- unlist(lapply(segment.ll.list, function(x){
-    x.norm.sum <- combine_segment_ll(x)
-    x.norm.sum
-  }))
-  
-  out.list <- list(segment_lls = segment.lls,
-                   total_ll = final.total.ll, #total.ll,
-                   seg_pp = segment.posteriors,
-                   raw_segment_lls = raw.segment.lls)
-  
-  return(out.list)
-  
-}
-
-
-
-#' @title Run RELICS v3. Iteratively place FS and stop once models stops improving
-#' @param input.data: list: $guide_to_seg_lst, $data, $fs0_idx, $overlapMat, $guide_to_seg_lst, $seg_to_guide_lst
-#' @param final.layer.nr: number of layers to go up to
-#' @param out.dir: directory to which all files are to be written. Default = NULL
-#' @param adjust.tol: whether convergence tolerance should be adjusted dynamically as layers are computed (increasingly more rigorous)
-#' @param fix.hypers: whether the input parameters remain unchanged or are altered after calculation of posteriors. Default = FALSE
-#' @param iterative.hyper.est: whether hyper parameters are to be estimated iteratively with the posteriors (TRUE) or after convergence of posteriors (FALSE)
-#' @param input.hypers: list, $alpha0, $alpha1, both elements contain lists of length wequal to nr. replicates (input.hypers$alpha0[[1]])
-#' @param nr.segs, number of segments to consider for the length of a regulatory element
-#' @param geom.p: proababilty of the genometric distribution to penalize for enhancers of increasing length
-#' @param fs.correlation.cutoff: what correlation between layers determines stopping of layer calculation (default: 0.1)
-#' @param input.min.rs.pp: minimum posterior required to be part of a regulatory set
-#' @param auto.stop: whether or not computations should be stopped after recomended stopping point
-#' @param record.all.fs: logical, if information of all intermediate FS should be recorded, in addition to the final set of FS
-#' @param one.dispersion: whether there should be one or 2 dispersions estimated for the 2 hyper parameters
-#' @param recompute.fs0: logical, whether FS0 is to be set to 0 or keep the initial assignment
-#' @param local.max: logical, whether a local maximum should be computed
-#' @param local.max.range: number of segments to include in addition to the the ones with highest PP (one way, so multiply by 2 for total nr of segs)
-#' @param pool.names, if not NULL, the names of the pools to be used when recording output
-#' @param mean.var.type: type of mean-variance relationship
-#' @param pp.calculation: what version to use when calculating PP. 'v2'is for computing with normal AoE
-#' @param analysis.parameters: list, contains various elements used for analysis
-#' @param guide.dist.to.seg, list of lists, pre-computed distances of guides to FS
-#' @return list of final per-layer posteriors
-#' @export run_RELICS_4()
-
-run_RELICS_4 <- function(input.data, final.layer.nr, out.dir = NULL,
-                         fix.hypers = FALSE,
-                         iterative.hyper.est = FALSE,
-                         input.hypers = NULL,
-                         input.hyper.components,
-                         nr.segs = 10,
-                         geom.p = 0.1,
-                         fs.correlation.cutoff = 0.1,
-                         input.min.rs.pp = 0.1,
-                         auto.stop = TRUE,
-                         record.all.fs,
-                         input.convergence.tol = 0.01,
-                         adjust.tol = TRUE,
-                         one.dispersion = TRUE,
-                         recompute.fs0,
-                         local.max, local.max.range,
-                         pool.names,
-                         mean.var.type,
-                         pp.calculation,
-                         analysis.parameters,
-                         guide.dist.to.seg){
-  
-  relics.hyper <- input.hypers #c()
-  hyper.components <- input.hyper.components
-  
-  relics.param <- init_relics_param(relics.hyper, input.data, local.max, recompute.fs0)
-  
-  coverg.tol <- rep(input.convergence.tol, final.layer.nr)
-  
-  fs.result.lists <- initialize_fs_results_w_priors(relics.param$delta.pp, 
-                                           input.data, 
-                                           input.data$guide_efficiency,
-                                           relics.hyper, 
-                                           fix.hypers)
-  
-  for(i in 1:final.layer.nr){
-    print(paste0('Computing FS: ', i))
-    
-    fs.data <- relics_compute_FS_placement_w_priors(input.param = relics.param,
-                                              input.hyper = relics.hyper,
-                                              input.data.list = input.data,
-                                              input.tol = coverg.tol[i],
-                                              nr.segs, geom.p,
-                                              min.pp = input.min.rs.pp, input.data$guide_efficiency,
-                                              one.dispersion,
-                                              local.max, local.max.range, analysis.parameters$areaOfEffect_type,
-                                              guide.dist.to.seg,
-                                              fix.hypers,
-                                              fs.result.lists,
-                                              analysis.parameters$fs_prior)
-    
-    # fs.data already contains the most recent additions
-    if(record.all.fs){
-      
-      record_fs_results_w_priors(fs.data, analysis.parameters, input.data, i, relics.hyper, hyper.components, '')
-      
-    }
-    
-    if(i == final.layer.nr){
-      
-      compute_final_priors(fs.data, analysis.parameters, input.data, i, relics.hyper, hyper.components, '')
-      
-    }
-    
-    # update the results
-    fs.result.lists <- fs.data
-    
-    # prep the parameters for the next iteration (both the posteriors and hypers)
-    relics.hyper$L <- relics.hyper$L + 1
-    relics.param$delta.pp <- rbind(fs.result.lists$posteriors, rep(0, ncol(relics.param$delta.pp)))
-    
-    # if the hyper parameters are reestimated after convergence of the posteriors
-    if(! fix.hypers & !iterative.hyper.est){
-      
-      relics.hyper.list <- c()
-      if(analysis.parameters$model_dispersion){
-        relics.hyper.list <- recompute_dirichlet_hypers(relics.param, 
-                                                        input.data$guide_to_seg_lst, 
-                                                        hyper.components, 
-                                                        input.data$data, 
-                                                        input.data$guide_efficiency, 
-                                                        relics.hyper,
-                                                        analysis.parameters)
-      } else {
-        relics.hyper.list <- recompute_hyper_parameters(relics.param,
-                                                        relics.hyper,
-                                                        hyper.components,
-                                                        input.data$data,
-                                                        input.data$guide_to_seg_lst,
-                                                        input.data$guide_efficiency,
-                                                        analysis.parameters)
-      }
-      
-      relics.hyper <- relics.hyper.list$hyper_pars
-      hyper.components <- relics.hyper.list$hyper_par_components
-    }
-    
-    if(! is.null(input.data$guide_efficiency_scores)){
-      if(! input.data$fixed_ge_coeff){
-        ge.list <- recompute_ge_coefficients(relics.param,
-                                             hyper.components, #relics.hyper,
-                                             input.data$data,
-                                             input.data$guide_to_seg_lst,
-                                             input.data$guide_efficiency_scores,
-                                             input.data$ge_coeff)
-        
-        input.data$guide_efficiency <- ge.list$guide_efficiency
-        input.data$ge_coeff <- ge.list$ge_coeff
-      }
-    }
-  }
-  
-}
-
-
-#' @title Compute the final weighted pp matrix based on optimal model priors
-#' @param input.pars: nb parameters (mu, size)
-#' @param input.pp: pp matrix
-#' @param data.setup: list containing the counts and guide to seg list
-#' @param input.alphas: list, RELICS hyperparameters, alpha0 and alpha1, each list of df, one for each repl
-#' @param max.mu: upper limit to mu
-#' @param max.size: upper limit to size
-#' @return optimal parameters
-#' @export optimize_priors()
-
-optimize_priors <- function(input.pars, input.pp, input.alphas, data.setup, max.mu = 50, max.size = 100){
-  
-  nr.fs <- nrow(input.pp)
-  nb.mu <- min(input.pars[1]^2, max.mu)
-  nb.size <- min(input.pars[2]^2, max.size)
-  
-  temp.priors <- dnbinom(0:nr.fs, mu = nb.mu, size = nb.size)
-
-  pp.mtx <- matrix(0, ncol = ncol(input.pp), nrow = nrow(input.pp))
-  norm.weigth <- temp.priors[1:nrow(input.pp)] / sum(temp.priors[1:nrow(input.pp)])
-  for(fs in 1:nrow(input.pp)){
-    pp.mtx[fs,] <- input.pp[fs,] * sum(norm.weigth[fs:length(norm.weigth)])
-  }
-  
-  comb.pp <- colSums(pp.mtx)
-  comb.pp[comb.pp > 1] <- 1
-  temp.guide.ll <- compute_perGuide_fs_ll(comb.pp, data.setup$guide_to_seg_lst)
-  
-  temp.total.model.ll <- 0
-  
-  for(i in 1:length(data.setup$data)){
-    temp.hypers <- list(alpha0 = input.alphas$alpha0[[i]], alpha1 = input.alphas$alpha1[[i]])
-    temp.sgRNa.ll <- estimate_relics_sgrna_log_like(temp.hypers,
-                                                    data.setup$data[[i]],
-                                                    temp.guide.ll,
-                                                    data.setup$guide_efficiency)
-    temp.dirichlet.ll <- sum(temp.sgRNa.ll$total_guide_ll)
-    temp.total.model.ll <- temp.total.model.ll + temp.dirichlet.ll
-  }
-  
-  - temp.total.model.ll
-}
-
-
-#' @title Compute the final weighted pp matrix based on optimal model priors
-#' @param input.results.list: lest, each element keeps track of results from a number of FS identified
-#' @param analysis.parameters: list containing all the analysis parameters
-#' @param input.data: list containing the counts
-#' @param relics.hyper: list, RELICS hyperparameters, alpha0 and alpha1, each list of df, one for each repl
-#' @param hyper.components: hyperpparameter components (alpha0 and alpha1 proportions and dispersions)
-#' @param file.extension: extension for files, either '', '_final', or '_recommendedFinal'
-#' @param fs.iter: current FS interation
-#' @return list with updated input.results.list
-#' @export compute_final_priors()
-
-compute_final_priors <- function(input.results.list, analysis.parameters, input.data, fs.iter, relics.hyper, hyper.components, file.extension){
-  
-  out.dir <- paste0(analysis.parameters$out_dir, '/', analysis.parameters$dataName)
-  nb.pars <- c(sqrt(5), sqrt(30))
-  
-  pp.df <- input.results.list$posteriors
-  nb.optim.res <- optim(nb.pars, optimize_priors,
-                     input.pp = pp.df, 
-                     input.alphas = relics.hyper, 
-                     data.setup = input.data,
-                     max.mu = analysis.parameters$max_mu, 
-                     max.size = analysis.parameters$max_size)
-
-  final.pp.mtx <- matrix(0, ncol = ncol(pp.df), nrow = nrow(pp.df))
-  final.priors <- dnbinom(0:nrow(pp.df), mu = min(nb.optim.res$par[1]^2, 50), size = min(nb.optim.res$par[2]^2, 100) )
-  
-  norm.weigth <- final.priors[1:nrow(pp.df)] / sum(final.priors[1:nrow(pp.df)])
-  for(fs in 1:nrow(pp.df)){
-    final.pp.mtx[fs,] <- pp.df[fs,] * sum(norm.weigth[fs:length(norm.weigth)])
-  }
-
-  write.table(final.pp.mtx, file = paste0(out.dir, file.extension, '_k', fs.iter,'_pp_w_optim_priors.csv'), row.names = F, col.names = F, sep = ',')
-  
-  to.bg.list <- list()
-  final.comb.pp <- colSums(final.pp.mtx)
-  final.comb.pp[which(final.comb.pp > 1)] <- 1
-  to.bg.list$pp_w_optim_priors <- input.data$seg_info
-  to.bg.list$pp_w_optim_priors$score <- final.comb.pp
-  
-  create_bedgraphs(to.bg.list, paste0(out.dir, file.extension, '_k', fs.iter) )
-  
-  out.nb.pars <- data.frame(mu = nb.optim.res$par[1]^2,
-                            size = nb.optim.res$par[2]^2,
-                            max_mu = analysis.parameters$max_mu,
-                            max_size = analysis.parameters$max_size, 
-                            optim_ll = -nb.optim.res$value,
-                            model_ll = input.results.list$total_model_ll[length(input.results.list$total_model_ll)],
-                            stringsAsFactors = F)
-  
-  write.csv(out.nb.pars, file = paste0(out.dir, file.extension, '_k', fs.iter, '_nb_optim_priors.csv'), row.names = F)
-
-}
-
-
-
-#' @title initialize the results list
-#' @param input.pp, matrix of posterior probabilities
-#' @param dirichlet.hyper: hyper parameters
-#' @param input.data.list, list: $guide_to_seg_lst, $data, $true_pos_seg, $overlapMat, $guide_to_seg_lst, $seg_to_guide_lst
-#' @param guide.efficiency: data.frame of guide efficiences. Either vector of guide efficiency or NULL
-#' @param fix.hypers: logical, whether the hyperparameters are fixed
-#' @return list: posteriors, total_model_ll, conditional_fs_ll, model_fs_ll, fs_placement_ll, fs_total_ll
-#' @export initialize_fs_results_w_priors()
-
-initialize_fs_results_w_priors <- function(input.pp, input.data.list, guide.efficiency, 
-                                  dirichlet.hyper, fix.hypers){
-  
-  fs.result.lists <- list()
-  fs.result.lists$posteriors <- input.pp
-  
-  dirichlet.guide.ll <- compute_perGuide_fs_ll(colSums(input.pp), input.data.list$guide_to_seg_lst)
-  total.model.ll <- 0
-  for(i in 1:length(input.data.list$data)){
-    temp.hypers <- list(alpha0 = dirichlet.hyper$alpha0[[i]], alpha1 = dirichlet.hyper$alpha1[[i]])
-    temp.sgRNa.ll <- estimate_relics_sgrna_log_like(temp.hypers,
-                                                    input.data.list$data[[i]],
-                                                    dirichlet.guide.ll,
-                                                    guide.efficiency)
-    
-    temp.dirichlet.ll <- sum(temp.sgRNa.ll$total_guide_ll)
-    total.model.ll <- total.model.ll + temp.dirichlet.ll
-  }
-  
-  
-  temp.pp <- input.pp
-  temp.pp[1,] <- 0
-  temp.pp.sum <- colSums(temp.pp)
-  temp.pp.sum[temp.pp.sum > 1] <- 1
-  condit.guide.ll <- compute_perGuide_fs_ll(temp.pp.sum, input.data.list$guide_to_seg_lst)
-
-  temp.cond.fs.ll <- 0
-
-  for(r in 1:length(input.data.list$data)){
-    temp.hypers <- list(alpha0 = dirichlet.hyper$alpha0[[r]], alpha1 = dirichlet.hyper$alpha1[[r]])
-    temp.cond.sgRNa.ll <- estimate_relics_sgrna_log_like(temp.hypers,
-                                                         input.data.list$data[[r]],
-                                                         condit.guide.ll,
-                                                         guide.efficiency)
-    temp.cond.fs.ll <- temp.cond.fs.ll +  sum(temp.cond.sgRNa.ll$total_guide_ll)
-
-  }
-  
-  fs.result.lists$total_model_ll <- total.model.ll
-  fs.result.lists$conditional_fs_ll <- temp.cond.fs.ll - total.model.ll # (the ll contribution of a single FS conditional on all other FS present) - (the total model ll)
-  fs.result.lists$total_model_ll_w_priors <- total.model.ll
-  fs.result.lists$conditional_fs_ll_w_priors <- temp.cond.fs.ll - total.model.ll
-  fs.result.lists$posteriors_w_priors <- input.pp[1,, drop = F] # the pp weighted by the number of FS found
-  fs.result.lists$fs_placement_ll <- 0 # the ll of placing a FS as this location and nowhere else (max ll of segment ll)
-  fs.result.lists$fs_placement_raw_ll <- 0
-  fs.result.lists$fs_total_ll <- 0 # the total ll of all the FS placement on all the segments
-  fs.result.lists$segment_lls <- c()
-  
-  return(fs.result.lists)
-}
-
-
-#' @title plot the ll results
-#' @param input.fs.results: list, with all the results
-#' @param fs.nr: how many FS have been calculated
-#' @param out.dir: directory to which to write
-#' @return list: $pp_ordered, $layer_ll_ordered
-#' @export plot_fs_ll_stats_w_priors()
-
-plot_fs_ll_stats_w_priors <- function(out.dir, fs.nr, input.fs.results){
-  
-  pdf(paste0(out.dir, '_k', fs.nr, '_summaryStatPlots.pdf'))
-  par(mfrow = c(2,2))
-  
-  # plot the progression of the total model ll with each FS
-  plot(x = c(0:(length(input.fs.results$total_model_ll) - 1) ), y = input.fs.results$total_model_ll, 
-       main = 'Total Model ll progression', xlab = 'Nr. FS', ylab = 'll')
-  
-  # plot the conditional ll improvement with each FS added
-  plot(x = c(1:length(input.fs.results$conditional_fs_ll)), y = input.fs.results$conditional_fs_ll, 
-       main = 'Conditional ll contribution of each FS', xlab = 'Nr. FS', ylab = 'll')
-  
-  # plot the progression of the total model ll with each FS
-  plot(x = c(0:(length(input.fs.results$total_model_ll_w_priors) - 1) ), y = input.fs.results$total_model_ll_w_priors, 
-       main = 'Total Model ll progression (w/ priors)', xlab = 'Nr. FS', ylab = 'll')
-  
-  # plot the conditional ll improvement with each FS added
-  plot(x = c(1:length(input.fs.results$conditional_fs_ll_w_priors)), y = input.fs.results$conditional_fs_ll_w_priors, 
-       main = 'Conditional ll contribution of each FS (w/ priors)', xlab = 'Nr. FS', ylab = 'll')
-  
-  # # plot the normalized ll of placing said FS
-  # plot(x = c(1:(length(input.fs.results$fs_placement_ll)-1) ), y = input.fs.results$fs_placement_ll[2:length(input.fs.results$fs_placement_ll)], 
-  #      main = 'Normalized FS placement ll', xlab = 'Nr. FS', ylab = 'll')
-  # 
-  # # plot the total model ll of placing said FS
-  # plot(x = c(1:(length(input.fs.results$fs_total_ll)-1) ), y = input.fs.results$fs_total_ll[2:length(input.fs.results$fs_total_ll)], 
-  #      main = 'Total ll of FS placements', xlab = 'Nr. FS', ylab = 'll')
-  
-  dev.off()
-}
-
-
-
-#' @title Wrapper function for recording the output from the most recent run
-#' @param input.results.list: lest, each element keeps track of results from a number of FS identified
-#' @param analysis.parameters: list containing all the analysis parameters
-#' @param input.data: list containing the counts
-#' @param relics.hyper: list, RELICS hyperparameters, alpha0 and alpha1, each list of df, one for each repl
-#' @param hyper.components: hyperpparameter components (alpha0 and alpha1 proportions and dispersions)
-#' @param file.extension: extension for files, either '', '_final', or '_recommendedFinal'
-#' @param fs.iter: current FS interation
-#' @return list with updated input.results.list
-#' @export record_fs_results_w_priors()
-
-record_fs_results_w_priors <- function(input.results.list, analysis.parameters, input.data, fs.iter, relics.hyper, hyper.components, file.extension){
-  
-  
-  record.posteriors <- input.results.list$posteriors
-  out.dir <- paste0(analysis.parameters$out_dir, '/', analysis.parameters$dataName)
-  
-  segment.lls <- input.results.list$segment_lls
-
-  # plot the outputs
-  if(fs.iter > 1){
-    if(analysis.parameters$record_posteriors){
-      display_relics_fs_as_tiff(record.posteriors,
-                                input.data$segLabels,
-                                paste0(out.dir, file.extension, '_k_', fs.iter, '_PP'),
-                                analysis.parameters$min_fs_pp,
-                                input.data$seg_info)
-    }
-    if(analysis.parameters$record_posteriors_w_priors){
-      display_relics_fs_as_tiff(input.results.list$posteriors_w_priors,
-                                input.data$segLabels,
-                                paste0(out.dir, file.extension, '_k_', fs.iter, '_PP_w_priors'),
-                                analysis.parameters$min_fs_pp,
-                                input.data$seg_info)
-    }
-    if(analysis.parameters$record_segment_lls){
-      display_relics_segLLs_as_tiff(segment.lls,
-                                    input.data$segLabels,
-                                    paste0(out.dir, file.extension, '_k_', fs.iter, '_segLLs'),
-                                    analysis.parameters$min_fs_pp,
-                                    input.data$seg_info)
-    }
-    plot_fs_ll_stats_w_priors(out.dir, fs.iter, input.results.list)
-  }
-  
-  ll_ratio_recording(input.data, analysis.parameters, relics.hyper, fs.iter)
-  
-  hyperparameter_recording(list(bkg_hyper = hyper.components$bkg_alpha, fs_hyper = hyper.components$FS_alpha, bkg_disp = hyper.components$bkg_dispersion), 
-                           fs.iter, hyper.components, analysis.parameters, file.extension)
-  
-  write.table(record.posteriors, file = paste0(out.dir, file.extension, '_k', fs.iter,'_pp.csv'), row.names = F, col.names = F, sep = ',')
-  write.table(input.results.list$posteriors_w_priors, file = paste0(out.dir, file.extension, '_k', fs.iter,'_pp_w_priors.csv'), row.names = F, col.names = F, sep = ',')
-  
-  # record the segments with FS probabilities above the threshold.
-  all.seg.fs.df.final <- extract_fs_locations(record.posteriors, input.data$seg_info, analysis.parameters$min_fs_pp)
-  write.table(all.seg.fs.df.final, file = paste0(out.dir, file.extension, '_k', fs.iter,'_FS_locations.bed'),
-              sep = '\t', quote = F, row.names = F, col.names = F)
-  
-  all.seg.fs.w.priors.df.final <- extract_fs_w_prior_locations(input.results.list$posteriors_w_priors, input.data$seg_info, analysis.parameters$min_fs_pp)
-  write.table(all.seg.fs.w.priors.df.final, file = paste0(out.dir, file.extension, '_k', fs.iter,'_FS_w_priors_locations.bed'),
-              sep = '\t', quote = F, row.names = F, col.names = F)
-  
-  ll.df <- data.frame(FS = c(0:(length(input.results.list$total_model_ll)-1)) ,
-                      total_model_ll = input.results.list$total_model_ll,
-                      conditional_fs_ll = c(0, input.results.list$conditional_fs_ll),
-                      total_model_ll_w_priors = input.results.list$total_model_ll_w_priors,
-                      conditional_fs_ll_w_priors = c(0, input.results.list$conditional_fs_ll_w_priors),
-                      fs_placement_ll = input.results.list$fs_placement_ll,
-                      fs_placement_raw_ll = input.results.list$fs_placement_raw_ll,
-                      fs_total_ll = input.results.list$fs_total_ll,
-                      stringsAsFactors = F)
-  
-  # record all the model lls
-  write.csv(ll.df, file = paste0(out.dir, file.extension, '_k', fs.iter, '_model_lls.csv'), row.names = F)
-  
-  # guide efficiency vars:
-  if(! is.null(input.data$fixed_ge_coeff) && ! input.data$fixed_ge_coeff){
-    record.ge.coeff <- input.data$ge_coeff#[[fs.iter]]
-    ge.coff.df <- data.frame(ge_coeff = c('beta0', paste0('beta', 1:ncol(input.data$guide_efficiency_scores))),
-                             ge_coeff_scores = round(record.ge.coeff, 3))
-    write.csv(ge.coff.df, file = paste0(out.dir, file.extension, '_k', fs.iter, '_ge_coeff.csv'), row.names = F)
-  }
-  
-  total.record.posteriors <- colSums(record.posteriors)
-  total.record.posteriors[which(total.record.posteriors > 1)] <- 1
-  out.bedgraph <- input.data$seg_info
-  out.bedgraph$score <- total.record.posteriors
-  to.bg.list <- list(total_pp = out.bedgraph)
-  
-  total.posteriors.w.priors <- colSums(input.results.list$posteriors_w_priors)
-  total.posteriors.w.priors[which(total.posteriors.w.priors > 1)] <- 1
-  to.bg.list$pp_w_priors <- input.data$seg_info
-  to.bg.list$pp_w_priors$score <- total.posteriors.w.priors
-
-  create_bedgraphs(to.bg.list, paste0(out.dir, file.extension, '_k', fs.iter) )
-  
-  # currently not recording effect sizes
-  # effect_size_recording(input.results.list, input.data, analysis.parameters, hyper.components, file.extension, fs.iter)
-}
-
-
-#' @title Based fs.threshold, determine record the location of each FS
-#' @param input.fs.pp: data.frame, contains the per FS posteriors
-#' @param input.seg.info: location of each segment
-#' @param fs.threshold: cutoff for each FS
-#' @return data.frame: 'chrom', 'start', 'end', 'label', 'score'
-#' @export extract_fs_w_prior_locations()
-
-extract_fs_w_prior_locations <- function(input.fs.pp, input.seg.info, fs.threshold){
-  
-  if(nrow(input.seg.info) != ncol(input.fs.pp)){
-    print('Error! Number of segments and posterior values do not match up!')
-    break()
-  }
-  
-  fs.df <- c()
-  # extract FS0 locations
-  fs0.idx <- which(input.fs.pp[1,] > fs.threshold)
-  if(length(fs0.idx) > 0){
-    fs0.scores <- input.fs.pp[1, fs0.idx]
-    temp.fs.position <- input.seg.info[fs0.idx,]
-    temp.fs.position$label <- 'FS0'
-    temp.fs.position$score <- fs0.scores
-    fs.df <- rbind(fs.df, temp.fs.position)
-  }
-  
-  # extract remaining pp of FS
-  fs.w.priors <- colSums(input.fs.pp[2:nrow(input.fs.pp),,drop = F])
-  fs.idx <- which(fs.w.priors > fs.threshold)
-  if(length(fs.idx) > 0){
-    fs.scores <- fs.w.priors[fs.idx]
-    temp.fs.position <- input.seg.info[fs.idx,]
-    temp.fs.position$label <- 'FS'
-    temp.fs.position$score <- fs.scores
-    fs.df <- rbind(fs.df, temp.fs.position)
-  }
-
-  out.fs.df <- fs.df[,c('chrom', 'start', 'end', 'label', 'score')]
-  
-  # zero-index the output
-  out.fs.df$start <- out.fs.df$start - 1
-  out.fs.df$end <- out.fs.df$end - 1
-  
-  return(out.fs.df)
-}
-
-
-#' @title Compute the placement of functional sequences while accounting for the prior of adding fs
-#' @param input.param, list containing the matrix for the posteriors
-#' @param input.hyper: hyper parameters
-#' @param input.data.list, list: $guide_to_seg_lst, $data, $true_pos_seg, $overlapMat, $guide_to_seg_lst, $seg_to_guide_lst
-#' @param input.tol: nr of layers to create
-#' @param nr.segs: max. length a functional segment is considered to have
-#' @param geom.p: proababilty of the genometric distribution to penalize for enhancers of increasing length
-#' @param min.pp: minimum posterior required to be part of a regulatory set
-#' @param guide.efficiency: data.frame of guide efficiences. Either vector of guide efficiency or NULL
-#' @param one.dispersion: whether the hyper parameters should be estimated with one or two dispersions
-#' @param local.max: logical, whether a local maximum should be computed
-#' @param local.max.range: number of segments to include in addition to the the ones with highest PP (one way, so multiply by 2 for total nr of segs)
-#' @param area.of.effect: type of area of effect. Currently either 'normal' or 'uniform'
-#' @param guide.dist.to.seg, list of lists, pre-computed distances of guides to FS
-#' @param fix.hypers: logical, whether hyperparameters are to be fixed
-#' @return ll_tract, posterior_trace_list, alpha0_est, alpha1_est, max_iter_reached, fs_ll_rt_trace
-#' @export relics_compute_FS_placement_w_priors()
-
-relics_compute_FS_placement_w_priors <- function(input.param,
-                                           input.hyper,
-                                           input.data.list,
-                                           input.tol = 0.001,
-                                           nr.segs = 10, geom.p = 0.1,
-                                           min.pp = 0.1,
-                                           guide.efficiency,
-                                           one.dispersion,
-                                           local.max, local.max.range,  
-                                           area.of.effect,
-                                           guide.dist.to.seg, 
-                                           fix.hypers,
-                                           fs.result.lists,
-                                           fs.prior){
-  
-  
-  dirichlet.hyper <- input.hyper
-  posteriors <- input.param$delta.pp
-  
-  # out.list <- list(posteriors = posteriors,
-  #                  fs_placement_ll = fs.placement.ll,
-  #                  fs_total_ll = fs.total.ll,
-  #                  fs_placement_raw_ll = fs.placement.raw.ll,
-  #                  segment_lls = segment.lls)
-  # 
-  # return(out.list)
-  
-  fs.model.list <- relics_estimate_FS_w_priors(posteriors,
-                                         dirichlet.hyper,
-                                         input.data.list$data,
-                                         input.data.list$true_pos_seg,
-                                         input.data.list$guide_to_seg_lst,
-                                         input.data.list$seg_to_guide_lst,
-                                         input.data.list$next_guide_lst,
-                                         nr.segs, geom.p, guide.efficiency,
-                                         local.max, local.max.range, area.of.effect,
-                                         guide.dist.to.seg, fix.hypers,
-                                         fs.result.lists, fs.prior)
-  
-  # tested to check result of weighting PP of only top segment
-  # fs.model.list <- relics_estimate_FS_ll(posteriors,
-  #                                        dirichlet.hyper,
-  #                                        input.data.list$data,
-  #                                        input.data.list$true_pos_seg,
-  #                                        input.data.list$guide_to_seg_lst,
-  #                                        input.data.list$seg_to_guide_lst,
-  #                                        input.data.list$next_guide_lst,
-  #                                        nr.segs, geom.p, guide.efficiency,
-  #                                        local.max, local.max.range, area.of.effect,
-  #                                        guide.dist.to.seg, fix.hypers,
-  #                                        fs.result.lists, fs.prior)
-  
-  dirichlet.model.lls.w.priors <- compute_model_w_priors(fs.model.list$posteriors, input.data.list, 
-                                           guide.efficiency, dirichlet.hyper, fix.hypers, 
-                                           fs.result.lists, fs.prior)
-  
-  dirichlet.model.lls <- compute_model_sans_priors(fs.model.list$posteriors, input.data.list, 
-                                                guide.efficiency, dirichlet.hyper, fix.hypers, 
-                                                fs.result.lists, fs.prior)
-  
-  out.list <- list(posteriors = fs.model.list$posteriors,
-                   total_model_ll = dirichlet.model.lls$total_model_ll,
-                   conditional_fs_ll = dirichlet.model.lls$conditional_fs_ll,
-                   total_model_ll_w_priors = dirichlet.model.lls.w.priors$total_model_ll_w_priors,
-                   conditional_fs_ll_w_priors = dirichlet.model.lls.w.priors$conditional_fs_ll_w_priors,
-                   posteriors_w_priors = dirichlet.model.lls.w.priors$posteriors_w_priors,
-                   fs_placement_ll = fs.model.list$fs_placement_ll,
-                   fs_placement_raw_ll = fs.model.list$fs_placement_raw_ll,
-                   fs_total_ll = fs.model.list$fs_total_ll,
-                   segment_lls = fs.model.list$segment_lls)
-  
-  return(out.list)
-}
-
-
-#' @title compute the model lls without accounting for the number of priors
-#' @param input.pp, matrix of posterior probabilities
-#' @param dirichlet.hyper: hyper parameters
-#' @param input.data.list, list: $guide_to_seg_lst, $data, $true_pos_seg, $overlapMat, $guide_to_seg_lst, $seg_to_guide_lst
-#' @param guide.efficiency: data.frame of guide efficiences. Either vector of guide efficiency or NULL
-#' @param fix.hypers: logical, whether the hyperparameters are fixed
-#' @param fs.results.list: list, contain at least $total_model_ll, $conditional_fs_ll, $model_fs_ll
-#' @return list: total_model_ll, per_fs_ll (the model.ll increase for each FS, taking into account all other FS), model_ll_increase (the step-by-step increase in model ll with each FS)
-#' @export compute_model_sans_priors()
-
-compute_model_sans_priors <- function(input.pp, input.data.list, guide.efficiency, dirichlet.hyper, 
-                                   fix.hypers, fs.results.list, fs.prior){
-  
-  total.model.ll <- fs.results.list$total_model_ll
-
-  # take the sum across all weighted FS placements
-  # compute the model ll
-  combined.pp <- colSums(input.pp)
-  combined.pp[combined.pp > 1] <- 1
-  dirichlet.guide.ll <- compute_perGuide_fs_ll(combined.pp, input.data.list$guide_to_seg_lst)
-  
-  temp.total.model.ll <- 0
-  
-  for(i in 1:length(input.data.list$data)){
-    temp.hypers <- list(alpha0 = dirichlet.hyper$alpha0[[i]], alpha1 = dirichlet.hyper$alpha1[[i]])
-    temp.sgRNa.ll <- estimate_relics_sgrna_log_like(temp.hypers,
-                                                    input.data.list$data[[i]],
-                                                    dirichlet.guide.ll,
-                                                    guide.efficiency)
-    temp.dirichlet.ll <- sum(temp.sgRNa.ll$total_guide_ll)
-    temp.total.model.ll <- temp.total.model.ll + temp.dirichlet.ll
-  }
-  
-  total.model.ll <- c(total.model.ll, temp.total.model.ll)
-  
-  # compute the conditional contribution of each FS to the model (but not FS0)
-  conditional.fs.ll <- c()
-  
-  for(fs in 2:nrow(input.pp)){
-    
-    temp.pp <- input.pp
-    temp.pp[fs,] <- 0
-    temp.pp.sum <- colSums(temp.pp)
-    temp.pp.sum[temp.pp.sum > 1] <- 1
-    condit.guide.ll <- compute_perGuide_fs_ll(temp.pp.sum, input.data.list$guide_to_seg_lst)
-    
-    temp.cond.fs.ll <- 0
-    for(i in 1:length(input.data.list$data)){
-      temp.hypers <- list(alpha0 = dirichlet.hyper$alpha0[[i]], alpha1 = dirichlet.hyper$alpha1[[i]])
-      temp.cond.sgRNa.ll <- estimate_relics_sgrna_log_like(temp.hypers,
-                                                           input.data.list$data[[i]],
-                                                           condit.guide.ll,
-                                                           guide.efficiency)
-      temp.cond.fs.ll <- temp.cond.fs.ll +  sum(temp.cond.sgRNa.ll$total_guide_ll)
-    }
-    
-    conditional.fs.ll <- c(conditional.fs.ll, temp.cond.fs.ll - temp.total.model.ll)
-  }
-  
-  out.list <- list(total_model_ll = total.model.ll,
-                   conditional_fs_ll = conditional.fs.ll)
-  
-  return(out.list)
-  
-}
-
-
-#' @title compute the model lls while accounting for the number of priors
-#' @param input.pp, matrix of posterior probabilities
-#' @param dirichlet.hyper: hyper parameters
-#' @param input.data.list, list: $guide_to_seg_lst, $data, $true_pos_seg, $overlapMat, $guide_to_seg_lst, $seg_to_guide_lst
-#' @param guide.efficiency: data.frame of guide efficiences. Either vector of guide efficiency or NULL
-#' @param fix.hypers: logical, whether the hyperparameters are fixed
-#' @param fs.results.list: list, contain at least $total_model_ll, $conditional_fs_ll, $model_fs_ll
-#' @return list: total_model_ll, per_fs_ll (the model.ll increase for each FS, taking into account all other FS), model_ll_increase (the step-by-step increase in model ll with each FS)
-#' @export compute_model_w_priors()
-
-compute_model_w_priors <- function(input.pp, input.data.list, guide.efficiency, dirichlet.hyper, 
-                              fix.hypers, fs.results.list, fs.prior){
-  
-  total.model.ll <- fs.results.list$total_model_ll_w_priors
-
-  # first compute the weighted pp matrix
-  combined.pp.mtx <- matrix(0, ncol = ncol(input.pp), nrow = nrow(input.pp))
-  norm.weigth <- fs.prior[1:nrow(input.pp)] / sum(fs.prior[1:nrow(input.pp)])
-  for(fs in 1:nrow(input.pp)){
-    combined.pp.mtx[fs,] <- input.pp[fs,] * sum(norm.weigth[fs:length(norm.weigth)])
-  }
-  
-  # take the sum across all weighted FS placements
-  # compute the model ll
-  combined.pp <- colSums(combined.pp.mtx)
-  combined.pp[combined.pp > 1] <- 1
-  dirichlet.guide.ll <- compute_perGuide_fs_ll(combined.pp, input.data.list$guide_to_seg_lst)
-  
-  temp.total.model.ll <- 0
-  
-  for(i in 1:length(input.data.list$data)){
-    temp.hypers <- list(alpha0 = dirichlet.hyper$alpha0[[i]], alpha1 = dirichlet.hyper$alpha1[[i]])
-    temp.sgRNa.ll <- estimate_relics_sgrna_log_like(temp.hypers,
-                                                    input.data.list$data[[i]],
-                                                    dirichlet.guide.ll,
-                                                    guide.efficiency)
-    temp.dirichlet.ll <- sum(temp.sgRNa.ll$total_guide_ll)
-    temp.total.model.ll <- temp.total.model.ll + temp.dirichlet.ll
-  }
-  
-  total.model.ll <- c(total.model.ll, temp.total.model.ll)
-  
-  # compute the conditional contribution of each FS to the model (but not FS0)
-  conditional.fs.ll <- c()
-  
-  for(fs in 2:nrow(input.pp)){
-
-    temp.pp <- combined.pp.mtx
-    temp.pp[fs,] <- 0
-    temp.pp.sum <- colSums(temp.pp)
-    temp.pp.sum[temp.pp.sum > 1] <- 1
-    condit.guide.ll <- compute_perGuide_fs_ll(temp.pp.sum, input.data.list$guide_to_seg_lst)
-    
-    temp.cond.fs.ll <- 0
-    for(i in 1:length(input.data.list$data)){
-      temp.hypers <- list(alpha0 = dirichlet.hyper$alpha0[[i]], alpha1 = dirichlet.hyper$alpha1[[i]])
-      temp.cond.sgRNa.ll <- estimate_relics_sgrna_log_like(temp.hypers,
-                                                           input.data.list$data[[i]],
-                                                           condit.guide.ll,
-                                                           guide.efficiency)
-      temp.cond.fs.ll <- temp.cond.fs.ll +  sum(temp.cond.sgRNa.ll$total_guide_ll)
-    }
-    
-    conditional.fs.ll <- c(conditional.fs.ll, temp.cond.fs.ll - temp.total.model.ll)
-  }
-
-  out.list <- list(total_model_ll_w_priors = total.model.ll,
-                   conditional_fs_ll_w_priors = conditional.fs.ll,
-                   posteriors_w_priors = combined.pp.mtx)
-  
-  return(out.list)
-  
-}
-
-
-#' @title estimate the posterior probabilities for placing a specified number of functional sequences over a specified number of segments. Account for prior of nr. FS
-#' @param hyper: hyperparameters
-#' @param posteriors: matrix of posterior probabilities
-#' @param data: list, each element is a replicate
-#' @param known.reg: region positions of the known regions
-#' @param guide.to.seg.lst: mapping of guides to segments
-#' @param seg.to.guide.lst: mapping of segments to guides, both $guide_idx, $nonGuide_idx
-#' @param next.guide.lst: list that contains the index of $next_guide_idx and next_nonGuide_idx
-#' @param nr.segs: max number of segemnts that can be combined
-#' @param geom.p: probability of the geometic distribution used to calculate the probability of there being x segments in the regulatory element
-#' @param guide.efficiency: data.frame of guide efficiences. Either vector of guide efficiency or NULL
-#' @param local.max: logical, whether a local maximum should be computed
-#' @param local.max.range: number of segments to include in addition to the the ones with highest PP (one way, so multiply by 2 for total nr of segs)
-#' @param area.of.effect: type of area of effect. Currently either 'normal' or 'uniform'
-#' @param guide.dist.to.seg, list of lists, pre-computed distances of guides to FS
-#' @param fix.hypers, logical, whether the hyperparameters are supposed to be fixed
-#' @param fs.result.lists, list, requires $fs_placement_ll, $fs_total_ll
-#' @return log likelihood for each region
-#' @export relics_estimate_FS_w_priors()
-
-relics_estimate_FS_w_priors <- function(input.posteriors, hyper, data, known.reg,
-                                  guide.to.seg.lst, seg.to.guide.lst,
-                                  next.guide.lst, nr.segs = 10,
-                                  geom.p = 0.1, guide.efficiency,
-                                  local.max, local.max.range, area.of.effect,
-                                  guide.dist.to.seg, fix.hypers, fs.result.lists,
-                                  fs.prior) {
-  
-  posteriors <- input.posteriors
-  segment.lls <- fs.result.lists$segment_lls
-  
-  n.sgrna <- length(guide.to.seg.lst)
-  n.region <- length(seg.to.guide.lst)
-  fs.placement.ll <- fs.result.lists$fs_placement_ll
-  fs.placement.raw.ll <- fs.result.lists$fs_placement_raw_ll
-  fs.total.ll <- fs.result.lists$fs_total_ll
-  
-  k.idx <- nrow(posteriors)
-  if(! fix.hypers){
-    k.idx <- 2
-    fs.placement.ll <- fs.placement.ll[1]
-    fs.total.ll <- fs.total.ll[1]
-    fs.placement.raw.ll <- fs.placement.raw.ll[1]
-    segment.lls <- c()
-  }
-  
-  # set posteriors for all rows to be computed to 0
-  posteriors[k.idx:(hyper$L+1),] <- rep(0, n.region)
-  
-  for(l in k.idx:(hyper$L+1)) {
-    ll.of.placement <- c() #dnorm(l, mean = fs.prior$mean, sd = fs.prior$sd, log = T)
-    
-    # sum posteriors from other rows
-    pp <- colSums(posteriors)
-    
-    # cumulative posterior probability can become greater than 1,
-    # So we restrict it to 1.  doesn't seem like the ideal solution...
-    pp[pp > 1.0] <- 1.0
-    
-    # Compute the ll for each RE length for both replicates, combine the lls and then add to the ll total
-    # set up the data structues as lists to access the different replicates
-    layer.guide.ll <- compute_perGuide_fs_ll(pp, guide.to.seg.lst) # processed.pp
-    sgrna.log.like.list <- list()
-    data.mat.list <- list()
-    data.total.list <- list()
-    
-    for(repl in 1:length(data)){
-      temp.hypers <- list(alpha0 = hyper$alpha0[[repl]], alpha1 = hyper$alpha1[[repl]])
-      temp.data <- data[[repl]]
-      temp.data.counts <- temp.data[, c(1:(ncol(temp.data) - 1))]
-      temp.data.totals <- temp.data[, ncol(temp.data)]
-      
-      data.mat.list[[repl]] <- temp.data.counts
-      data.total.list[[repl]] <- temp.data.totals
-      
-      temp.sgrna.log.like <- estimate_relics_sgrna_log_like(temp.hypers, temp.data, layer.guide.ll, guide.efficiency)
-      sgrna.log.like.list[[repl]] <- temp.sgrna.log.like
-      
-    }
-    
-    fs.pps <- c()
-    if(area.of.effect == 'normal'){
-      fs.pps.list <- estimate_fs_AoE_pp_ll(hyper, data.mat.list, data.total.list, guide.to.seg.lst,
-                                           seg.to.guide.lst, next.guide.lst, nr.segs, geom.p, 
-                                           sgrna.log.like.list, seg.adjust = 0, 
-                                           total.segs = length(seg.to.guide.lst),
-                                           guide.dist.to.seg, ll.of.placement, pp)
-      fs.pps <- fs.pps.list$seg_pp
-      fs.lls <- fs.pps.list$segment_lls
-      fs.total.lls <- fs.pps.list$total_ll
-      raw.seg.ll <- fs.pps.list$raw_segment_lls
-    } else {
-      fs.pps.list <- estimate_fs_pp_ll(seg.to.guide.lst, next.guide.lst, 
-                                       nr.segs, geom.p, sgrna.log.like.list,
-                                       ll.of.placement, pp)
-      fs.pps <- fs.pps.list$seg_pp
-      fs.lls <- fs.pps.list$segment_lls
-      fs.total.lls <- fs.pps.list$total_ll
-      raw.seg.ll <- fs.pps.list$raw_segment_lls
-    }
-    
-    max.fs.pps.idx <- which(fs.pps == max(fs.pps)[1])
-    # fs.pps.final <- rep(0, length(fs.pps))
-    # fs.pps.final[max.fs.pps.idx] <- 1
-    posteriors[l, ] <- fs.pps #fs.pps.final
-    
-    fs.lls.max <- fs.lls[max.fs.pps.idx][1]
-    fs.placement.ll <- c(fs.placement.ll, fs.lls.max)
-    
-    fs.placement.raw.ll <- c(fs.placement.raw.ll, raw.seg.ll[max.fs.pps.idx][1])
-    
-    fs.total.ll <- c(fs.total.ll, fs.total.lls)
-    
-    segment.lls <- rbind(segment.lls, fs.lls)
-    
-  }
-  
-  out.list <- list(posteriors = posteriors,
-                   fs_placement_ll = fs.placement.ll,
-                   fs_total_ll = fs.total.ll,
-                   fs_placement_raw_ll = fs.placement.raw.ll,
-                   segment_lls = segment.lls)
-  
-  return(out.list)
-  
-}
-
-
 #' @title Display the credible sets along with cumulative posteriors. Formerly 'display_mrvr_norm_tiff'
 #' @param input.L matrix of posteriors
 #' @param input.labels: labelling of all segments
@@ -4704,943 +2380,6 @@ display_relics_segLLs_as_tiff <- function(input.seg.lls, input.labels, tiff.name
   }
   
 }
-
-
-#' @title Wrapper function for recording the output from the most recent run
-#' @param input.results.list: lest, each element keeps track of results from a number of FS identified
-#' @param analysis.parameters: list containing all the analysis parameters
-#' @param input.data: list containing the counts
-#' @param relics.hyper: list, RELICS hyperparameters, alpha0 and alpha1, each list of df, one for each repl
-#' @param hyper.components: hyperpparameter components (alpha0 and alpha1 proportions and dispersions)
-#' @param file.extension: extension for files, either '', '_final', or '_recommendedFinal'
-#' @param fs.iter: current FS interation
-#' @return list with updated input.results.list
-#' @export record_fs_results()
-
-record_fs_results <- function(input.results.list, analysis.parameters, input.data, fs.iter, relics.hyper, hyper.components, file.extension){
-  
-  
-  record.posteriors <- input.results.list$posteriors
-  out.dir <- paste0(analysis.parameters$out_dir, '/', analysis.parameters$dataName)
-  
-  segment.lls <- input.results.list$segment_lls
-  
-  # plot the outputs
-  if(fs.iter > 1){
-    if(analysis.parameters$record_posteriors){
-      display_relics_fs_as_tiff(record.posteriors,
-                                input.data$segLabels,
-                                paste0(out.dir, file.extension, '_k_', fs.iter, '_PP'),
-                                analysis.parameters$min_fs_pp,
-                                input.data$seg_info)
-    }
-    if(analysis.parameters$record_segment_lls){
-      display_relics_segLLs_as_tiff(segment.lls,
-                                    input.data$segLabels,
-                                    paste0(out.dir, file.extension, '_k_', fs.iter, '_segLLs'),
-                                    analysis.parameters$min_fs_pp,
-                                    input.data$seg_info)
-    }
-    plot_fs_ll_stats(out.dir, fs.iter, input.results.list)
-  }
-  
-  ll_ratio_recording(input.data, analysis.parameters, relics.hyper, fs.iter)
-  
-  hyperparameter_recording(list(bkg_hyper = hyper.components$bkg_alpha, fs_hyper = hyper.components$FS_alpha, bkg_disp = hyper.components$bkg_dispersion), 
-                           fs.iter, hyper.components, analysis.parameters, file.extension)
-  
-  write.table(record.posteriors, file = paste0(out.dir, file.extension, '_k', fs.iter,'_pp.csv'), row.names = F, col.names = F, sep = ',')
-  
-  # record the segments with FS probabilities above the threshold.
-  all.seg.fs.df.final <- extract_fs_locations(record.posteriors, input.data$seg_info, analysis.parameters$min_fs_pp)
-  write.table(all.seg.fs.df.final, file = paste0(out.dir, file.extension, '_k', fs.iter,'_FS_locations.bed'),
-              sep = '\t', quote = F, row.names = F, col.names = F)
-  
-  ll.df <- data.frame(FS = c(1:length(input.results.list$total_model_ll)),
-                       total_model_ll = input.results.list$total_model_ll,
-                       conditional_fs_ll = input.results.list$conditional_fs_ll,
-                       model_fs_ll = input.results.list$model_fs_ll,
-                       fs_placement_ll = input.results.list$fs_placement_ll,
-                      fs_placement_raw_ll = input.results.list$fs_placement_raw_ll,
-                       fs_total_ll = input.results.list$fs_total_ll,
-                       stringsAsFactors = F)
-  
-  # record all the model lls
-  write.csv(ll.df, file = paste0(out.dir, file.extension, '_k', fs.iter, '_model_lls.csv'), row.names = F)
-
-  # guide efficiency vars:
-  if(! is.null(input.data$fixed_ge_coeff) && ! input.data$fixed_ge_coeff){
-    record.ge.coeff <- input.data$ge_coeff#[[fs.iter]]
-    ge.coff.df <- data.frame(ge_coeff = c('beta0', paste0('beta', 1:ncol(input.data$guide_efficiency_scores))),
-                             ge_coeff_scores = round(record.ge.coeff, 3))
-    write.csv(ge.coff.df, file = paste0(out.dir, file.extension, '_k', fs.iter, '_ge_coeff.csv'), row.names = F)
-  }
-
-  total.record.posteriors <- colSums(record.posteriors)
-  total.record.posteriors[which(total.record.posteriors > 1)] <- 1
-  out.bedgraph <- input.data$seg_info
-  out.bedgraph$score <- total.record.posteriors
-  to.bg.list <- list(total_pp = out.bedgraph)
-  
-  create_bedgraphs(to.bg.list, paste0(out.dir, file.extension, '_k', fs.iter) )
-  
-  # data_ll_recording(input.results.list, fs.iter, input.data, file.extension, analysis.parameters)
-  # 
-  # bedgraph_recording(input.results.list, input.data, fs.iter, analysis.parameters, file.extension)
-  
-  # currently not recording effect sizes
-  # effect_size_recording(input.results.list, input.data, analysis.parameters, hyper.components, file.extension, fs.iter)
-  
-  # write.table(input.results.list$posteriors_w_priors, file = paste0(out.dir, file.extension, '_k', fs.iter,'_pp_w_priors.csv'), row.names = F, col.names = F, sep = ',')
-  # 
-  # all.seg.fs.w.priors.df.final <- extract_fs_w_prior_locations(input.results.list$posteriors_w_priors, input.data$seg_info, analysis.parameters$min_fs_pp)
-  # write.table(all.seg.fs.w.priors.df.final, file = paste0(out.dir, file.extension, '_k', fs.iter,'_FS_w_priors_locations.bed'),
-  #             sep = '\t', quote = F, row.names = F, col.names = F)
-  # 
-  # # guide efficiency vars:
-  # if(! is.null(input.data$fixed_ge_coeff) && ! input.data$fixed_ge_coeff){
-  #   record.ge.coeff <- input.data$ge_coeff#[[fs.iter]]
-  #   ge.coff.df <- data.frame(ge_coeff = c('beta0', paste0('beta', 1:ncol(input.data$guide_efficiency_scores))),
-  #                            ge_coeff_scores = round(record.ge.coeff, 3))
-  #   write.csv(ge.coff.df, file = paste0(out.dir, file.extension, '_k', fs.iter, '_ge_coeff.csv'), row.names = F)
-  # }
-  # 
-  # to.bg.list <- list()
-  # 
-  # total.posteriors.w.priors <- colSums(input.results.list$posteriors_w_priors)
-  # total.posteriors.w.priors[which(total.posteriors.w.priors > 1)] <- 1
-  # to.bg.list$pp_w_priors <- input.data$seg_info
-  # to.bg.list$pp_w_priors$score <- total.posteriors.w.priors
-  # 
-  # create_bedgraphs(to.bg.list, paste0(out.dir, file.extension, '_k', fs.iter) )
-  
-}
-
-
-#' @title plot the ll results
-#' @param input.fs.results: list, with all the results
-#' @param fs.nr: how many FS have been calculated
-#' @param out.dir: directory to which to write
-#' @return list: $pp_ordered, $layer_ll_ordered
-#' @export plot_fs_ll_stats()
-
-plot_fs_ll_stats <- function(out.dir, fs.nr, input.fs.results){
-  
-  pdf(paste0(out.dir, '_k', fs.nr, '_summaryStatPlots.pdf'))
-  par(mfrow = c(2,3))
-  
-  # plot the progression of the total model ll with each FS
-  plot(x = c(0:(length(input.fs.results$total_model_ll) - 1) ), y = input.fs.results$total_model_ll, 
-       main = 'Total Model ll progression', xlab = 'Nr. FS', ylab = 'll')
-  
-  # plot the conditional ll improvement with each FS added
-  plot(x = c(0:(length(input.fs.results$conditional_fs_ll) - 1)), y = input.fs.results$conditional_fs_ll, 
-       main = 'Conditional ll contribution of each FS', xlab = 'Nr. FS', ylab = 'll')
-  
-  # plot the ll improvement of each additional FS
-  plot(x = c(1:(length(input.fs.results$model_fs_ll)-1) ), y = c(diff(input.fs.results$model_fs_ll)), 
-       main = 'll contribution of each additional FS', xlab = 'Nr. FS', ylab = 'll')
-  
-  # plot the normalized ll of placing said FS
-  plot(x = c(1:(length(input.fs.results$fs_placement_ll)-1) ), y = input.fs.results$fs_placement_ll[2:length(input.fs.results$fs_placement_ll)], 
-       main = 'Normalized FS placement ll', xlab = 'Nr. FS', ylab = 'll')
-  
-  # plot the total model ll of placing said FS
-  plot(x = c(1:(length(input.fs.results$fs_total_ll)-1) ), y = input.fs.results$fs_total_ll[2:length(input.fs.results$fs_total_ll)], 
-       main = 'Total ll of FS placements', xlab = 'Nr. FS', ylab = 'll')
-
-  dev.off()
-}
-
-
-#' @title initialize the results list
-#' @param input.pp, matrix of posterior probabilities
-#' @param dirichlet.hyper: hyper parameters
-#' @param input.data.list, list: $guide_to_seg_lst, $data, $true_pos_seg, $overlapMat, $guide_to_seg_lst, $seg_to_guide_lst
-#' @param guide.efficiency: data.frame of guide efficiences. Either vector of guide efficiency or NULL
-#' @param fix.hypers: logical, whether the hyperparameters are fixed
-#' @return list: posteriors, total_model_ll, conditional_fs_ll, model_fs_ll, fs_placement_ll, fs_total_ll
-#' @export initialize_fs_results()
-
-initialize_fs_results <- function(input.pp, input.data.list, guide.efficiency, 
-                                  dirichlet.hyper, fix.hypers){
-  
-  fs.result.lists <- list()
-  fs.result.lists$posteriors <- input.pp
-  
-  dirichlet.guide.ll <- compute_perGuide_fs_ll(colSums(input.pp), input.data.list$guide_to_seg_lst)
-  total.model.ll <- 0
-  for(i in 1:length(input.data.list$data)){
-    temp.hypers <- list(alpha0 = dirichlet.hyper$alpha0[[i]], alpha1 = dirichlet.hyper$alpha1[[i]])
-    temp.sgRNa.ll <- estimate_relics_sgrna_log_like(temp.hypers,
-                                                    input.data.list$data[[i]],
-                                                    dirichlet.guide.ll,
-                                                    guide.efficiency)
-    
-    temp.dirichlet.ll <- sum(temp.sgRNa.ll$total_guide_ll)
-    total.model.ll <- total.model.ll + temp.dirichlet.ll
-  }
-  
-
-  temp.pp <- input.pp
-  temp.pp[1,] <- 0
-  temp.pp.sum <- colSums(temp.pp)
-  temp.pp.sum[temp.pp.sum > 1] <- 1
-  condit.guide.ll <- compute_perGuide_fs_ll(temp.pp.sum, input.data.list$guide_to_seg_lst)
-  
-  temp.guide.model.pp <- input.pp[1,]
-  model.fs.guide.ll <- compute_perGuide_fs_ll(temp.guide.model.pp, input.data.list$guide_to_seg_lst)
-  
-  temp.cond.fs.ll <- 0
-  temp.model.fs.ll <- 0
-  
-  for(r in 1:length(input.data.list$data)){
-    temp.hypers <- list(alpha0 = dirichlet.hyper$alpha0[[r]], alpha1 = dirichlet.hyper$alpha1[[r]])
-    temp.cond.sgRNa.ll <- estimate_relics_sgrna_log_like(temp.hypers,
-                                                         input.data.list$data[[r]],
-                                                         condit.guide.ll,
-                                                         guide.efficiency)
-    temp.cond.fs.ll <- temp.cond.fs.ll +  sum(temp.cond.sgRNa.ll$total_guide_ll)
-    
-    
-    temp.sgRNA.model.ll <- estimate_relics_sgrna_log_like(temp.hypers,
-                                                          input.data.list$data[[r]],
-                                                          model.fs.guide.ll,
-                                                          guide.efficiency)
-    temp.model.fs.ll <- temp.model.fs.ll + sum(temp.sgRNA.model.ll$total_guide_ll)
-  }
-
-  fs.result.lists$total_model_ll <- total.model.ll
-  fs.result.lists$conditional_fs_ll <- temp.cond.fs.ll - total.model.ll # (the ll contribution of a single FS conditional on all other FS present) - (the total model ll)
-  fs.result.lists$model_fs_ll <- temp.model.fs.ll # the model ll with each additional FS (use diff() to estimate per FS improvement)
-  fs.result.lists$fs_placement_ll <- 0 # the ll of placing a FS as this location and nowhere else (max ll of segment ll)
-  fs.result.lists$fs_placement_raw_ll <- 0
-  fs.result.lists$fs_total_ll <- 0 # the total ll of all the FS placement on all the segments
-  fs.result.lists$segment_lls <- c()
-  
-  return(fs.result.lists)
-}
-
-
-#' @title Determine whether the placement of the last FS is over an already identified region
-#' @param input.pp, matrix of posterior probabilities
-#' @param dirichlet.hyper: hyper parameters
-#' @param input.data.list, list: $guide_to_seg_lst, $data, $true_pos_seg, $overlapMat, $guide_to_seg_lst, $seg_to_guide_lst
-#' @param guide.efficiency: data.frame of guide efficiences. Either vector of guide efficiency or NULL
-#' @param fix.hypers: logical, whether the hyperparameters are fixed
-#' @return list: posteriors, total_model_ll, conditional_fs_ll, model_fs_ll, fs_placement_ll, fs_total_ll
-#' @export is_placement_complete()
-
-is_placement_complete <- function(input.pp){
-  
-  is.complete <- FALSE
-  fs.idx <- which(input.pp[1,] == 1)
-  
-  for(fs in 2:nrow(input.pp)){
-    
-    temp.fs.idx <- which(input.pp[fs,] == 1)
-    
-    if(length(which(temp.fs.idx %in% fs.idx))){
-      is.complete <- TRUE
-      break()
-    }
-    fs.idx <- c(fs.idx, temp.fs.idx)
-    
-  }
-  
-  return(is.complete)
-}
-
-
-#' @title Run RELICS v3. Iteratively place FS and stop once models stops improving
-#' @param input.data: list: $guide_to_seg_lst, $data, $fs0_idx, $overlapMat, $guide_to_seg_lst, $seg_to_guide_lst
-#' @param final.layer.nr: number of layers to go up to
-#' @param out.dir: directory to which all files are to be written. Default = NULL
-#' @param adjust.tol: whether convergence tolerance should be adjusted dynamically as layers are computed (increasingly more rigorous)
-#' @param fix.hypers: whether the input parameters remain unchanged or are altered after calculation of posteriors. Default = FALSE
-#' @param iterative.hyper.est: whether hyper parameters are to be estimated iteratively with the posteriors (TRUE) or after convergence of posteriors (FALSE)
-#' @param input.hypers: list, $alpha0, $alpha1, both elements contain lists of length wequal to nr. replicates (input.hypers$alpha0[[1]])
-#' @param nr.segs, number of segments to consider for the length of a regulatory element
-#' @param geom.p: proababilty of the genometric distribution to penalize for enhancers of increasing length
-#' @param fs.correlation.cutoff: what correlation between layers determines stopping of layer calculation (default: 0.1)
-#' @param input.min.rs.pp: minimum posterior required to be part of a regulatory set
-#' @param auto.stop: whether or not computations should be stopped after recomended stopping point
-#' @param record.all.fs: logical, if information of all intermediate FS should be recorded, in addition to the final set of FS
-#' @param one.dispersion: whether there should be one or 2 dispersions estimated for the 2 hyper parameters
-#' @param recompute.fs0: logical, whether FS0 is to be set to 0 or keep the initial assignment
-#' @param local.max: logical, whether a local maximum should be computed
-#' @param local.max.range: number of segments to include in addition to the the ones with highest PP (one way, so multiply by 2 for total nr of segs)
-#' @param pool.names, if not NULL, the names of the pools to be used when recording output
-#' @param mean.var.type: type of mean-variance relationship
-#' @param pp.calculation: what version to use when calculating PP. 'v2'is for computing with normal AoE
-#' @param analysis.parameters: list, contains various elements used for analysis
-#' @param guide.dist.to.seg, list of lists, pre-computed distances of guides to FS
-#' @return list of final per-layer posteriors
-#' @export run_RELICS_3()
-
-run_RELICS_3 <- function(input.data, final.layer.nr, out.dir = NULL,
-                         fix.hypers = FALSE,
-                         iterative.hyper.est = FALSE,
-                         input.hypers = NULL,
-                         input.hyper.components,
-                         nr.segs = 10,
-                         geom.p = 0.1,
-                         fs.correlation.cutoff = 0.1,
-                         input.min.rs.pp = 0.1,
-                         auto.stop = TRUE,
-                         record.all.fs,
-                         input.convergence.tol = 0.01,
-                         adjust.tol = TRUE,
-                         one.dispersion = TRUE,
-                         recompute.fs0,
-                         local.max, local.max.range,
-                         pool.names,
-                         mean.var.type,
-                         pp.calculation,
-                         analysis.parameters,
-                         guide.dist.to.seg){
-
-  relics.hyper <- input.hypers #c()
-  hyper.components <- input.hyper.components
-  
-  relics.param <- init_relics_param(relics.hyper, input.data, local.max, recompute.fs0)
-  
-  coverg.tol <- rep(input.convergence.tol, final.layer.nr)
-  
-  fs.result.lists <- initialize_fs_results(relics.param$delta.pp, 
-                                           input.data, 
-                                           input.data$guide_efficiency,
-                                           relics.hyper, 
-                                           fix.hypers)
-  
-  for(i in 1:final.layer.nr){
-    print(paste0('Computing FS: ', i))
-
-    fs.data <- relics_compute_FS_ll_placement(input.param = relics.param,
-                                   input.hyper = relics.hyper,
-                                   input.data.list = input.data,
-                                   input.tol = coverg.tol[i],
-                                   nr.segs, geom.p,
-                                   min.pp = input.min.rs.pp, input.data$guide_efficiency,
-                                   one.dispersion,
-                                   local.max, local.max.range, analysis.parameters$areaOfEffect_type,
-                                   guide.dist.to.seg,
-                                   fix.hypers,
-                                   fs.result.lists,
-                                   analysis.parameters$fs_prior)
-    
-    # fs.data already contains the most recent additions
-    if(record.all.fs){
-
-      record_fs_results(fs.data, analysis.parameters, input.data, i, relics.hyper, hyper.components, '')
-      
-    }
-    
-    if(i > 1){
-      
-      # To Do!
-      # calculate some cutoff criteria to determine when to stop...
-      # criteria 1: placement of optimal FS back to FS0
-      placements.finished <- is_placement_complete(fs.data$posteriors)
-      
-      if(placements.finished){
-        print('Maximum number of FS found.')
-        if(auto.stop){
-          record_fs_results(fs.result.lists, analysis.parameters, input.data, i - 1, relics.hyper, hyper.components, '_final')
-          break()
-        } else {
-          record_fs_results(fs.result.lists, analysis.parameters, input.data, i - 1, relics.hyper, hyper.components, '_recommendedFinal')
-        }
-      }
-    }
-    
-    # update the results
-    fs.result.lists <- fs.data
-    
-    # prep the parameters for the next iteration (both the posteriors and hypers)
-    relics.hyper$L <- relics.hyper$L + 1
-    relics.param$delta.pp <- rbind(fs.result.lists$posteriors, rep(0, ncol(relics.param$delta.pp)))
-    
-    # if the hyper parameters are reestimated after convergence of the posteriors
-    if(! fix.hypers & !iterative.hyper.est){
-      
-      relics.hyper.list <- c()
-      if(analysis.parameters$model_dispersion){
-        relics.hyper.list <- recompute_dirichlet_hypers(relics.param, 
-                                                        input.data$guide_to_seg_lst, 
-                                                        hyper.components, 
-                                                        input.data$data, 
-                                                        input.data$guide_efficiency, 
-                                                        relics.hyper,
-                                                        analysis.parameters)
-      } else {
-        relics.hyper.list <- recompute_hyper_parameters(relics.param,
-                                                        relics.hyper,
-                                                        hyper.components,
-                                                        input.data$data,
-                                                        input.data$guide_to_seg_lst,
-                                                        input.data$guide_efficiency,
-                                                        analysis.parameters)
-      }
-      
-      relics.hyper <- relics.hyper.list$hyper_pars
-      hyper.components <- relics.hyper.list$hyper_par_components
-    }
-    
-    if(! is.null(input.data$guide_efficiency_scores)){
-      if(! input.data$fixed_ge_coeff){
-        ge.list <- recompute_ge_coefficients(relics.param,
-                                             hyper.components, #relics.hyper,
-                                             input.data$data,
-                                             input.data$guide_to_seg_lst,
-                                             input.data$guide_efficiency_scores,
-                                             input.data$ge_coeff)
-        
-        input.data$guide_efficiency <- ge.list$guide_efficiency
-        input.data$ge_coeff <- ge.list$ge_coeff
-      }
-    }
-   }
-}
-
-
-#' @title Display the credible sets along with cumulative posteriors. Formerly 'dirichlet_addLayers_mrvr_norm'
-#' @param input.pp, matrix of posterior probabilities
-#' @param dirichlet.hyper: hyper parameters
-#' @param input.data.list, list: $guide_to_seg_lst, $data, $true_pos_seg, $overlapMat, $guide_to_seg_lst, $seg_to_guide_lst
-#' @param guide.efficiency: data.frame of guide efficiences. Either vector of guide efficiency or NULL
-#' @param fix.hypers: logical, whether the hyperparameters are fixed
-#' @param fs.results.list: list, contain at least $total_model_ll, $conditional_fs_ll, $model_fs_ll
-#' @return list: total_model_ll, per_fs_ll (the model.ll increase for each FS, taking into account all other FS), model_ll_increase (the step-by-step increase in model ll with each FS)
-#' @export compute_model_lls()
-
-compute_model_lls <- function(input.pp, input.data.list, guide.efficiency, dirichlet.hyper, 
-                              fix.hypers, fs.results.list, fs.prior){
-  
-  pps <- colSums(input.pp)
-  dirichlet.guide.ll <- compute_perGuide_fs_ll(pps, input.data.list$guide_to_seg_lst)
-  total.model.ll <- fs.results.list$total_model_ll
-  temp.total.model.ll <- 0
-  for(i in 1:length(input.data.list$data)){
-    temp.hypers <- list(alpha0 = dirichlet.hyper$alpha0[[i]], alpha1 = dirichlet.hyper$alpha1[[i]])
-    temp.sgRNa.ll <- estimate_relics_sgrna_log_like(temp.hypers,
-                                                    input.data.list$data[[i]],
-                                                    dirichlet.guide.ll,
-                                                    guide.efficiency)
-    
-    temp.dirichlet.ll <- sum(temp.sgRNa.ll$total_guide_ll)
-    temp.total.model.ll <- temp.total.model.ll + temp.dirichlet.ll
-  }
-  temp.total.model.ll <- temp.total.model.ll + dnorm(nrow(input.pp) - 1, mean = fs.prior$mean, sd = fs.prior$sd, log = T)
-  total.model.ll <- c(total.model.ll, temp.total.model.ll)
-  
-  fs.idx <- nrow(input.pp)
-  conditional.fs.ll <- fs.results.list$conditional_fs_ll
-  model.fs.ll <- fs.results.list$model_fs_ll
-  
-  if(! fix.hypers){
-    fs.idx <- 1
-    conditional.fs.ll <- c() #conditional.fs.ll[1]
-    model.fs.ll <- c() #model.fs.ll[1]
-  }
-  
-  for(fs in fs.idx:nrow(input.pp)){
-    temp.pp <- input.pp
-    temp.pp[fs,] <- 0
-    temp.pp.sum <- colSums(temp.pp)
-    temp.pp.sum[temp.pp.sum > 1] <- 1
-    condit.guide.ll <- compute_perGuide_fs_ll(temp.pp.sum, input.data.list$guide_to_seg_lst)
-    
-    temp.guide.model.pp <- colSums(input.pp[1:fs,, drop = F])
-    model.fs.guide.ll <- compute_perGuide_fs_ll(temp.guide.model.pp, input.data.list$guide_to_seg_lst)
-    
-    temp.cond.fs.ll <- 0
-    temp.model.fs.ll <- 0
-    
-    for(r in 1:length(input.data.list$data)){
-      temp.hypers <- list(alpha0 = dirichlet.hyper$alpha0[[r]], alpha1 = dirichlet.hyper$alpha1[[r]])
-      temp.cond.sgRNa.ll <- estimate_relics_sgrna_log_like(temp.hypers,
-                                                           input.data.list$data[[r]],
-                                                      condit.guide.ll,
-                                                      guide.efficiency)
-      temp.cond.fs.ll <- temp.cond.fs.ll +  sum(temp.cond.sgRNa.ll$total_guide_ll)
-      
-      
-      temp.sgRNA.model.ll <- estimate_relics_sgrna_log_like(temp.hypers,
-                                                            input.data.list$data[[r]],
-                                                            model.fs.guide.ll,
-                                                            guide.efficiency)
-      temp.model.fs.ll <- temp.model.fs.ll + sum(temp.sgRNA.model.ll$total_guide_ll)
-    }
-    
-    conditional.fs.ll <- c(conditional.fs.ll, temp.cond.fs.ll - temp.total.model.ll + dnorm(fs, mean = fs.prior$mean, sd = fs.prior$sd, log = T) ) 
-    model.fs.ll <- c(model.fs.ll, temp.model.fs.ll + dnorm(fs, mean = fs.prior$mean, sd = fs.prior$sd, log = T))
-  }
-  
-  out.list <- list(total_model_ll = total.model.ll,
-                   conditional_fs_ll = conditional.fs.ll,
-                   model_fs_ll = model.fs.ll)
-  
-  return(out.list)
-
-}
-
-
-#' @title Display the credible sets along with cumulative posteriors. Formerly 'dirichlet_addLayers_mrvr_norm'
-#' @param input.param, list containing the matrix for the posteriors
-#' @param input.hyper: hyper parameters
-#' @param input.data.list, list: $guide_to_seg_lst, $data, $true_pos_seg, $overlapMat, $guide_to_seg_lst, $seg_to_guide_lst
-#' @param input.tol: nr of layers to create
-#' @param nr.segs: max. length a functional segment is considered to have
-#' @param geom.p: proababilty of the genometric distribution to penalize for enhancers of increasing length
-#' @param min.pp: minimum posterior required to be part of a regulatory set
-#' @param guide.efficiency: data.frame of guide efficiences. Either vector of guide efficiency or NULL
-#' @param one.dispersion: whether the hyper parameters should be estimated with one or two dispersions
-#' @param local.max: logical, whether a local maximum should be computed
-#' @param local.max.range: number of segments to include in addition to the the ones with highest PP (one way, so multiply by 2 for total nr of segs)
-#' @param area.of.effect: type of area of effect. Currently either 'normal' or 'uniform'
-#' @param guide.dist.to.seg, list of lists, pre-computed distances of guides to FS
-#' @param fix.hypers: logical, whether hyperparameters are to be fixed
-#' @return ll_tract, posterior_trace_list, alpha0_est, alpha1_est, max_iter_reached, fs_ll_rt_trace
-#' @export relics_compute_FS_ll_placement()
-
-relics_compute_FS_ll_placement <- function(input.param,
-                                           input.hyper,
-                                           input.data.list,
-                                           input.tol = 0.001,
-                                           nr.segs = 10, geom.p = 0.1,
-                                           min.pp = 0.1,
-                                           guide.efficiency,
-                                           one.dispersion,
-                                           local.max, local.max.range,  
-                                           area.of.effect,
-                                           guide.dist.to.seg, 
-                                           fix.hypers,
-                                           fs.result.lists,
-                                           fs.prior){
-  
-  
-  dirichlet.hyper <- input.hyper
-  posteriors <- input.param$delta.pp
-
-  fs.model.list <- relics_estimate_FS_ll(posteriors,
-                                        dirichlet.hyper,
-                                        input.data.list$data,
-                                        input.data.list$true_pos_seg,
-                                        input.data.list$guide_to_seg_lst,
-                                        input.data.list$seg_to_guide_lst,
-                                        input.data.list$next_guide_lst,
-                                        nr.segs, geom.p, guide.efficiency,
-                                        local.max, local.max.range, area.of.effect,
-                                        guide.dist.to.seg, fix.hypers,
-                                        fs.result.lists, fs.prior)
-  
-  dirichlet.model.lls <- compute_model_lls(fs.model.list$posteriors, input.data.list,
-                                           guide.efficiency, dirichlet.hyper, fix.hypers,
-                                           fs.result.lists, fs.prior)
-  
-  out.list <- list(posteriors = fs.model.list$posteriors,
-                   total_model_ll = dirichlet.model.lls$total_model_ll,
-                   conditional_fs_ll = dirichlet.model.lls$conditional_fs_ll,
-                   model_fs_ll = dirichlet.model.lls$model_fs_ll,
-                   fs_placement_ll = fs.model.list$fs_placement_ll,
-                   fs_placement_raw_ll = fs.model.list$fs_placement_raw_ll,
-                   fs_total_ll = fs.model.list$fs_total_ll,
-                   segment_lls = fs.model.list$segment_lls)
-
-  return(out.list)
-}
-
-
-#' @title estimate the posterior probabilities for placing a specified number of functional sequences over a specified number of segments. Formerly 'fit_dirichlet_model_fast1_mrvr_norm'
-#' @param hyper: hyperparameters
-#' @param posteriors: matrix of posterior probabilities
-#' @param data: list, each element is a replicate
-#' @param known.reg: region positions of the known regions
-#' @param guide.to.seg.lst: mapping of guides to segments
-#' @param seg.to.guide.lst: mapping of segments to guides, both $guide_idx, $nonGuide_idx
-#' @param next.guide.lst: list that contains the index of $next_guide_idx and next_nonGuide_idx
-#' @param nr.segs: max number of segemnts that can be combined
-#' @param geom.p: probability of the geometic distribution used to calculate the probability of there being x segments in the regulatory element
-#' @param guide.efficiency: data.frame of guide efficiences. Either vector of guide efficiency or NULL
-#' @param local.max: logical, whether a local maximum should be computed
-#' @param local.max.range: number of segments to include in addition to the the ones with highest PP (one way, so multiply by 2 for total nr of segs)
-#' @param area.of.effect: type of area of effect. Currently either 'normal' or 'uniform'
-#' @param guide.dist.to.seg, list of lists, pre-computed distances of guides to FS
-#' @param fix.hypers, logical, whether the hyperparameters are supposed to be fixed
-#' @param fs.result.lists, list, requires $fs_placement_ll, $fs_total_ll
-#' @return log likelihood for each region
-#' @export relics_estimate_FS_ll()
-
-relics_estimate_FS_ll <- function(input.posteriors, hyper, data, known.reg,
-                               guide.to.seg.lst, seg.to.guide.lst,
-                               next.guide.lst, nr.segs = 10,
-                               geom.p = 0.1, guide.efficiency,
-                               local.max, local.max.range, area.of.effect,
-                               guide.dist.to.seg, fix.hypers, fs.result.lists,
-                               fs.prior) {
-  
-  posteriors <- input.posteriors
-  segment.lls <- fs.result.lists$segment_lls
-  
-  n.sgrna <- length(guide.to.seg.lst)
-  n.region <- length(seg.to.guide.lst)
-  fs.placement.ll <- fs.result.lists$fs_placement_ll
-  fs.placement.raw.ll <- fs.result.lists$fs_placement_raw_ll
-  fs.total.ll <- fs.result.lists$fs_total_ll
-  
-  k.idx <- nrow(posteriors)
-  if(! fix.hypers){
-    k.idx <- 2
-    fs.placement.ll <- fs.placement.ll[1]
-    fs.total.ll <- fs.total.ll[1]
-    fs.placement.raw.ll <- fs.placement.raw.ll[1]
-    segment.lls <- c()
-  }
-  
-  # set posteriors for all rows to be computed to 0
-  posteriors[k.idx:(hyper$L+1),] <- rep(0, n.region)
-  
-  for(l in k.idx:(hyper$L+1)) {
-    ll.of.placement <- 1 #dnorm(l, mean = fs.prior$mean, sd = fs.prior$sd, log = T)
-    
-    # sum posteriors from other rows
-    pp <- colSums(posteriors)
-    
-    # cumulative posterior probability can become greater than 1,
-    # So we restrict it to 1.  doesn't seem like the ideal solution...
-    pp[pp > 1.0] <- 1.0
-    
-    # Compute the ll for each RE length for both replicates, combine the lls and then add to the ll total
-    # set up the data structues as lists to access the different replicates
-    layer.guide.ll <- compute_perGuide_fs_ll(pp, guide.to.seg.lst) # processed.pp
-    sgrna.log.like.list <- list()
-    data.mat.list <- list()
-    data.total.list <- list()
-    
-    for(repl in 1:length(data)){
-      temp.hypers <- list(alpha0 = hyper$alpha0[[repl]], alpha1 = hyper$alpha1[[repl]])
-      temp.data <- data[[repl]]
-      temp.data.counts <- temp.data[, c(1:(ncol(temp.data) - 1))]
-      temp.data.totals <- temp.data[, ncol(temp.data)]
-      
-      data.mat.list[[repl]] <- temp.data.counts
-      data.total.list[[repl]] <- temp.data.totals
-      
-      temp.sgrna.log.like <- estimate_relics_sgrna_log_like(temp.hypers, temp.data, layer.guide.ll, guide.efficiency)
-      sgrna.log.like.list[[repl]] <- temp.sgrna.log.like
-      
-    }
-    
-    fs.pps <- c()
-    if(area.of.effect == 'normal'){
-      fs.pps.list <- estimate_fs_AoE_pp_ll(hyper, data.mat.list, data.total.list, guide.to.seg.lst,
-                                      seg.to.guide.lst, next.guide.lst, nr.segs, geom.p, 
-                                      sgrna.log.like.list, seg.adjust = 0, 
-                                      total.segs = length(seg.to.guide.lst),
-                                      guide.dist.to.seg, ll.of.placement, pp)
-      fs.pps <- fs.pps.list$seg_pp
-      fs.lls <- fs.pps.list$segment_lls
-      fs.total.lls <- fs.pps.list$total_ll
-      raw.seg.ll <- fs.pps.list$raw_segment_lls
-    } else {
-      fs.pps.list <- estimate_fs_pp_ll(seg.to.guide.lst, next.guide.lst, 
-                                  nr.segs, geom.p, sgrna.log.like.list,
-                                  ll.of.placement, pp)
-      fs.pps <- fs.pps.list$seg_pp
-      fs.lls <- fs.pps.list$segment_lls
-      fs.total.lls <- fs.pps.list$total_ll
-      raw.seg.ll <- fs.pps.list$raw_segment_lls
-    }
-
-    max.fs.pps.idx <- which(fs.pps == max(fs.pps)[1])
-    fs.pps.final <- rep(0, length(fs.pps))
-    fs.pps.final[max.fs.pps.idx] <- 1
-    posteriors[l, ] <- fs.pps.final
-    
-    fs.lls.max <- fs.lls[max.fs.pps.idx][1]
-    fs.placement.ll <- c(fs.placement.ll, fs.lls.max)
-    
-    fs.placement.raw.ll <- c(fs.placement.raw.ll, raw.seg.ll[max.fs.pps.idx][1])
-    
-    fs.total.ll <- c(fs.total.ll, fs.total.lls)
-    
-    segment.lls <- rbind(segment.lls, fs.lls)
-    
-  }
-  
-  out.list <- list(posteriors = posteriors,
-                   fs_placement_ll = fs.placement.ll,
-                   fs_total_ll = fs.total.ll,
-                   fs_placement_raw_ll = fs.placement.raw.ll,
-                   segment_lls = segment.lls)
-  
-  return(out.list)
-  
-}
-
-
-#' @title Compute the log likelihood of each possible configuration of the placement of a fs. Take into account distance between segment and the guide target site
-#' @param hyper: list, hyperparameters
-#' @param in.data.list: list, each element contains a replicate, the total column has already been removed
-#' @param in.data.totals: list, each element contains the per-guide totals for a replicate
-#' @param guide.to.seg.lst: list, mapping of guides to segments
-#' @param seg.to.guide.lst: list, each element is a segment, contains a list with guide_idx, nonGuide_idx
-#' @param next.guide.lst: list that contains the index of $next_guide_idx and next_nonGuide_idx
-#' @param nr.segs: max number of segemnts that can be combined
-#' @param geom.p: probability of the geometic distribution used to calculate the probability of there being x segments in the regulatory element
-#' @param sg.ll.list: list, each element is a data frame per.guide log likelihood given the posteriors for a replicate and alt. ll (total_guide_ll, alt_only_ll)
-#' @param seg.adjust: numeric, offset used when calculating lmax
-#' @param total.segs: how many segments to calculate PP for, adjusted for lmax, otherwise = length(seg.to.guide.lst)
-#' @param guide.dist.to.seg, list of lists, pre-computed distances of guides to FS
-#' @return list: segment_lls, total_ll, seg_pp
-#' @export estimate_fs_AoE_pp_ll()
-
-estimate_fs_AoE_pp_ll <- function(hyper, in.data.list, in.data.totals, guide.to.seg.lst,
-                               seg.to.guide.lst, next.guide.lst, nr.segs = 10, geom.p = 0.1,
-                               sg.ll.list, seg.adjust = 0, total.segs, guide.dist.to.seg,
-                               ll.of.placement, input.pp) {
-  
-  # set up a list, the length of the number of segments
-  # each element contains a vector, which contains the ll of that segment being overlapped by a regulatory element
-  segment.ll.list <- list()
-  
-  region.priors <- rep(1/total.segs, total.segs)
-  geom.norm.factr <- pgeom(nr.segs, geom.p)
-  
-  total.ll <- log(0)
-  null.model.ll.list <- list()
-  for(repl in 1:length(sg.ll.list)){
-    repl.guide.null <- sum(sg.ll.list[[repl]][seg.to.guide.lst[[1]]$guide_idx,1])
-    repl.non.guide.null <- sum(sg.ll.list[[repl]][seg.to.guide.lst[[1]]$nonGuide_idx,1])
-    null.model.ll.list[[repl]] <- repl.guide.null + repl.non.guide.null
-  }
-  fs.length <- 1
-  
-  # make an initial pass with one-segment length RE placements
-  for(seg in 1:total.segs){
-    curr.seg <- seg + seg.adjust
-    temp.segment.ll <- 0
-    temp.guide.idx<- seg.to.guide.lst[[curr.seg]]$guide_idx
-    temp.nonGuide.idx<- seg.to.guide.lst[[curr.seg]]$nonGuide_idx
-
-    temp.seg.poi.bkg <- guide.dist.to.seg[[curr.seg]][[fs.length]]
-    
-    for(repl in 1:length(sg.ll.list)){
-      
-      temp.guide.ll <- vector('numeric', length = length(temp.seg.poi.bkg))
-      
-      for(i in 1:length(temp.seg.poi.bkg)){
-        temp.guide.ll[i] <- addlogs(sg.ll.list[[repl]][temp.guide.idx[i],2] + log(1 - temp.seg.poi.bkg[i]),
-                                    sg.ll.list[[repl]][temp.guide.idx[i],1] + log(temp.seg.poi.bkg[i]))
-      }
-      
-      temp.nonGuide.ll <- sum(sg.ll.list[[repl]][temp.nonGuide.idx,1])
-      
-      if(input.pp[seg] == 1){
-        temp.segment.ll <- temp.segment.ll + null.model.ll.list[[repl]] + log(dgeom(1, geom.p) / geom.norm.factr)
-      } else if(sum(temp.guide.ll) + temp.nonGuide.ll < null.model.ll.list[[repl]]){
-        temp.segment.ll <- temp.segment.ll + null.model.ll.list[[repl]] + log(dgeom(1, geom.p) / geom.norm.factr)
-      } else {
-        temp.segment.ll <- temp.segment.ll + sum(temp.guide.ll) + temp.nonGuide.ll + log(dgeom(1, geom.p) / geom.norm.factr)
-      }
-      # temp.segment.ll <- temp.segment.ll + sum(temp.guide.ll) + temp.nonGuide.ll #+ log(dgeom(1, geom.p) / geom.norm.factr) #+ ll.of.placement
-      
-    }
-    segment.ll.list[[seg]] <- temp.segment.ll
-    total.ll <- addlogs(total.ll, temp.segment.ll)
-  }
-  
-  all.guide.idx <- c(1:nrow(in.data.list[[1]])) # helps to differentitate between guides for null vs alternative
-  
-  # now make a pass through all 2 to nr.segs length segments
-  if(nr.segs > 1){
-    for(ns in 1:(nr.segs-1) ){
-      fs.length <- fs.length + 1
-      for(seg in 1:(total.segs - ns)){
-        temp.stretch.ll <- 0
-        temp.stretch.segs <- c(seg:(seg + ns)) # index of segments to be included as part of the stretch and be updated in this iteration
-        curr.seg <- seg + seg.adjust
-        curr.stretch.segs <- temp.stretch.segs + seg.adjust
-        temp.guide.idx <- c(seg.to.guide.lst[[curr.seg]]$guide_idx, unlist(next.guide.lst[(curr.seg + 1):(curr.seg + ns)]))
-        temp.nonGuide.idx <- all.guide.idx[-temp.guide.idx]
-        
-        temp.seg.poi.bkg <- guide.dist.to.seg[[curr.seg]][[fs.length]]
-        
-        for(repl in 1:length(sg.ll.list)){ # in.data.list
-          
-          temp.guide.ll <- vector('numeric', length = length(temp.seg.poi.bkg))
-          
-          for(i in 1:length(temp.seg.poi.bkg)){
-            temp.guide.ll[i] <- addlogs(sg.ll.list[[repl]][temp.guide.idx[i],2] + log(1 - temp.seg.poi.bkg[i]),
-                                        sg.ll.list[[repl]][temp.guide.idx[i],1] + log(temp.seg.poi.bkg[i]))
-            
-          }
-          
-          temp.nonGuide.ll <- sum(sg.ll.list[[repl]][temp.nonGuide.idx,1])
-          
-          if(1 %in% input.pp[temp.stretch.segs]){
-            temp.stretch.ll <- temp.stretch.ll + null.model.ll.list[[repl]] + log(dgeom(1, geom.p) / geom.norm.factr)
-          } else if(sum(temp.guide.ll) + temp.nonGuide.ll < null.model.ll.list[[repl]]){
-            temp.stretch.ll <- temp.stretch.ll + null.model.ll.list[[repl]] + log(dgeom(1, geom.p) / geom.norm.factr)
-          } else {
-            temp.stretch.ll <- temp.stretch.ll + sum(temp.guide.ll) + temp.nonGuide.ll + log(dgeom(1, geom.p) / geom.norm.factr)
-          }
-          # likelihood of this continuous stretch of bins to contain a regulatory element
-          # temp.stretch.ll <- temp.stretch.ll + sum(temp.guide.ll) + temp.nonGuide.ll + log(dgeom(1 + ns, geom.p) / geom.norm.factr) #+ ll.of.placement
-          
-        }
-        
-        total.ll <- addlogs(total.ll, temp.stretch.ll)
-        
-        for(span in 1:length(temp.stretch.segs)){
-          segment.ll.list[[temp.stretch.segs[span]]] <- c(segment.ll.list[[temp.stretch.segs[span]]], temp.stretch.ll)
-        }
-      }
-    }
-  }
-  
-  final.total.ll <- addlogs_vectorized(unlist(segment.ll.list)) # total.ll
-  
-  # normalize the list by the total, and add the logs across the segments
-  segment.lls <- unlist(lapply(segment.ll.list, function(x){
-    x.norm <- x - final.total.ll # total.ll
-    
-    x.norm.sum <- combine_segment_ll(x.norm)
-    x.norm.sum
-  }))
-  segment.posteriors <- exp(segment.lls)
-  
-  raw.segment.lls <- unlist(lapply(segment.ll.list, function(x){
-    x.norm.sum <- combine_segment_ll(x)
-    x.norm.sum
-  }))
-  
-  out.list <- list(segment_lls = segment.lls,
-                   total_ll = final.total.ll, # total.ll,
-                   seg_pp = segment.posteriors,
-                   raw_segment_lls = raw.segment.lls)
-  
-  return(out.list)
-  
-}
-
-
-#' @title Compute the log likelihood of each possible configuration of the placement of a fs amonst a set f segments
-#' @param hyper: list, hyperparameters
-#' @param in.data.list: list, each element contains a replicate, the total column has already been removed
-#' @param in.data.totals: list, each element contains the per-guide totals for a replicate
-#' @param seg.to.guide.lst: list, each element is a segment, contains a list with guide_idx, nonGuide_idx
-#' @param next.guide.lst: list that contains the index of $next_guide_idx and next_nonGuide_idx
-#' @param nr.segs: max number of segemnts that can be combined
-#' @param geom.p: probability of the geometic distribution used to calculate the probability of there being x segments in the regulatory element
-#' @param sg.ll.list: list, each element is a data frame per.guide log likelihood given the posteriors for a replicate and alt. ll (total_guide_ll, alt_only_ll)
-#' @return log likelihood for each segment
-#' @export estimate_fs_pp_ll()
-
-estimate_fs_pp_ll <- function(seg.to.guide.lst, next.guide.lst, nr.segs = 10, geom.p = 0.1, sg.ll.list, ll.of.placement, input.pp) {
-  
-  # set up a list, the length of the number of segments
-  # each element contains a vector, which contains the ll of that segment being overlapped by a regulatory element
-  segment.ll.list <- list()
-  
-  total.segs <- length(seg.to.guide.lst)
-  region.priors <- rep(1/total.segs, total.segs)
-  geom.norm.factr <- pgeom(nr.segs, geom.p)
-  
-  total.ll <- log(0)
-  null.model.ll.list <- list()
-  for(repl in 1:length(sg.ll.list)){
-    repl.guide.null <- sum(sg.ll.list[[repl]][seg.to.guide.lst[[1]]$guide_idx,1])
-    repl.non.guide.null <- sum(sg.ll.list[[repl]][seg.to.guide.lst[[1]]$nonGuide_idx,1])
-    null.model.ll.list[[repl]] <- repl.guide.null + repl.non.guide.null
-  }
-  
-  # make an initial pass with one-segment length RE placements
-  for(seg in 1:total.segs){
-    temp.segment.ll <- 0
-    temp.guide.idx<- seg.to.guide.lst[[seg]]$guide_idx
-    temp.nonGuide.idx<- seg.to.guide.lst[[seg]]$nonGuide_idx
-    
-    for(repl in 1:length(sg.ll.list)){ 
-      temp.guide.ll <- sum(sg.ll.list[[repl]][temp.guide.idx,2])
-      temp.nonGuide.ll <- sum(sg.ll.list[[repl]][temp.nonGuide.idx,1])
-      if(input.pp[seg] == 1){
-        temp.segment.ll <- temp.segment.ll + null.model.ll.list[[repl]] + log(dgeom(1, geom.p) / geom.norm.factr)
-      } else if(temp.guide.ll + temp.nonGuide.ll < null.model.ll.list[[repl]]){
-        temp.segment.ll <- temp.segment.ll + null.model.ll.list[[repl]] + log(dgeom(1, geom.p) / geom.norm.factr)
-      } else {
-        temp.segment.ll <- temp.segment.ll + temp.guide.ll + temp.nonGuide.ll + log(dgeom(1, geom.p) / geom.norm.factr)
-      }
-      # temp.segment.ll <- temp.segment.ll + temp.guide.ll + temp.nonGuide.ll #+ log(dgeom(1, geom.p) / geom.norm.factr) #+ ll.of.placement
-      
-    }
-    segment.ll.list[[seg]] <- temp.segment.ll
-    total.ll <- addlogs(total.ll, temp.segment.ll)
-  }
-  
-  all.guide.idx <- c(1:length(sg.ll.list[[1]][,1])) # helps to differentiate between guides for null vs alternative
-  
-  # now make a pass through all 2 to nr.segs length segments
-  if(nr.segs > 1){
-    for(ns in 1:(nr.segs-1) ){
-      
-      for(seg in 1:(total.segs - ns)){ # pretty sure nr.segs should be 'ns'....
-        
-        temp.stretch.ll <- 0
-        temp.stretch.segs <- c(seg:(seg + ns)) # index of segments to be included as part of the stretch and be updated in this iteration
-        temp.guide.idx <- c(seg.to.guide.lst[[seg]]$guide_idx, unlist(next.guide.lst[(seg + 1):(seg + ns)]))
-        temp.nonGuide.idx <- all.guide.idx[-temp.guide.idx]
-        
-        for(repl in 1:length(sg.ll.list)){
-          temp.guide.ll <- sum(sg.ll.list[[repl]][temp.guide.idx,2])
-          temp.nonGuide.ll <- sum(sg.ll.list[[repl]][temp.nonGuide.idx,1])
-          if(1 %in% input.pp[temp.stretch.segs]){
-            temp.stretch.ll <- temp.stretch.ll + null.model.ll.list[[repl]] + log(dgeom(1, geom.p) / geom.norm.factr)
-          } else if(temp.guide.ll + temp.nonGuide.ll < null.model.ll.list[[repl]]){
-            temp.stretch.ll <- temp.stretch.ll + null.model.ll.list[[repl]] + log(dgeom(1, geom.p) / geom.norm.factr)
-          } else {
-            temp.stretch.ll <- temp.stretch.ll + temp.guide.ll + temp.nonGuide.ll + log(dgeom(1, geom.p) / geom.norm.factr)
-          }
-          # likelihood of this continous stretch of bins to contain a regulatory element
-          # temp.stretch.ll <- temp.stretch.ll + temp.guide.ll + temp.nonGuide.ll + log(dgeom(1 + ns, geom.p) / geom.norm.factr) #+ ll.of.placement
-
-        }
-        
-        total.ll <- addlogs(total.ll, temp.stretch.ll)
-        
-        for(span in 1:length(temp.stretch.segs)){
-          segment.ll.list[[temp.stretch.segs[span]]] <- c(segment.ll.list[[temp.stretch.segs[span]]], temp.stretch.ll)
-        }
-      }
-    }
-    
-  }
-  
-  final.total.ll <- addlogs_vectorized(unlist(segment.ll.list)) # total.ll
-  
-  # normalize the list by the total, and add the logs across the segments
-  segment.lls <- unlist(lapply(segment.ll.list, function(x){
-    x.norm <- x - final.total.ll #total.ll
-    x.norm.sum <- combine_segment_ll(x.norm)
-    x.norm.sum
-  }))
-  segment.posteriors <- exp(segment.lls)
-  
-  raw.segment.lls <- unlist(lapply(segment.ll.list, function(x){
-    x.norm.sum <- combine_segment_ll(x)
-    x.norm.sum
-  }))
-  
-  out.list <- list(segment_lls = segment.lls,
-                   total_ll = final.total.ll, #total.ll,
-                   seg_pp = segment.posteriors,
-                   raw_segment_lls = raw.segment.lls)
-  
-  return(out.list)
-  
-}
-
 
 
 #' @title obtain the splines for each replicate to generate the dispersions
@@ -5784,658 +2523,6 @@ optim_guide_disp <- function(par, input.hyper, input.data){
                      size = input.data[,ncol(input.data)], alpha = temp.dir.hyper, log = T)
   
   -sum(out.ll)
-}
-
-
-#' @title given hyper parameters and guide efficiency (optional), report the per-segment ll ratio
-#' @param input.hypers: list: hyper parameters
-#' @param input.data: list: $seg_to_guide_lst, $guide_efficiency_scores (and $guide_efficiency if former not NULL)
-#' @param input.ge: guide efficiency
-#' @param input.seg.to.guide.lst: list: hyper parameters
-#' @return list with parameters for running RELICS or logical FALSE if required parameter is missing
-#' @export record_ll_ratio()
-
-record_ll_ratio <- function(input.hypers, input.data, input.parameters){
-
-  not.used <- c()
-  guide.efficiency <- NULL
-  if(! is.null(input.data$guide_efficiency_scores)){
-    guide.efficiency <- input.data$guide_efficiency
-  }
-
-  ll.rt <- vector('numeric', length = length(input.data$seg_to_guide_lst))
-  for(i in 1:length(input.data$data)){
-    temp.data <- input.data$data[[i]]
-    temp.hyper <- list(alpha0 = input.hypers$alpha0[[i]],
-                       alpha1 = input.hypers$alpha1[[i]])
-
-    guide.model.ll <- estimate_relics_sgrna_log_like(temp.hyper, temp.data, not.used, guide.efficiency, return.model.ll = TRUE)
-    temp.ll.rt <- compute_local_ll_ratio(guide.model.ll, input.data$seg_to_guide_lst)
-    ll.rt <- ll.rt + temp.ll.rt
-  }
-
-  # combine with segment info
-  segment.info <- input.data$seg_info
-  segment.info$score <- ll.rt
-
-  # create bedgraph
-  to.bg.list <- list(seg_llRt = segment.info)
-
-  # write bedgraph to output
-  out.dir <- paste0(input.parameters$out_dir, '_FS', input.parameters$iter)
-  create_bedgraphs(to.bg.list, out.dir)
-}
-
-
-#' @title Ensure that all required parameters for RELICS are correct and add default parameters where not specified
-#' @param input.parameter.list: list: required: 'dataName','repl_groups', 'CountFileLoc', 'sgRNAInfoFileLoc', 'min_FS_nr', 'crisprSystem', 'FS0_label'
-#' @return list with parameters for running RELICS or logical FALSE if required parameter is missing
-#' @export check_parameter_list()
-
-check_parameter_list <- function(input.parameter.list, data.file.split, RELICS_3 = FALSE, RELICS_4 = FALSE){
-
-  out.parameter.list <- input.parameter.list
-
-  par.given <- names(input.parameter.list)
-
-  # set default to TRUE. But if not background is provided, then switch to false
-  out.parameter.list$background_label_specified <- TRUE
-  
-  
-  if(! 'fs_signif' %in% par.given){
-    out.parameter.list$fs_signif <- 0.05
-  }
-  if(! 'plot_raw_pp' %in% par.given){
-    out.parameter.list$plot_raw_pp <- FALSE
-  }
-  if(! 'plot_raw_cs_pp' %in% par.given){
-    out.parameter.list$plot_raw_cs_pp <- FALSE
-  }
-  if(! 'plot_cs_pp' %in% par.given){
-    out.parameter.list$plot_cs_pp <- FALSE
-  }
-  if(! 'plot_segment_lls' %in% par.given){
-    out.parameter.list$plot_segment_lls <- FALSE
-  }
-  if(! 'record_pp' %in% par.given){
-    out.parameter.list$record_pp <- FALSE
-  }
-  if(! 'record_cs_pp' %in% par.given){
-    out.parameter.list$record_cs_pp <- FALSE
-  }
-  if(! 'record_deltas' %in% par.given){
-    out.parameter.list$record_deltas <- FALSE
-  }
-
-  if(! 'hyper_adj' %in% par.given){
-    out.parameter.list$hyper_adj <- 1
-  }
-  out.parameter.list$cs_params <- list()
-  if(! 'cs_sw_continous' %in% par.given){
-    out.parameter.list$cs_params$cs_sw_continous <- TRUE
-  } else {
-    out.parameter.list$cs_params$cs_sw_continous <- input.parameter.list$cs_sw_continous
-  }
-  if(! 'compute_sw_pp' %in% par.given){
-    out.parameter.list$cs_params$compute_sw_pp <- TRUE
-  } else {
-    out.parameter.list$cs_params$compute_sw_pp <- input.parameter.list$compute_sw_pp
-  }
-  if(! 'cs_sw_size' %in% par.given){
-    out.parameter.list$cs_params$cs_sw_size <- 10
-  } else {
-    out.parameter.list$cs_params$cs_sw_size <- input.parameter.list$cs_sw_size
-  }
-  if(! 'min_cs_sum' %in% par.given){
-    out.parameter.list$cs_params$min_cs_sum <- 0.01
-  } else {
-    out.parameter.list$cs_params$min_cs_sum <- input.parameter.list$min_cs_sum
-  }
-  if(! 'min_cs_pp' %in% par.given){
-    out.parameter.list$cs_params$min_cs_pp <- 0.01
-  } else {
-    out.parameter.list$cs_params$min_cs_pp <- input.parameter.list$min_cs_pp
-  }
-  if(! 'cs_type' %in% par.given){
-    out.parameter.list$cs_params$cs_type <- 'broad'
-  } else {
-    out.parameter.list$cs_params$cs_type <- input.parameter.list$cs_type
-  }
-  if(! 'max_cs_nr' %in% par.given){
-    out.parameter.list$cs_params$max_cs_nr <- 20
-  } else {
-    out.parameter.list$cs_params$max_cs_nr <- input.parameter.list$max_cs_nr
-  }
-  if(! 'cs_threshold' %in% par.given){
-    out.parameter.list$cs_params$cs_threshold <- 0.9
-  } else {
-    out.parameter.list$cs_params$cs_threshold <- input.parameter.list$cs_threshold
-  }
-  if(! 'max_cs_seg' %in% par.given){
-    out.parameter.list$cs_params$max_cs_seg <- 10
-  } else {
-    out.parameter.list$cs_params$max_cs_seg <- input.parameter.list$max_cs_seg
-  }
-  if(! 'max_mu' %in% par.given){
-    out.parameter.list$max_mu <- 50
-  }
-  if(! 'max_size' %in% par.given){
-    out.parameter.list$max_size <- 100
-  }
-  if(! 'record_posteriors_w_priors' %in% par.given){
-    out.parameter.list$record_posteriors_w_priors <- FALSE
-  }
-  if(! 'record_posteriors' %in% par.given){
-    out.parameter.list$record_posteriors <- FALSE
-  }
-  if(! 'record_segment_lls' %in% par.given){
-    out.parameter.list$record_segment_lls <- FALSE
-  }
-  if(RELICS_3){
-    if(! 'fs_prior' %in% par.given){
-      out.parameter.list$fs_prior <- list(mean = 10, sd = 5)
-    }
-  }
-  if(! 'model_dispersion' %in% par.given){
-    if(! 'mean_var_type' %in% par.given){
-      out.parameter.list$mean_var_type <- 'spline'
-      out.parameter.list$model_dispersion <- TRUE
-    } else {
-      out.parameter.list$model_dispersion <- FALSE
-    }
-  }
-  if('mean_var_type' %in% par.given){
-    if(out.parameter.list$model_dispersion & !out.parameter.list$mean_var_type == 'spline'){
-      out.parameter.list$mean_var_type <- 'spline'
-    }
-  }
-  if(!'mean_var_type' %in% par.given){
-    out.parameter.list$mean_var_type <- 'spline'
-  }
-  if(! 'estimateSpline' %in% par.given){
-    out.parameter.list$estimateSpline <- TRUE
-  }
-  if(! 'nr_disp_bins' %in% par.given){
-    out.parameter.list$nr_disp_bins <- 20
-  }
-  if(! 'pp_calculation' %in% par.given){
-    out.parameter.list$pp_calculation <- 'v4'
-  }
-  if(! 'out_dir' %in% par.given){
-    out.parameter.list$out_dir <- getwd()
-  }
-  if(! 'convergence_tol' %in% par.given){
-    out.parameter.list$convergence_tol <- 0.1
-  }
-  if(! 'fix_hypers' %in% par.given){
-    out.parameter.list$fix_hypers <- FALSE
-  }
-  if(! 'recompute_fs0' %in% par.given){
-    out.parameter.list$recompute_fs0 <- FALSE
-  }
-  if(! 'local_max' %in% par.given){
-    out.parameter.list$local_max <- FALSE
-  }
-  if(! 'local_max_range' %in% par.given){
-    out.parameter.list$local_max_range <- 5
-  }
-  if(! 'iterative_hyper_est' %in% par.given){
-    out.parameter.list$iterative_hyper_est <- FALSE
-  }
-  if(! 'nr_segs' %in% par.given){
-    out.parameter.list$nr_segs <- 10
-  }
-  if(! 'geom_p' %in% par.given){
-    #probability of success for geometric distribution
-    out.parameter.list$geom_p <- 0.1
-  }
-  if(! 'fs_correlation_cutoff' %in% par.given){
-    out.parameter.list$fs_correlation_cutoff <- 0.1
-  }
-  if(! 'min_fs_pp' %in% par.given){
-    out.parameter.list$min_fs_pp <- 0.1
-  }
-  if(! 'auto_stop' %in% par.given){
-    out.parameter.list$auto_stop <- TRUE
-  }
-  if(! 'seg_dist' %in% par.given){
-    out.parameter.list$seg_dist <- 100
-  }
-  if(! 'save_input_files' %in% par.given){
-    out.parameter.list$save_input_files <- FALSE
-  }
-  if(! 'background_label' %in% par.given){
-    out.parameter.list$background_label_specified <- FALSE
-  }
-  if(! 'one_dispersion' %in% par.given){
-    out.parameter.list$one_dispersion <- TRUE
-  }
-  if(! 'dualToSingle' %in% par.given){
-    out.parameter.list$dualToSingle <- FALSE
-  }
-  if(! 'pool_names' %in% par.given){
-    out.parameter.list$pool_names <- NULL
-  }
-
-  # guide efficiency related parameters
-  if('guide_efficiency_loc' %in% par.given){
-    temp.ge.file <- read.csv(input.parameter.list$guide_efficiency_loc, stringsAsFactors = F)
-    if(! 'guide_efficiency_cols' %in% par.given){
-      print(paste0("Error: Guide efficiency file provided but no column index given. Please provide a numeric input for 'guide_efficiency_cols'."))
-      missing.parameters <- TRUE
-    } else {
-      out.parameter.list$guide_efficiency_scores <- temp.ge.file[,input.parameter.list$guide_efficiency_cols, drop = FALSE]
-    }
-
-    # check if fixed
-    if(! 'fixed_ge_coeff' %in% par.given){
-      out.parameter.list$fixed_ge_coeff <- FALSE
-      # check if betas are provided, else give default
-    } else {
-      out.parameter.list$fixed_ge_coeff <- input.parameter.list$fixed_ge_coeff
-    }
-
-    if(! 'ge_beta_estimation' %in% par.given){
-      out.parameter.list$ge_beta_estimation <- FALSE
-    } else {
-      out.parameter.list$ge_beta_estimation <- input.parameter.list$ge_beta_estimation
-    }
-
-  } else {
-    out.parameter.list$guide_efficiency_scores <- NULL
-    out.parameter.list$fixed_ge_coeff <- NULL
-  }
-  
-  # l2fc related parameters
-  if('l2fc_groups' %in% par.given){
-    out.parameter.list$l2fc_groups <- input.parameter.list$l2fc_groups
-    if('l2fc_slidWind' %in% par.given){
-      out.parameter.list$l2fc_slidWind <- input.parameter.list$l2fc_slidWind
-    } else {
-      out.parameter.list$l2fc_slidWind <- TRUE
-    }
-    
-    if(out.parameter.list$l2fc_slidWind){
-      if('l2fc_slidWind_guideNr' %in% par.given){
-        out.parameter.list$l2fc_slidWind_guideNr <- input.parameter.list$l2fc_slidWind_guideNr
-      } else {
-        out.parameter.list$l2fc_slidWind_guideNr <- 10
-      }
-      
-      if('l2fc_slidWind_maxGap' %in% par.given){
-        out.parameter.list$l2fc_slidWind_maxGap <- input.parameter.list$l2fc_slidWind_maxGap
-      } else {
-        out.parameter.list$l2fc_slidWind_maxGap <- 3000
-      }
-    }
-  }
-  
-  # type of area of effect. options are 'normal' (default), 'uniform', 'logistic' (need to implement)
-  if(! 'areaOfEffect_type' %in% par.given){
-    out.parameter.list$areaOfEffect_type <- 'normal'
-  }
-  
-  minimum.parameters <- c()
-  if(data.file.split){
-    minimum.parameters <- c('dataName','repl_groups', 'CountFileLoc', 'sgRNAInfoFileLoc', 'min_FS_nr', 'crisprSystem', 'FS0_label')
-  } else {
-    minimum.parameters <- c('dataName','repl_groups', 'DataInputFileLoc', 'min_FS_nr', 'crisprSystem', 'FS0_label')
-  }
-
-  par.given <- names(input.parameter.list)
-  missing.parameters <- FALSE
-
-  for(i in 1:length(minimum.parameters)){
-
-    if(! minimum.parameters[i] %in% par.given){
-
-      print(paste0('Missing parameter: ', minimum.parameters[i]))
-      missing.parameters <- TRUE
-    }
-
-    # for the info file, make sure that the guides are ordered and contain no NAs
-    if('sgRNAInfoFileLoc' == minimum.parameters[i] | 'DataInputFileLoc' == minimum.parameters[i]){
-      test.info <- c()
-      if('sgRNAInfoFileLoc' == minimum.parameters[i]){
-        test.info <- read.csv(input.parameter.list$sgRNAInfoFileLoc, stringsAsFactors = F)
-      } else {
-        test.info <- read.csv(input.parameter.list$DataInputFileLoc, stringsAsFactors = F)
-      }
-
-      # for the info file, check if the label hierarch is given, else establish it from the info file
-      if(!'labelHierarchy' %in% par.given){
-        temp.info <- test.info #read.csv(input.parameter.list$sgRNAInfoFileLoc, stringsAsFactors = F)
-        out.parameter.list$labelHierarchy <- c()
-        counted.lables <- table(temp.info$label)
-
-        while(length(counted.lables) > 1){
-          max.lab.pos <- which(counted.lables == max(counted.lables)[1])[1]
-          max.lab.name <- names(counted.lables)[max.lab.pos]
-
-          out.parameter.list$labelHierarchy <- c(out.parameter.list$labelHierarchy, max.lab.name)
-
-          counted.lables <- counted.lables[-max.lab.pos]
-        }
-
-        # then last part
-        out.parameter.list$labelHierarchy <- c(out.parameter.list$labelHierarchy, names(counted.lables))
-      }
-    }
-
-    # # for the crisprSystem, check if effect range is given, else use default
-    if(minimum.parameters[i] == 'crisprSystem'){
-      if(! out.parameter.list$crisprSystem %in% c('CRISPRi', 'CRISPRa', 'Cas9', 'CRISPRcas9', 'dualCRISPR')){
-          print(paste0('Please provide a valid CRISPR system: CRISPRi, CRISPRa, Cas9 (or CRISPRcas9) or dualCRISPR'))
-          missing.parameters <- TRUE
-        }
-    }
-  }
-  
-  if(out.parameter.list$areaOfEffect_type == 'uniform'){
-    if(! 'crisprEffectRange' %in% par.given){
-      if(out.parameter.list$crisprSystem == 'CRISPRi' | out.parameter.list$crisprSystem == 'CRISPRa'){
-        out.parameter.list$crisprEffectRange <- 500
-      } else if(out.parameter.list$crisprSystem %in% c('Cas9','CRISPRcas9') ){
-        out.parameter.list$crisprEffectRange <- 10
-      } else if(out.parameter.list$crisprSystem == 'dualCRISPR'){
-        out.parameter.list$crisprEffectRange <- 0
-      } else {
-        print("Error: please specify a valid CRISPR system for the 'uniform' area of effect (Cas9 (or CRISPRcas9), CRISPRi, CRISPRa, dualCRISPR)")
-        break()
-      }
-    }
-  }
-  
-  if(out.parameter.list$areaOfEffect_type == 'normal'){
-    if(! 'normal_areaOfEffect_sd' %in% par.given){
-      if(out.parameter.list$crisprSystem %in% c('CRISPRi', 'CRISPRa', 'dualCRISPRi', 'dualCRISPRa') ){
-        out.parameter.list$normal_areaOfEffect_sd <- 170
-        if(! 'crisprEffectRange' %in% par.given){
-          out.parameter.list$crisprEffectRange <- 415
-        }
-      } else if(out.parameter.list$crisprSystem %in% c('Cas9','CRISPRcas9', 'dualCRISPR') ){
-        out.parameter.list$normal_areaOfEffect_sd <- 8.5
-        if(! 'crisprEffectRange' %in% par.given){
-          out.parameter.list$crisprEffectRange <- 21
-        }
-      } else {
-        print("Error: please specify a valid CRISPR system for the 'uniform' area of effect (Cas9 (or CRISPRcas9), CRISPRi, CRISPRa, dualCRISPR)")
-        break()
-      }
-    }
-  }
-  
-  if(out.parameter.list$crisprSystem == 'dualCRISPR' & (! 'deletionProb' %in% par.given)){
-    out.parameter.list$deletionProb <- 0.1
-  }
-
-  if(missing.parameters){
-    return(FALSE)
-  } else {
-    
-    if(RELICS_4){
-      if(! 'fs_prior' %in% par.given){
-        out.parameter.list$fs_prior <- dnbinom(0:out.parameter.list$min_FS_nr, mu = 10, size = 5)
-      }
-    }
-    
-    
-    return(out.parameter.list)
-  }
-}
-
-
-#' @title Read in the RELICS parameters from an input file
-#' @param parameter.file.loc: string, location of the parameter file
-#' @return list with parameters for running RELICS
-#' @export read_analysis_parameters()
-
-read_analysis_parameters <- function(parameter.file.loc){
-  raw.parameters <- scan(parameter.file.loc,what='character')
-  out.parameter.list <- list()
-
-  for(parameter in raw.parameters){
-
-    parameter.id <- strsplit(parameter,':')[[1]][1]
-    
-    if('fs_signif' == parameter.id){
-      out.parameter.list$fs_signif <- as.numeric(strsplit(parameter,':')[[1]][2])
-    }
-    if('plot_raw_pp' == parameter.id){
-      out.parameter.list$plot_raw_pp <- as.logical(strsplit(parameter,':')[[1]][2])
-    }
-    if('plot_raw_cs_pp' == parameter.id){
-      out.parameter.list$plot_raw_cs_pp <- as.logical(strsplit(parameter,':')[[1]][2])
-    }
-    if('plot_cs_pp' == parameter.id){
-      out.parameter.list$plot_cs_pp <- as.logical(strsplit(parameter,':')[[1]][2])
-    }
-    if('plot_segment_lls' == parameter.id){
-      out.parameter.list$plot_segment_lls <- as.logical(strsplit(parameter,':')[[1]][2])
-    }
-    if('record_pp' == parameter.id){
-      out.parameter.list$record_pp <- as.logical(strsplit(parameter,':')[[1]][2])
-    }
-    if('record_cs_pp' == parameter.id){
-      out.parameter.list$record_cs_pp <- as.logical(strsplit(parameter,':')[[1]][2])
-    }
-    if('record_deltas' == parameter.id){
-      out.parameter.list$record_deltas <- as.logical(strsplit(parameter,':')[[1]][2])
-    }
-    if('expected_fs_nr' == parameter.id){
-      out.parameter.list$expected_fs_nr <- as.numeric(strsplit(parameter,':')[[1]][2])
-    }
-    if('max_fs_nr' == parameter.id){
-      out.parameter.list$max_fs_nr <- as.numeric(strsplit(parameter,':')[[1]][2])
-    }
-    
-    if('hyper_adj' == parameter.id){
-      out.parameter.list$hyper_adj <- as.numeric(strsplit(parameter,':')[[1]][2])
-    }
-    if('cs_sw_continous' == parameter.id){
-      out.parameter.list$cs_sw_continous <- as.logical(strsplit(parameter,':')[[1]][2])
-    }
-    if('compute_sw_pp' == parameter.id){
-      out.parameter.list$compute_sw_pp <- as.logical(strsplit(parameter,':')[[1]][2])
-    }
-    if('cs_sw_size' == parameter.id){
-      out.parameter.list$cs_sw_size <- as.numeric(strsplit(parameter,':')[[1]][2])
-    }
-    if('min_cs_sum' == parameter.id){
-      out.parameter.list$min_cs_sum <- as.numeric(strsplit(parameter,':')[[1]][2])
-    }
-    if('min_cs_pp' == parameter.id){
-      out.parameter.list$min_cs_pp <- as.numeric(strsplit(parameter,':')[[1]][2])
-    }
-    if('cs_type' == parameter.id){
-      out.parameter.list$cs_type <- strsplit(parameter,':')[[1]][2]
-    }
-    if('cs_threshold' == parameter.id){
-      out.parameter.list$cs_threshold <- as.numeric(strsplit(parameter,':')[[1]][2])
-    }
-    if('max_cs_nr' == parameter.id){
-      out.parameter.list$max_cs_nr <- as.numeric(strsplit(parameter,':')[[1]][2])
-    }
-    if('max_cs_seg' == parameter.id){
-      out.parameter.list$max_cs_seg <- as.numeric(strsplit(parameter,':')[[1]][2])
-    }
-    if('max_mu' == parameter.id){
-      out.parameter.list$max_mu <- as.numeric(strsplit(parameter,':')[[1]][2])
-    }
-    if('max_size' == parameter.id){
-      out.parameter.list$max_size <- as.numeric(strsplit(parameter,':')[[1]][2])
-    }
-    if('record_posteriors' == parameter.id){
-      out.parameter.list$record_posteriors <- as.logical(strsplit(parameter,':')[[1]][2])
-    }
-    if('record_segment_lls' == parameter.id){
-      out.parameter.list$record_segment_lls <- as.logical(strsplit(parameter,':')[[1]][2])
-    }
-    if('fs_prior' == parameter.id){
-      out.parameter.list$fs_prior <- lapply(strsplit(strsplit(strsplit(parameter,':')[[1]][2],';')[[1]],','), as.numeric)
-      names(out.parameter.list$repl_groups) <- c('mean', 'sd')
-    }
-    if('model_dispersion' == parameter.id){
-      out.parameter.list$model_dispersion <- as.logical(strsplit(parameter,':')[[1]][2])
-    }
-    if('repl_spline_df' == parameter.id){
-      out.parameter.list$repl_spline_df <- lapply(strsplit(strsplit(strsplit(parameter,':')[[1]][2],';')[[1]],','), as.numeric)
-      names(out.parameter.list$repl_spline_df) <- paste0('df_repl_',c(1:length(out.parameter.list$repl_groups)))
-    }
-    if('estimateSpline' == parameter.id){
-      out.parameter.list$estimateSpline <- as.logical(strsplit(parameter,':')[[1]][2])
-    }
-    if('nr_disp_bins' == parameter.id){
-      out.parameter.list$nr_disp_bins <- as.numeric(strsplit(parameter,':')[[1]][2])
-    }
-    if('pp_calculation' == parameter.id){
-      out.parameter.list$pp_calculation <- strsplit(parameter,':')[[1]][2]
-    }
-    if('out_dir' == parameter.id){
-      out.parameter.list$out_dir <- strsplit(parameter,':')[[1]][2]
-    }
-    if('convergence_tol' == parameter.id){
-      out.parameter.list$convergence_tol <- as.numeric(strsplit(parameter,':')[[1]][2])
-    }
-    if('fix_hypers' == parameter.id){
-      out.parameter.list$fix_hypers <- as.logical(strsplit(parameter,':')[[1]][2])
-    }
-    if('recompute_fs0' == parameter.id){
-      out.parameter.list$recompute_fs0 <- as.logical(strsplit(parameter,':')[[1]][2])
-    }
-    if('local_max' == parameter.id){
-      out.parameter.list$local_max <- as.logical(strsplit(parameter,':')[[1]][2])
-    }
-    if('local_max_range' == parameter.id){
-      out.parameter.list$local_max_range <- as.numeric(strsplit(parameter,':')[[1]][2])
-    }
-    if('iterative_hyper_est' == parameter.id){
-      out.parameter.list$iterative_hyper_est <- as.logical(strsplit(parameter,':')[[1]][2])
-    }
-    if('nr_segs' == parameter.id){
-      out.parameter.list$nr_segs <- as.numeric(strsplit(parameter,':')[[1]][2])
-    }
-    if('geom_p' == parameter.id){
-      #probability of success for geometric distribution
-      out.parameter.list$geom_p <- as.numeric(strsplit(parameter,':')[[1]][2])
-      #geom.norm.factr <- pgeom(nr.segs, geom.p)
-    }
-    if('fs_correlation_cutoff' == parameter.id){
-      out.parameter.list$fs_correlation_cutoff <- as.numeric(strsplit(parameter,':')[[1]][2])
-    }
-    if('min_fs_pp' == parameter.id){
-      out.parameter.list$min_fs_pp <- as.numeric(strsplit(parameter,':')[[1]][2])
-    }
-    if('auto_stop' == parameter.id){
-      out.parameter.list$auto_stop <- as.logical(strsplit(parameter,':')[[1]][2])
-    }
-    if(parameter.id == 'labelHierarchy'){
-      out.parameter.list$labelHierarchy <- strsplit(strsplit(parameter.id,':')[[1]][2],',')[[1]]
-    }
-    if('dataName' == parameter.id){
-      out.parameter.list$dataName <- strsplit(parameter,':')[[1]][2]
-    }
-    if('repl_groups' == parameter.id){
-      out.parameter.list$repl_groups <- lapply(strsplit(strsplit(strsplit(parameter,':')[[1]][2],';')[[1]],','), as.numeric)
-      names(out.parameter.list$repl_groups) <- paste0('repl_',c(1:length(out.parameter.list$repl_groups)))
-    }
-    if('pool_names' == parameter.id){
-      out.parameter.list$pool_names <- lapply(strsplit(strsplit(strsplit(parameter,':')[[1]][2],';')[[1]],','), as.numeric)
-      names(out.parameter.list$pool_names) <- paste0('repl_',c(1:length(out.parameter.list$pool_names)))
-    }
-    if('DataInputFileLoc' == parameter.id){
-      out.parameter.list$DataInputFileLoc <- strsplit(parameter,':')[[1]][2]
-    }
-    if('CountFileLoc' == parameter.id){
-      out.parameter.list$CountFileLoc <- strsplit(parameter,':')[[1]][2]
-    }
-    if('sgRNAInfoFileLoc' == parameter.id){
-      out.parameter.list$sgRNAInfoFileLoc <- strsplit(parameter,':')[[1]][2]
-    }
-    if('min_FS_nr' == parameter.id){
-      out.parameter.list$min_FS_nr <- as.numeric(strsplit(parameter,':')[[1]][2])
-    }
-    if('crisprSystem' == parameter.id){
-      out.parameter.list$crisprSystem <- strsplit(parameter,':')[[1]][2]
-    }
-    if('dualToSingle' == parameter.id){
-      out.parameter.list$dualToSingle <- as.logical(strsplit(parameter,':')[[1]][2])
-    }
-    if('FS0_label' == parameter.id){
-      out.parameter.list$FS0_label <- strsplit(parameter,':')[[1]][2]
-    }
-    if('background_label' == parameter.id){
-      out.parameter.list$background_label <- strsplit(parameter,':')[[1]][2]
-    }
-    if('alpha0' == parameter.id){
-      out.parameter.list$alpha0 <- lapply(strsplit(strsplit(strsplit(parameter,':')[[1]][2],';')[[1]],','), as.numeric)
-      names(out.parameter.list$alpha0) <- paste0('repl_',c(1:length(out.parameter.list$alpha0)))
-    }
-    if('alpha1' == parameter.id){
-      out.parameter.list$alpha1 <- lapply(strsplit(strsplit(strsplit(parameter,':')[[1]][2],';')[[1]],','), as.numeric)
-      names(out.parameter.list$alpha1) <- paste0('repl_',c(1:length(out.parameter.list$alpha1)))
-    }
-    if('seg_dist' == parameter.id){
-      out.parameter.list$seg_dist <- as.numeric(strsplit(parameter,':')[[1]][2])
-    }
-
-  }
-  # aggregate alpha0 and alpha1 if provided
-  if('alpha0' %in% names(out.parameter.list) & 'alpha1' %in% names(out.parameter.list)){
-    out.parameter.list$hyper_pars <- list(alpha0 = out.parameter.list$alpha0, alpha1 = out.parameter.list$alpha1, L = 1)
-  }
-  if('one_dispersion' == parameter.id){
-    out.parameter.list$one_dispersion <- as.logical(strsplit(parameter,':')[[1]][2])
-  }
-
-  ##############################################
-  # guide efficiency related parameters
-  # location of file (can be same as info, or total combines, or separate)
-  if('guide_efficiency_loc' == parameter.id){
-    out.parameter.list$guide_efficiency_loc <- strsplit(parameter,':')[[1]][2]
-  }
-  # cloumns to use for GE
-  if('guide_efficiency_cols' == parameter.id){
-    out.parameter.list$guide_efficiency_cols <- as.numeric(strsplit(parameter,':')[[1]][2])
-  }
-  # boolean whether to simply use given guide coefficients or trying to estimate them
-  if('fixed_ge_coeff' == parameter.id){
-    out.parameter.list$fixed_ge_coeff <- as.logical(strsplit(parameter,':')[[1]][2])
-  }
-
-
-  # l2fc parameters
-  if('l2fc_groups' == parameter.id){
-    out.parameter.list$l2fc_groups <- lapply(strsplit(strsplit(strsplit(parameter,':')[[1]][2],';')[[1]],','), as.numeric)
-    names(out.parameter.list$l2fc_groups) <- paste0('repl_',c(1:length(out.parameter.list$l2fc_groups)))
-  }
-  if('l2fc_slidWind' == parameter.id){
-    out.parameter.list$l2fc_slidWind <- as.logical(strsplit(parameter,':')[[1]][2])
-  }
-  if('l2fc_slidWind_guideNr' == parameter.id){
-    out.parameter.list$l2fc_slidWind_guideNr <- as.numeric(strsplit(parameter,':')[[1]][2])
-  }
-  if('l2fc_slidWind_maxGap' == parameter.id){
-    out.parameter.list$l2fc_slidWind_maxGap <- as.numeric(strsplit(parameter,':')[[1]][2])
-  }
-  
-  # area of effect parameters
-  if('areaOfEffect_type' == parameter.id){
-    out.parameter.list$areaOfEffect_type <- as.numeric(strsplit(parameter,':')[[1]][2])
-  }
-  if('normal_areaOfEffect_sd' == parameter.id){
-    out.parameter.list$normal_areaOfEffect_sd <- as.numeric(strsplit(parameter,':')[[1]][2])
-  }
-  
-  if('mean_var_type' == parameter.id){
-    out.parameter.list$mean_var_type <- strsplit(parameter,':')[[1]][2]
-  }
-  
-  if('deletionProb' == parameter.id){
-    out.parameter.list$deletionProb <- as.numeric(strsplit(parameter,':')[[1]][2])
-  }
-
-  return(out.parameter.list)
 }
 
 
@@ -7758,224 +3845,6 @@ run_RELICS_2 <- function(input.data, final.layer.nr, out.dir = NULL,
 }
 
 
-#' @title Initializing function for the results list
-#' @param input.pp.list: list of PP results
-#' @param input.results.list: lest, each element keeps track of results from a number of FS identified
-#' @param analysis.parameters: list containing all the analysis parameters
-#' @param input.data: list containing the counts
-#' @param relics.hyper: list, RELICS hyperparameters, alpha0 and alpha1, each list of df, one for each repl
-#' @param hyper.components: hyperpparameter components (alpha0 and alpha1 proportions and dispersions)
-#' @param file.extension: extension for files, either '', '_final', or '_recommendedFinal'
-#' @param fs.iter: current FS interation
-#' @return list
-#' @export initialize_results_list()
-
-initialize_results_list <- function(){
-  
-  results.list <- list()
-  results.list$posteriors <- list()
-  results.list$alpha0 <- list()
-  results.list$alpha1 <- list()
-  
-  results.list$bkg_hyper <- list()
-  results.list$fs_hyper <- list()
-  results.list$bkg_disp <- list()
-  
-  results.list$fs_ll <- list()
-  results.list$per_fs_ll <- list()
-  results.list$correlation <- list()
-  
-  results.list$ge_coeff <- list()
-  
-  results.list$model_ll <- list()
-  
-  results.list$ll_ratio <- list()
-  
-  return(results.list)
-  
-}
-
-
-#' @title Wrapper function for recording the output from the most recent run
-#' @param input.pp.list: list of PP results
-#' @param input.results.list: lest, each element keeps track of results from a number of FS identified
-#' @param analysis.parameters: list containing all the analysis parameters
-#' @param input.data: list containing the counts
-#' @param relics.hyper: list, RELICS hyperparameters, alpha0 and alpha1, each list of df, one for each repl
-#' @param hyper.components: hyperpparameter components (alpha0 and alpha1 proportions and dispersions)
-#' @param file.extension: extension for files, either '', '_final', or '_recommendedFinal'
-#' @param fs.iter: current FS interation
-#' @return list with updated input.results.list
-#' @export process_fs_pp_output()
-
-process_fs_pp_output <- function(input.pp.list, input.results.list, analysis.parameters, input.data, fs.iter, relics.hyper, hyper.components){
-  
-  
-  out.results.list <- input.results.list
-  convrg.iter <- length(input.pp.list$posterior_trace_list)
-  
-  fs.posteriors <- input.pp.list$posterior_trace_list[[convrg.iter]]
-  fs.posteriors[fs.posteriors > 1] <- 1
-  
-  fs.ll.rt <- list()
-  if(analysis.parameters$local_max){
-    fs.ll.rt <- input.pp.list$fs_ll_rt_trace[[convrg.iter]]
-  }
-  
-  # order the layers according to their model contributions
-  order.pps.lst <- order_pps(fs.posteriors, input.pp.list$ll_tract[[convrg.iter]],
-                             input.data, relics.hyper$alpha0, relics.hyper$alpha1,
-                             input.data$guide_efficiency, analysis.parameters$local_max, fs.ll.rt)
-  
-  #posteriors, alpha0, alpha1, bkg_hyper, fs_hyper, bkg_disp, fs_ll, per_fs_ll, correlation, ge_coeff, model_ll, ll_ratio
-  out.results.list$posteriors <- order.pps.lst$pp_ordered
-  out.results.list$alpha0 <- relics.hyper$alpha0
-  out.results.list$alpha1 <- relics.hyper$alpha1
-  
-  out.results.list$bkg_hyper <- hyper.components$bkg_alpha
-  out.results.list$fs_hyper <- hyper.components$FS_alpha
-  out.results.list$bkg_disp <- hyper.components$bkg_dispersion
-  
-  # record the model log-likelihood with each additional FS
-  new.model.ll <- data.frame(FS = fs.iter, FS_ll = input.pp.list$ll_tract[[convrg.iter]], stringsAsFactors = F)
-  temp.model.ll <- rbind(input.results.list$model_ll, new.model.ll)
-  out.results.list$model_ll <- temp.model.ll
-  
-  out.results.list$ll_ratio <- order.pps.lst$fs_ll_rt_ordered
-  
-  #$nr_rs, $rs_prob, $training_overlap, $prct_overlap
-  pp.stat.lst <- pps_stats(order.pps.lst$pp_ordered, analysis.parameters$min_fs_pp)
-  
-  # record the per-FS contribution to the model
-  per.fs.ll.contribution <- order.pps.lst$layer_ll_ordered
-  per.fs.ll.df <- data.frame(FS = c('total_model_ll', paste0('k_', c(1:(length(per.fs.ll.contribution)))) ),
-                             ll = c(input.pp.list$ll_tract[[convrg.iter]], per.fs.ll.contribution),
-                             nr_fs = c(0, pp.stat.lst$nr_rs),
-                             stringsAsFactors = F)
-  out.results.list$per_fs_ll <- per.fs.ll.df
-  
-  # # record the PP correlations and overlaps
-  fs.corrs <- pps_corr(order.pps.lst$pp_ordered, fs.iter)
-  out.results.list$correlation[[fs.iter]] <- fs.corrs
-  
-  out.results.list$ge_coeff <- input.data$ge_coeff
-  
-  return(out.results.list)
-}
-
-
-#' @title Wrapper function for recording hyperparameters
-#' @param input.pp.list: list of PP results
-#' @param input.results.list: lest, each element keeps track of results from a number of FS identified
-#' @param analysis.parameters: list containing all the analysis parameters
-#' @param input.data: list containing the counts
-#' @param relics.hyper: list, RELICS hyperparameters, alpha0 and alpha1, each list of df, one for each repl
-#' @param hyper.components: hyperpparameter components (alpha0 and alpha1 proportions and dispersions)
-#' @param file.extension: extension for files, either '', '_final', or '_recommendedFinal'
-#' @param fs.iter: current FS interation
-#' @return list with updated input.results.list
-#' @export process_fs_pp()
-
-process_fs_pp <- function(input.pp.list, input.results.list, analysis.parameters, input.data, fs.iter, relics.hyper, hyper.components){
-  
-  convrg.iter <- length(input.pp.list$posterior_trace_list)
-  
-  fs.posteriors <- input.pp.list$posterior_trace_list[[convrg.iter]]
-  fs.posteriors[fs.posteriors > 1] <- 1
-  
-  fs.ll.rt <- list()
-  if(analysis.parameters$local_max){
-    fs.ll.rt <- input.pp.list$fs_ll_rt_trace[[convrg.iter]]
-  }
-  
-  # order the layers according to their model contributions
-  order.pps.lst <- order_pps(fs.posteriors, input.pp.list$ll_tract[[convrg.iter]],
-                             input.data, relics.hyper$alpha0, relics.hyper$alpha1,
-                             input.data$guide_efficiency, analysis.parameters$local_max, fs.ll.rt)
-  
-  
-  #posteriors, alpha0, alpha1, bkg_hyper, fs_hyper, bkg_disp, fs_ll, per_fs_ll, correlation, ge_coeff, model_ll, ll_ratio
-  input.results.list$posteriors[[fs.iter]] <- order.pps.lst$pp_ordered
-  input.results.list$alpha0[[fs.iter]] <- relics.hyper$alpha0
-  input.results.list$alpha1[[fs.iter]] <- relics.hyper$alpha1
-  
-  input.results.list$bkg_hyper[[fs.iter]] <- hyper.components$bkg_alpha
-  input.results.list$fs_hyper[[fs.iter]] <- hyper.components$FS_alpha
-  input.results.list$bkg_disp[[fs.iter]] <- hyper.components$bkg_dispersion
-  
-  # record the model log-likelihood with each additional FS
-  new.model.ll <- data.frame(FS = fs.iter, FS_ll = input.pp.list$ll_tract[[convrg.iter]], stringsAsFactors = F)
-  temp.model.ll <- rbind(do.call(rbind, input.results.list$model_ll), new.model.ll)
-  input.results.list$model_ll[[fs.iter]] <- temp.model.ll
-  
-  input.results.list$ll_ratio[[fs.iter]] <- order.pps.lst$fs_ll_rt_ordered
-
-  #$nr_rs, $rs_prob, $training_overlap, $prct_overlap
-  pp.stat.lst <- pps_stats(order.pps.lst$pp_ordered, analysis.parameters$min_fs_pp)
-  
-  # record the per-layer contribution to the model
-  per.fs.ll.contribution <- order.pps.lst$layer_ll_ordered
-  per.fs.ll.df <- data.frame(FS = c('total_model_ll', paste0('k_', c(1:(length(per.fs.ll.contribution)))) ),
-                             ll = c(input.pp.list$ll_tract[[convrg.iter]], per.fs.ll.contribution),
-                             nr_fs = c(0, pp.stat.lst$nr_rs),
-                             stringsAsFactors = F)
-  input.results.list$per_fs_ll[[fs.iter]] <- per.fs.ll.df
-  
-  # # record the PP correlations and overlaps
-  fs.corrs <- pps_corr(order.pps.lst$pp_ordered, fs.iter)
-  input.results.list$correlation[[fs.iter]] <- fs.corrs
-  
-  input.results.list$ge_coeff[[fs.iter]] <- input.data$ge_coeff
-
-  return(input.results.list)
-}
-
-
-#' @title Wrapper function for recording all results for an FS iteration
-#' @param input.results.list: lest, each element keeps track of results from a number of FS identified
-#' @param input.data: list containing the counts
-#' @param analysis.parameters: list containing all the analysis parameters
-#' @param hyper.components: hyperpparameter components (alpha0 and alpha1 proportions and dispersions)
-#' @param file.extension: extension for files, either '', '_final', or '_recommendedFinal'
-#' @param fs.iter: current FS interation
-#' @param relics.hyper: list, hyperparamters, include dispersion
-#' @return csv and bedgraphs of the current FS iteration
-#' @export record_results()
-
-record_results <- function(input.results.list, fs.iter, input.data, analysis.parameters, file.extension, hyper.components, relics.hyper){
-  
-  record.posteriors <- input.results.list$posteriors#[[fs.iter]]
-  record.model.ll <- input.results.list$model_ll#[[fs.iter]]
-  
-  out.dir <- paste0(analysis.parameters$out_dir, '/', analysis.parameters$dataName)
-  
-  # plot the outputs
-  if(fs.iter > 1){
-    display_relics_fs_as_tiff(record.posteriors,
-                              input.data$segLabels,
-                              paste0(out.dir, file.extension, '_k_', fs.iter),
-                              analysis.parameters$min_fs_pp,
-                              input.data$seg_info)
-    
-    # plot the ll progression and mark layers where convergence failed
-    # plot the correlation between PP
-    plot_fs_stats(record.model.ll, input.results.list$correlation, out.dir, fs.iter, analysis.parameters$fs_correlation_cutoff)
-  }
-  
-  ll_ratio_recording(input.data, analysis.parameters, input.results.list, fs.iter)
-  
-  hyperparameter_recording(input.results.list, fs.iter, hyper.components, analysis.parameters, file.extension)
-  
-  data_ll_recording(input.results.list, fs.iter, input.data, file.extension, analysis.parameters)
-  
-  bedgraph_recording(input.results.list, input.data, fs.iter, analysis.parameters, file.extension)
-  
-  # currently not recording effect sizes
-  # effect_size_recording(input.results.list, input.data, analysis.parameters, hyper.components, file.extension, fs.iter)
-  
-}
-
-
 #' @title wrapper for reporting the per-segment ll ratio while accounting for the area of effect
 #' @param relics.hyper: list: hyper parameters
 #' @param input.data: list: $seg_to_guide_lst, $guide_efficiency_scores (and $guide_efficiency if former not NULL)
@@ -8110,410 +3979,6 @@ hyperparameter_recording <- function(input.results.list, fs.iter, hyper.componen
                             paste0(out.dir, file.extension), fs.iter, analysis.parameters$pool_names)
   }
   
-}
-
-
-#' @title Wrapper function for recording of the various result tracks (correlation, ll_progression_, FS_location...)
-#' @param input.results.list: lest, each element keeps track of results from a number of FS identified
-#' @param input.data: list containing the counts
-#' @param analysis.parameters: list containing all the analysis parameters
-#' @param file.extension: extension for files, either '', '_final', or '_recommendedFinal'
-#' @param fs.iter: current FS interation
-#' @return csv of the various result tracks
-#' @export data_ll_recording()
-
-data_ll_recording <- function(input.results.list, fs.iter, input.data, file.extension, analysis.parameters){
-  
-  record.posteriors <- input.results.list$posteriors#[[fs.iter]]
-  record.per.fs.ll <- input.results.list$per_fs_ll#[[fs.iter]]
-  record.model.ll <- input.results.list$model_l#l[[fs.iter]]
-  record.ll.rt <- input.results.list$ll_ratio#[[fs.iter]]
-  record.correlation <- input.results.list$correlation#[[fs.iter]]
-  out.dir <- paste0(analysis.parameters$out_dir, '/', analysis.parameters$dataName)
-  
-  # record the segments with FS probabilities above the threshold.
-  all.seg.fs.df.final <- extract_fs_locations(record.posteriors, input.data$seg_info, analysis.parameters$min_fs_pp)
-  write.table(all.seg.fs.df.final, file = paste0(out.dir, file.extension, '_k', fs.iter,'_FS_locations.bed'),
-              sep = '\t', quote = F, row.names = F, col.names = F)
-  
-  # record the per-layer contribution to the model
-  write.csv(record.per.fs.ll, file = paste0(out.dir, file.extension, '_k', fs.iter, '_perFS_LLcontributions.csv'), row.names = F)
-  
-  # model ll progression
-  write.csv(record.model.ll, file = paste0(out.dir, file.extension, '_k', fs.iter, '_ll_progression.csv'), row.names = F)
-  
-  # record posteriors
-  write.csv(record.posteriors, file = paste0(out.dir, file.extension, '_k', fs.iter,'.csv'), row.names = F)
-  
-  if(analysis.parameters$local_max){
-    write.csv(record.ll.rt, file = paste0(out.dir, file.extension, '_k', fs.iter, '_llRt.csv'), row.names = F)
-  }
-  
-  # record all correlations
-  write.layer.corrs.df <- data.frame(FSpair_1 = record.correlation$layer_1, FSpair_2 = record.correlation$layer_2,
-                                     corr = record.correlation$corr, nr_FS_compared = record.correlation$layer_Iteration, stringsAsFactors = F)
-  write.csv(write.layer.corrs.df, file = paste0(out.dir, file.extension, '_allCorrs_k', fs.iter,'.csv'), row.names = F)
-  
-  # guide efficiency vars:
-  if(! is.null(input.data$fixed_ge_coeff) && ! input.data$fixed_ge_coeff){
-    record.ge.coeff <- input.results.list$ge_coeff#[[fs.iter]]
-    ge.coff.df <- data.frame(ge_coeff = c('beta0', paste0('beta', 1:ncol(input.data$guide_efficiency_scores))),
-                             ge_coeff_scores = round(record.ge.coeff, 3))
-    write.csv(ge.coff.df, file = paste0(out.dir, file.extension, '_k', fs.iter, '_ge_coeff.csv'), row.names = F)
-  }
-  
-}
-
-
-#' @title Wrapper function for recording effect bedgraph tracks for the PP and log-likelihoods
-#' @param input.results.list: lest, each element keeps track of results from a number of FS identified
-#' @param input.data: list containing the counts
-#' @param analysis.parameters: list containing all the analysis parameters
-#' @param file.extension: extension for files, either '', '_final', or '_recommendedFinal'
-#' @param fs.iter: current FS interation
-#' @return bedgraphs of the PP and guide ll
-#' @export bedgraph_recording()
-
-bedgraph_recording <- function(input.results.list, input.data, fs.iter, analysis.parameters, file.extension){
-  
-  record.posteriors <- input.results.list$posteriors#[[fs.iter]]
-  record.ll.rt <- input.results.list$ll_ratio#[[fs.iter]]
-  record.alpha0 <- input.results.list$alpha0#[[fs.iter]]
-  record.alpha1 <- input.results.list$alpha1#[[fs.iter]]
-  out.dir <- paste0(analysis.parameters$out_dir, '/', analysis.parameters$dataName)
-  
-  total.record.posteriors <- colSums(record.posteriors)
-  total.record.posteriors[which(total.record.posteriors > 1)] <- 1
-  out.bedgraph <- input.data$seg_info
-  out.bedgraph$score <- total.record.posteriors
-  to.bg.list <- list(total_pp = out.bedgraph)
-  
-  if(analysis.parameters$local_max){
-    to.bg.list$total_ll <- input.data$seg_info
-    to.bg.list$total_ll$score <- colSums(record.ll.rt)
-  }
-  
-  
-  dirichlet.guide.ll <- compute_perGuide_fs_ll(record.posteriors, input.data$guide_to_seg_lst)
-  total.per.guide.ll <- 0
-  for(repl in 1:length(input.data$data)){
-    temp.hypers <- list(alpha0 = record.alpha0[[repl]], alpha1 = record.alpha1[[repl]])
-    temp.sgRNa.ll <- estimate_relics_sgrna_log_like(temp.hypers,
-                                                    input.data$data[[repl]],
-                                                    dirichlet.guide.ll,
-                                                    input.data$guide_efficiency, return.model.ll = TRUE)
-    
-    total.per.guide.ll <- total.per.guide.ll + (-2 * (temp.sgRNa.ll$null_only_ll - temp.sgRNa.ll$alt_only_ll) )
-  }
-  
-  data.info.names <- colnames(input.data$guide_info)
-  out.guide.info <- cbind(input.data$guide_info, total.per.guide.ll)
-  colnames(out.guide.info) <- c(data.info.names, 'guide_ll')
-  
-  out.guide.info$score <- out.guide.info$guide_ll
-  to.bg.list$guide_ll <- out.guide.info
-  
-  write.csv(out.guide.info, file = paste0(out.dir, file.extension, '_k', fs.iter,'_guide_ll_info.csv'), row.names = F)
-  create_bedgraphs(to.bg.list, paste0(out.dir, file.extension, '_k', fs.iter) )
-}
-
-
-#' @title Wrapper function for recording effect size of FS
-#' @param input.results.list: lest, each element keeps track of results from a number of FS identified
-#' @param input.data: list containing the counts
-#' @param analysis.parameters: list containing all the analysis parameters
-#' @param hyper.components: hyperpparameter components (alpha0 and alpha1 proportions and dispersions)
-#' @param file.extension: extension for files, either '', '_final', or '_recommendedFinal'
-#' @param fs.iter: current FS interation
-#' @return csv and bedgraphs of the effect sizes for all FS identified 
-#' @export effect_size_recording()
-
-effect_size_recording <- function(input.results.list, input.data, analysis.parameters, hyper.components, file.extension, fs.iter){
-  
-  record.posteriors <- input.results.list$posteriors[[fs.iter]]
-  record.alpha0 <- input.results.list$alpha0[[fs.iter]]
-  record.alpha1 <- input.results.list$alpha1[[fs.iter]]
-  final.hypers <- list(alpha0 = record.alpha0, alpha1 = record.alpha1)
-  out.dir <- paste0(analysis.parameters$out_dir, '/', analysis.parameters$dataName)
-  
-  abs.sum.effect.size <- record_sum_effectSizes(record.posteriors,
-                                                analysis.parameters$min_fs_pp,
-                                                final.hypers,
-                                                input.data$data,
-                                                input.data$guide_to_seg_lst,
-                                                input.data$seg_to_guide_lst,
-                                                input.data$guide_efficiency,
-                                                analysis.parameters$one_dispersion,
-                                                input.data$seg_info,
-                                                abs.es = TRUE, pool.names = analysis.parameters$pool_names,
-                                                analysis.parameters$mean_var_type, hyper.components)
-  
-  sum.effect.size <- record_sum_effectSizes(record.posteriors,
-                                            analysis.parameters$min_fs_pp,
-                                            final.hypers,
-                                            input.data$data,
-                                            input.data$guide_to_seg_lst,
-                                            input.data$seg_to_guide_lst,
-                                            input.data$guide_efficiency,
-                                            analysis.parameters$one_dispersion,
-                                            input.data$seg_info,
-                                            abs.es = FALSE, pool.names = analysis.parameters$pool_names,
-                                            analysis.parameters$mean_var_type, hyper.components)
-  
-  write.csv(abs.sum.effect.size$fs_effSize_ID, file = paste0(out.dir, file.extension, '_k', fs.iter, '_abs_sumEffSize.csv'), row.names = F)
-  write.csv(sum.effect.size$fs_effSize_ID, file = paste0(out.dir, file.extension, '_k', fs.iter, '_sumEffSize.csv'), row.names = F)
-  
-  # record bedgraph
-  to.bg.list <- list()
-  to.bg.list$abs_sumEffSize <- abs.sum.effect.size$total_effSize
-  to.bg.list$sumEffSize <- sum.effect.size$total_effSize
-  create_bedgraphs(to.bg.list, paste0(out.dir, file.extension, '_k', fs.iter) )
-}
-
-
-#' @title records the sum of (absolute) effect sizes across all pools (avg across replicates) for each FS
-#' @param hyper: hyperparameters
-#' @param input.pp: matrix of all posterior probs
-#' @param input.min.rs.pp: threshold for FS detection
-#' @param data: list, each element is a replicate
-#' @param guide.seg.idx.lst: list: each element is a guide, containing the indexes of the segments it overlaps
-#' @param seg.guide.idx.lst: list: each element is a segment and all guide that overlap it
-#' @param guide.efficiency: either a vector of guide efficiency or NULL
-#' @param one.dispersion. logical, if there should be one or two dispersions for the hyper parameters
-#' @param seg.info: data frame, coordinates for each segment
-#' @param abs.es: logical, whether or not the absolute difference should be returned
-#' @param pool.names: if given, the names of the individual pools
-#' @param mean.var.type: type of mean-variance relationship
-#' @param hyper.components: hyperparameter estimates of $bkg_alpha, $FS_alpha, $bkg_dispersion
-#' @return list: total_effSize, repl_effSize, fs_effSize_ID
-#' @export record_sum_effectSizes()
-
-record_sum_effectSizes <- function(input.pp, input.min.rs.pp, hyper, data,
-                                  guide.seg.idx.lst, seg.guide.idx.lst,
-                                  guide.efficiency, one.dispersion, seg.info,
-                                  abs.es = FALSE, pool.names, 
-                                  mean.var.type, hyper.components) {
-
-  # list of all alpha 1s (one for each FS)
-  fs.alpha1.eff.size <- list()
-  fs.total.eff.size <- c()
-  fs.eff.size.ID <- c()
-
-  for(e in 1:nrow(input.pp)){
-
-    temp.fs.idx <- which(input.pp[e,] > input.min.rs.pp)
-
-    fs.alpha1.eff.size[[e]] <- list()
-
-    if(length(temp.fs.idx) > 0){
-      temp.pp <- input.pp[e,]
-
-      temp.seg.info <- seg.info[temp.fs.idx,]
-
-      # 1. extract the index of guides overlapping all the FS segments
-      temp.fs.guide.idx <- sort(unique(unlist(lapply(seg.guide.idx.lst[temp.fs.idx], function(x){
-        x$guide_idx
-      }))))
-
-      did.converge <- TRUE
-
-      # for each replicate
-      for(i in 1:length(data)){
-
-        # extract the subset of guides overlapping the FS
-        fs.data <- data[[i]][temp.fs.guide.idx,]
-        fs.guide.efficiency <- guide.efficiency[temp.fs.guide.idx,]
-
-        # 2. use fs.data to get overlapping pp and calculate the per-guide ll given all the FS overlapping that guide
-        # Issue here is that I actually include more pp than the FS is long...
-        temp.fs.guide.pp.idx <- sort(unique(unlist(lapply(guide.seg.idx.lst[temp.fs.guide.idx], function(x){
-          x$seg_overlapped
-        }))))
-
-        temp.guide.lls.list <- FS_only_guide_ll(temp.pp, guide.seg.idx.lst, temp.fs.guide.pp.idx, temp.fs.guide.idx)
-        
-        temp.bkg.alpha <- c(1, hyper.components$bkg_alpha[[i]]) / sum(c(1, hyper.components$bkg_alpha[[i]]))
-        temp.fs.alpha <- sqrt(hyper.components$FS_alpha[[i]])
-        
-        temp.disp <- c()
-        temp.alpha0 <- c()
-        
-        if(mean.var.type == 'independent'){
-          temp.bkg.disp <- hyper.components$bkg_dispersion[[i]]
-          temp.disp <- temp.bkg.disp[1]^2
-          temp.alpha0 <- temp.bkg.alpha * temp.disp
-        } else {
-          temp.disp <- hyper.components$dispersion[[i]]
-          temp.alpha0 <- t(temp.bkg.alpha %*% t(temp.disp) )
-        }
-        
-        res <- optim(temp.fs.alpha, FS_prop_eSize, method= 'L-BFGS-B', #'BFGS', #"Nelder-Mead",
-                     alpha.zero = temp.alpha0, input.disp = temp.disp,
-                     data = fs.data, region.ll.list = temp.guide.lls.list,
-                     guide.efficiency = fs.guide.efficiency)
-        
-        alpha1s <- res$par**2
-        
-        alpha1s.adj <- c(1, alpha1s) / sum(c(1, alpha1s))
-        
-        if(abs.es){
-          fs.alpha1.eff.size[[e]][[i]] <- abs(alpha1s.adj - temp.bkg.alpha)
-        } else {
-          fs.alpha1.eff.size[[e]][[i]] <- alpha1s.adj - temp.bkg.alpha
-        }
-        
-        if(res$convergence != 0) {
-          warning("estimation of effect size failed to converge")
-          did.converge <- FALSE
-        }
-
-      }
-
-      # at this stage, all FS alpha1s should be obtained, present in list of lists at fs.alpha1[[f]]
-      # compute the average effect size across all replicates
-      
-      temp.total.avg.eff <- c()
-      # if replicates don't have the same number of pools and no pool names for combining has been arranged
-      if(! is.null(pool.names)){
-        all.pool.names <- unique(unlist(pool.names))
-        temp.eff.list <- list()
-        
-        # for all functional sequences found
-        for(fs in 1:length(fs.alpha1.eff.size)){
-          temp.repl.alphas <- fs.alpha1.eff.size[[fs]]
-          
-          if(length(temp.repl.alphas) > 0){
-            # for all replicates
-            for(r in 1:length(temp.repl.alphas)){
-              # for each pool / alpha
-              for(a in 1:length(temp.repl.alphas[[r]]))
-                temp.eff.list[[pool.names[[r]][a]]] <- c(temp.eff.list[[pool.names[[r]][a]]], temp.repl.alphas[[r]][a])
-            }
-          }
-        }
-        
-        temp.total.eff <- unlist(lapply(temp.eff.list, function(x){mean(x)}))
-        temp.total.avg.eff <- sum(temp.total.eff)
-        
-      } else {
-        if(length(unique(unlist(lapply(data, function(x){nrow(x)})))) != 1){
-          print('Warning! Not sure how to combine per-pool effect sizes!')
-        }
-        temp.eff.df <- do.call(rbind, fs.alpha1.eff.size[[e]])
-        temp.total.avg.eff <- sum(colSums(temp.eff.df) / nrow(temp.eff.df))
-      }
-      
-      temp.eff.size.loc <- temp.seg.info[, c('chrom', 'start', 'end')]
-      temp.eff.size.loc$FS <- paste0('FS', e-1)
-      temp.eff.size.loc$score <- temp.total.avg.eff # preparing for bg format
-      temp.eff.size.loc$converged <- as.character(did.converge)
-
-      fs.eff.size.ID <- rbind(fs.eff.size.ID, data.frame(FS = paste0('FS', e-1), FS_effSize = temp.total.avg.eff, stringsAsFactors = F))
-
-      fs.total.eff.size <- rbind(fs.total.eff.size, temp.eff.size.loc)
-    }
-
-  }
-
-  return(list(total_effSize = fs.total.eff.size, repl_effSize = fs.alpha1.eff.size, fs_effSize_ID= fs.eff.size.ID))
-}
-
-
-#' @title optimize the proportion parameters for a functional sequence, only one dispersion across the two distributions
-#' @param data: data, consists of: $pool1, pool2... and $n
-#' @param region.ll.list: list containing the ll and the indexes of the null alternative and both
-#' @param fs.prop: proportion parameters for functional sequence
-#' @param alpha.zero: hyper parameters for background
-#' @param input.disp: dispersion
-#' @param guide.efficiency: data.frame of guide efficiences. Either vector of guide efficiency or NULL
-#' @return sum of the -log likelihood across all guides
-#' @export FS_prop_eSize()
-
-FS_prop_eSize <- function(fs.alpha, alpha.zero, input.disp, data, region.ll.list, guide.efficiency) {
-  
-  adj.alpha <- fs.alpha**2
-  adj.alpha[which(adj.alpha == 0)] <- 0.001
-  
-  fs.alpha.adj <- c(1, adj.alpha) / sum(c(1, adj.alpha))
-  # alpha.one <- t(fs.alpha.adj %*% t(input.disp) )
-  
-  # inclomplete adjustemnt of hyper parameters given guide efficiency!
-  hyper <- reparameterize_hypers(bkg.alpha, fs.alpha.adj, input.disp, guide.efficiency, model.disp)
-  hyper <- reparameterize_hypers(bkg.alpha, fs.alpha, repl.disp, guide.efficiency, model.disp)
-
-  hyper <- list(alpha0 = alpha.zero,
-                alpha1 = alpha.one)
-  
-  out.sg.ll <- estimate_relics_sgrna_log_like_eSize(hyper, data, region.ll.list, guide.efficiency)
-  
-  -sum(out.sg.ll$total_guide_ll)
-}
-
-
-#' @title Compute log likelihoods of each sgRNA that overlaps a specifc FS.
-#' @param cumulative.pp: sum of all previous posteriors
-#' @param guide.seg.idx.lst: list, each element is a guide and contains the indexes of the segments it overlaps
-#' @param fs.idx: vector of segment indeces of the functional sequence
-#' @param guide.fs.idx: index of the guides overlapping the FS
-#' @return list: null_only_idx, null_only_lls, alt_only_idx, alt_only_lls, both_idx, both_lls (last one is a df)
-#' @export FS_only_guide_ll()
-
-FS_only_guide_ll <- function(cumulative.pp, guide.seg.idx.lst, fs.idx, guide.fs.idx, hyper.setup = FALSE){
-
-  nr.fs.sgrna <- length(guide.fs.idx)
-
-  null.ll <- vector('numeric', length = nr.fs.sgrna)
-  alt.ll <- vector('numeric', length = nr.fs.sgrna)
-  null.indicator <- vector('numeric', length = nr.fs.sgrna)
-  alt.indicator <- vector('numeric', length = nr.fs.sgrna)
-
-  null.only.idx <- vector('numeric', length = nr.fs.sgrna)
-  null.only.counter <- 1
-  alt.only.idx <- vector('numeric', length = nr.fs.sgrna)
-  alt.only.counter <- 1
-  both.idx <- vector('numeric', length = nr.fs.sgrna)
-  both.counter <- 1
-
-  for(j in 1:nr.fs.sgrna){
-    
-    region.pp <- cumulative.pp[guide.seg.idx.lst[[guide.fs.idx[j] ]]$seg_overlapped ]
-    
-    region.pp.distance.adj <- region.pp * guide.seg.idx.lst[[guide.fs.idx[j] ]]$dist_to_seg
-
-    # compute probability that number of regulatory regions overlapped by this sgRNA is 0 or >0, given posterior
-    # probabilities, using poisson binomial probability mass function
-    p.k.eq.0 <- dpoibin(0, region.pp.distance.adj)
-    p.k.gt.0 <- 1-p.k.eq.0
-
-    null.ll[j] <- log(p.k.eq.0)
-    alt.ll[j] <- log(p.k.gt.0)
-
-    if(p.k.eq.0 >= 1.0) {
-      null.only.idx[null.only.counter] <- j
-      null.only.counter <- null.only.counter + 1
-    }
-    else if(p.k.gt.0 >= 1.0) {
-      alt.only.idx[alt.only.counter] <- j
-      alt.only.counter <- alt.only.counter + 1
-    } else {
-      both.idx[both.counter] <- j
-      both.counter <- both.counter + 1
-    }
-  }
-
-  null.idxs <- null.only.idx[1:(null.only.counter - 1)]
-  alt.idxs <-alt.only.idx[1:(alt.only.counter - 1)]
-  both.idxs <- both.idx[1:(both.counter - 1)]
-
-  out.list <- list(null_only_idx = null.idxs,
-                   null_only_lls = null.ll[null.idxs],
-                   alt_only_idx = alt.idxs,
-                   alt_only_lls = alt.ll[alt.idxs],
-                   both_idx = both.idxs,
-                   both_lls = data.frame(null_lls = null.ll[both.idxs], alt_lls = alt.ll[both.idxs]))
-
-  return(out.list)
-
 }
 
 
@@ -8706,207 +4171,6 @@ extract_fs_locations <- function(input.fs.pp, input.seg.info, fs.threshold){
 }
 
 
-#' @title Based on correlations, determine of another FS can be calculated; all segments above a cutoff. Formerly 'determine_fs_correlation_cutoff'
-#' @param input.layer.corrs: data frame, max. correlations across all layers: $layer_1, $layer_2, $corr, $layer_comb, $layer_Iteration
-#' @param fs.correlation.cutoff: if correlation between layers exceeds fs.correlation.cutoff, recommend stopping
-#' @param out.dir: directory to which to write
-#' @return list: $need_to_stop, $flags_boolean, $flags_layer, (if stopping: $why_to_stop)
-#' @export determine_FS_nr_cutoff()
-
-determine_FS_nr_cutoff <- function(input.layer.corrs, fs.correlation.cutoff){
-
-  need.to.stop <- FALSE
-  why.to.stop <- c()
-  
-  input.layer.corrs <- do.call(rbind, input.layer.corrs)
-
-  out.list <- list(need_to_stop = FALSE)
-
-  if(length(which(input.layer.corrs$corr > fs.correlation.cutoff)) > 0){
-
-    all.above.corrs <- which(input.layer.corrs$corr > fs.correlation.cutoff)
-    out.list$need_to_stop <- TRUE
-
-    for(i in 1:length(all.above.corrs)){
-      why.to.stop <- c(why.to.stop, paste0('Correlation between FS',
-                                           input.layer.corrs$layer_1[all.above.corrs[i]],
-                                           ' and FS', input.layer.corrs$layer_2[all.above.corrs[i]],
-                                           ' exceeds cutoff of ', fs.correlation.cutoff))
-    }
-
-    out.list$why_to_stop <- why.to.stop
-
-  }
-
-  return(out.list)
-
-}
-
-
-#' @title Display the credible sets along with cumulative posteriors. Formerly 'display_mrvr_norm_tiff'
-#' @param input.L matrix of posteriors
-#' @param input.labels: labelling of all segments
-#' @param tiff.name: name for plot
-#' @param fs.threshold: threshold for defining functional sequences
-#' @param seg.info: contains info for each segment, specicially chromosome information
-#' @return One plot for each selection step, credible sets colored in purple
-#' @export display_relics_fs_as_tiff()
-
-display_relics_fs_as_tiff <- function(input.L, input.labels, tiff.name, fs.threshold, seg.info){
-
-  cs.col.orig <- rep("darkgrey", ncol(input.L))
-  
-  if(length(unique(seg.info$chrom)) > 1){
-    even.chroms <- unique(seg.info$chrom)[c(FALSE,TRUE)]
-    even.chroms.idx <- which(seg.info$chrom %in% even.chroms)
-    cs.col.orig[even.chroms.idx] <- 'lightgrey'
-  }
-
-  # attempt to put 8 per page
-  if(nrow(input.L) <= 8){
-    tiff(paste0(tiff.name, '.tiff'), width = 11520 / 2, height = 5760 / 2, units = "px", res = 400)
-    par(mfrow = c(3,3))
-
-    for(i in 1:nrow(input.L)){
-      cs.col <- cs.col.orig
-      cs.col[input.L[i,] > fs.threshold] <- "purple"
-
-      plot(input.L[i,], pch=21,
-           main=paste("FS", i-1, ", Nr. segments > ", fs.threshold, " = ", length(which(input.L[i,] > fs.threshold)), sep=""), col=cs.col,
-           ylab = 'PP', xlab = 'Genome Segment')
-    }
-    p.sum <- c()
-    if(nrow(input.L) > 2){
-      p.sum <- colSums(input.L[1:nrow(input.L),])
-    } else {
-      p.sum <- colSums(input.L[1:2,])
-    }
-    p.sum[p.sum > 1] <- 1
-    plot(p.sum, pch=21,
-         main="Sum of Posteriors",
-         col=cs.col.orig, bg = input.labels, ylab = 'PP', xlab = 'Genome Segment')
-
-    dev.off()
-  } else {
-    nr.pages <- ceiling(nrow(input.L) / 8)
-
-    for(pg in 1:nr.pages){
-      tiff(paste0(tiff.name, '_', pg, '.tiff'), width = 11520 / 2, height = 5760 / 2, units = "px", res = 400)
-      par(mfrow = c(3,3))
-
-      for(i in 1:8){
-
-        row.index <- (pg - 1)*8 + i
-
-        if(row.index > nrow(input.L)){
-          p.sum <- c()
-          if(nrow(input.L) > 2){
-            p.sum <- colSums(input.L[1:nrow(input.L),])
-          } else {
-            p.sum <- colSums(input.L[1:2,])
-          }
-          p.sum[p.sum > 1] <- 1
-          plot(p.sum, pch=21,
-               main="Sum of Posteriors",
-               col=cs.col.orig, bg = input.labels, ylab = 'PP', xlab = 'Genome Segment')
-          #dev.off()
-          break()
-        } else{
-
-          cs.col <- cs.col.orig #rep("black", ncol(input.L))
-          cs.col[input.L[row.index,] > fs.threshold] <- "purple"
-
-          # ', RS-pp: ', temp.cs.pp,
-          plot(input.L[row.index,], pch=21,
-               main=paste("FS", row.index-1, ", Nr. segments > ", fs.threshold, " = ", length(which(input.L[row.index,] > fs.threshold)),sep=""), col=cs.col,
-               ylab = 'PP', xlab = 'Genome Segment')
-          if(i == 8){
-            p.sum <- c()
-            if(nrow(input.L) > 2){
-              p.sum <- colSums(input.L[1:nrow(input.L),])
-            } else {
-              p.sum <- colSums(input.L[1:2,])
-            }
-            p.sum[p.sum > 1] <- 1
-            plot(p.sum, pch=21,
-                 main="Sum of Posteriors",
-                 col=cs.col.orig, bg = input.labels, ylab = 'PP', xlab = 'Genome Segment') #"black"
-          }
-        }
-      }
-      dev.off()
-    }
-
-  }
-
-}
-
-
-#' @title Compute regulatory sets for all segments above a cutoff. Formerly 'compute_mrvr_norm_CS'
-#' @param input.L: matrix, nrow = number of selections performed, ncol = number of elements
-#' @param threshold: double, max probability of the sum of all elements in this CS
-#' @return matrix: for each row, elements with 1 are part of credible set, otherwise not part (0)
-#' @export compute_PP_RS()
-
-compute_PP_RS <- function(input.L, threshold){
-
-  L <- nrow(input.L)
-
-  # make credible set matrix with 1s indicating the regions that are part of the
-  # credible set for each row
-  cs.matrix <- matrix(0, nrow=L, ncol=ncol(input.L))
-
-  # skip first row, which was the predefined
-  for(i in 2:L) {
-    cs.matrix[i,which(input.L[i,] >= threshold)] <- 1
-  }
-
-  return(cs.matrix)
-
-}
-
-
-#' @title Compute for the credible sets for the segment-length normalized posteriors; all segments above a cutoff. Formerly 'plot_layer_stats'
-#' @param input.layer.ll.df: data frame, ll progression through layers
-#' @param layer.corr.df: btween layer correlations
-#' @param out.dir: directory to which to write
-#' @return list: $pp_ordered, $layer_ll_ordered
-#' @export plot_fs_stats()
-
-plot_fs_stats <- function(input.layer.ll.df, layer.corr.df, out.dir, layer.nr, fs.correlation.cutoff){
-
-  pdf(paste0(out.dir, '_k', layer.nr, '_summaryStatPlots.pdf'))
-
-  p.ll.prog <- ggplot() + geom_line(data = input.layer.ll.df, aes(x = FS, y = FS_ll)) +
-    ggtitle('Log-Likelihood progression') + theme_bw() + labs(x='Number of FSs (K)', y='Log-Likelihood')
-
-  layer.corr.df.mod <- do.call(rbind, layer.corr.df)
-  layer.corr.df.mod$cutoff <- 'below'
-  layer.corr.df.mod$cutoff[which(layer.corr.df.mod$corr > fs.correlation.cutoff)] <- 'above'
-  layer.corr.df.mod$layer_comb[which(layer.corr.df.mod$corr < fs.correlation.cutoff)] <- layer.corr.df.mod$layer_1[which(layer.corr.df.mod$corr < fs.correlation.cutoff)]
-
-  # attempt to arrange the factors
-  layer.corr.df.mod$layer_Iteration <- factor(layer.corr.df.mod$layer_Iteration, levels = c(1:max(as.numeric(layer.corr.df.mod$layer_Iteration))))
-
-  layer.corr.df.mod.iterSplit <- split(layer.corr.df.mod, layer.corr.df.mod$layer_Iteration)
-  layer.corr.df.mod.max.corrs <- do.call(rbind, lapply(layer.corr.df.mod.iterSplit, function(x){
-
-    max.row <- which(x$corr == max(x$corr))[1]
-    x[max.row,]
-  }))
-
-  p.corr <- ggplot() +
-    geom_boxplot(data = layer.corr.df.mod, aes(y = corr, x = (layer_Iteration) ),position = position_dodge(0.7)) +
-    geom_line(data = layer.corr.df.mod.max.corrs, aes(x = as.numeric(layer_Iteration), y = corr, color = 'Max. corr'), linetype = "dashed") +
-    ggtitle('FS correlations (Boxplots)') + theme_classic() + geom_hline(yintercept=0.1, linetype="dotted", color = "black") +
-    labs(x='Number of FSs (K)', y='Correlation of FS prob.', col="", shape="Cutoff = 0.1")
-
-  suppressWarnings(grid.arrange(p.ll.prog, p.corr, nrow = 2))
-
-  dev.off()
-}
-
-
 #' @title Record the hyper parameters for the background and the functional sorting probabilities, dispersions separately
 #' @param input.bkg.alpha: list of the background alphas resulting the max log-lik. for that FS
 #' @param input.fs.alpha: list of the FS alphas resulting the max log-lik. for that FS
@@ -9051,72 +4315,6 @@ record_hyper_components <- function(input.bkg.alpha, input.fs.alpha, input.bkg.d
 }
 
 
-#' @title Record the hyper parameters for the background and the functional sorting probabilities
-#' @param input.alpha0.list: list of the null-alphas resulting the max lolg-lik. for that layer
-#' @param input.alpha1.list: list of the alternative-alphas resulting the max lolg-lik. for that layer
-#' @param input.alpha.outDir: directory to which the alphas are to be written
-#' @param layer.nr: number of functional sequences recorded
-#' @param pool.names: names of the pools given, includes the total column ($n)
-#' @return .csv file
-#' @export record_alphas()
-
-record_alphas <- function(input.alpha0.list, input.alpha1.list, input.alpha.outDir, layer.nr, pool.names){
-  
-  out.alpha.df <- c()
-  
-  total.rows <- length(input.alpha0.list) + length(input.alpha1.list)
-  total.cols <- max(c( unlist(lapply(input.alpha0.list, function(x){length(x)})),
-                       unlist(lapply(input.alpha1.list, function(x){length(x)}))))
-  
-  alpha.names <- c(paste(rep('alpha0', length(input.alpha0.list)), 'r', c(1:length(input.alpha0.list)), sep = '_'),
-                   paste(rep('alpha1', length(input.alpha1.list)), 'r', c(1:length(input.alpha1.list)), sep = '_'))
-  
-  alpha.matrix <- matrix(0, nrow = total.rows, ncol = total.cols + 1)
-  
-  if(! is.null(pool.names)){
-    temp.pool.names <- unique(unlist(pool.names))
-    
-    for(i in 1:length(input.alpha0.list)){
-      alpha0.scores <- rep(0, length(length(temp.pool.names)))
-      alpha1.scores <- rep(0, length(length(temp.pool.names)))
-      
-      alpha0.scores[match(pool.names[[i]], temp.pool.names)] <- round(input.alpha0.list[[i]] / sum(input.alpha0.list[[i]]), 3)
-      alpha1.scores[match(pool.names[[i]], temp.pool.names)] <- round(input.alpha1.list[[i]] / sum(input.alpha1.list[[i]]), 3)
-      
-      alpha0.scores.wDisp <- c(alpha0.scores, round(sum(input.alpha0.list[[i]]), 3))
-      alpha1.scores.wDisp <- c(alpha1.scores, round(sum(input.alpha1.list[[i]]), 3))
-      
-      alpha.matrix[i,] <- alpha0.scores.wDisp
-      alpha.matrix[i + length(input.alpha0.list),] <- alpha1.scores.wDisp
-      
-      out.alpha.df <- cbind(alpha.names, alpha.matrix)
-      
-      colnames(out.alpha.df) <- c('alpha_type', temp.pool.names, 'dispersion')
-
-    }
-    
-  } else {
-    
-    for(i in 1:length(input.alpha0.list)){
-      alpha.matrix[i, c(1:length(input.alpha0.list[[i]]))] <- round(input.alpha0.list[[i]] / sum(input.alpha0.list[[i]]), 3)
-      alpha.matrix[i, length(input.alpha0.list[[i]]) + 1] <- round(sum(input.alpha0.list[[i]]), 3)
-    }
-    
-    for(j in (length(input.alpha0.list) + 1):total.rows){
-      alpha.matrix[j, c(1:length(input.alpha1.list[[j - length(input.alpha0.list)]]))] <- round(input.alpha1.list[[j - length(input.alpha0.list)]] / sum(input.alpha1.list[[j - length(input.alpha0.list)]]), 3)
-      alpha.matrix[j, length(input.alpha1.list[[j - length(input.alpha0.list)]]) + 1] <- round(sum(input.alpha1.list[[j - length(input.alpha0.list)]]), 3)
-    }
-    
-    out.alpha.df <- cbind(alpha.names, alpha.matrix)
-    
-    colnames(out.alpha.df) <- c('alpha_type', paste0('pool', c(1:(nrow(out.alpha.df) - 2))), 'dispersion')
-  }
-
-  write.csv(out.alpha.df, file = paste0(input.alpha.outDir, '_k', layer.nr, '_alphas.csv'), row.names = F, quote = F)
-
-}
-
-
 #' @title layer exons such that they don't overlap
 #' @param input.score.list: list, each list element contains the name of the bedgraph to be plotted and a data frame with: $chrom, $start, $end, $formatScores
 #' @param bg.name: name to add to bedgraph
@@ -9189,192 +4387,6 @@ create_bedgraphs <- function(input.score.list, bg.name){
 }
 
 
-#' @title Compute the correlation and the overlaps between fs rows
-#' @param input.pp: posteriors from convergence
-#' @param layer.nr: what layer iteration is being processed
-#' @return data frame: $layer_1, $layer_2, $corr, $layer_comb, $layer_Iteration
-#' @export pps_corr()
-
-pps_corr <- function(input.pp, layer.nr){
-
-  if(length(unique(input.pp[1,])) > 2){
-    print('Posterior matrix is not standard format')
-    return()
-  }
-
-  layer.cor.tests <- combinations(n=nrow(input.pp), r=2,v=c(1:nrow(input.pp)), repeats.allowed=F)
-  layer.cors <- matrix(0, nrow = nrow(layer.cor.tests), ncol = ncol(layer.cor.tests) + 1)
-  layer.cors[,1] <- layer.cor.tests[,1] - 1
-  layer.cors[,2] <- layer.cor.tests[,2] - 1
-
-  #layers.to.test <- unique(layer.cor.tests[,1])
-  for(i in 1:nrow(layer.cor.tests)){
-
-    layer.cors[i,3] <- cor(input.pp[layer.cor.tests[i,1],], input.pp[layer.cor.tests[i,2],])
-
-  }
-
-  # for(i in layers.to.test){
-  #
-  #   layer.tests <- layer.cor.tests[which(layer.cor.tests[,1] == i), , drop = F]
-  #
-  #   max.layer.corr <- -3
-  #   max.layer.corr.nr <- -1
-  #
-  #   for(j in 1:nrow(layer.tests)){
-  #
-  #     temp.corr <- cor(input.pp[layer.tests[j,1],], input.pp[layer.tests[j,2],])
-  #
-  #     if(temp.corr > max.layer.corr){
-  #       max.layer.corr <- temp.corr
-  #       max.layer.corr.nr <- layer.tests[j,2]
-  #     }
-  #
-  #   }
-  #
-  #   layer.cors[i,1] <- i - 1
-  #   layer.cors[i,2] <- max.layer.corr.nr - 1
-  #   layer.cors[i,3] <- max.layer.corr
-  #
-  # }
-
-  layer.cors <- as.data.frame(layer.cors)
-  colnames(layer.cors) <- c('layer_1', 'layer_2', 'corr')
-  layer.cors$layer_comb <- paste(layer.cors$layer_1, layer.cors$layer_2, sep = '_')
-  layer.cors$layer_Iteration <- rep(as.character(layer.nr), nrow(layer.cors))
-
-
-  #layer.cors <- layer.cors[1:layers.to.test,]
-
-  return(layer.cors)
-
-}
-
-
-#' @title Compute for the regulatory sets for the segment-length normalized posteriors; all segments above a cutoff
-#' @param input.pp: posteriors from convergence
-#' @param rs.cutoff: ctuoff for defining a regulatory set
-#' @return list: $nr_rs, $rs_prob, $training_overlap, $prct_overlap
-#' @export pps_stats()
-
-pps_stats <- function(input.pp, rs.cutoff){
-
-  nr.rs <- c()
-  rs.prob <- c()
-  training.overlap <- c()
-  prct.training.overl <- c()
-
-  training.idx <- which(input.pp[1,] == 1)
-
-  for(i in 2:nrow(input.pp)){
-    temp.rs.idx <-which(input.pp[i,] > rs.cutoff)
-
-    if(length(temp.rs.idx) == 0){
-      nr.rs <- c(nr.rs, 0)
-      rs.prob <- c(rs.prob, 0)
-      training.overlap <- c(training.overlap, 2) # use 2 as 'don't know'
-      prct.training.overl <- c(prct.training.overl, 2)
-    } else {
-      nr.rs <- c(nr.rs, length(temp.rs.idx))
-      rs.prob <- c(rs.prob, round(1 - dpoibin(0, input.pp[i, temp.rs.idx]), 3))
-
-      if(length(which(temp.rs.idx %in% training.idx)) > 0){
-        training.overlap <- c(training.overlap, 1)
-        prct.training.overl <- c(prct.training.overl, round(length(which(temp.rs.idx %in% training.idx)) / length(temp.rs.idx), 3))
-      } else {
-        training.overlap <- c(training.overlap, 0)
-        prct.training.overl <- c(prct.training.overl, 0)
-      }
-    }
-
-  }
-
-  out.list <- list()
-  out.list$nr_rs <- nr.rs
-  out.list$rs_prob <- rs.prob
-  out.list$training_overlap <- training.overlap
-  out.list$prct_overlap <- prct.training.overl
-
-  return(out.list)
-}
-
-
-#' @title Arrange the fs rows in order of their likelihood model contribution
-#' @param input.pp: posteriors from convergence
-#' @param input.total.ll: overall log-likelihood of the model
-#' @param input.data: list: $guide_to_seg_lst,
-#' @param input.alpha0: list, alpha 0s for the replicates
-#' @param input.alpha1: list, alpha 1s for the replicates
-#' @param guide.efficiency: data.frame of guide efficiences. Either vector of guide efficiency or NULL
-#' @param local.max: logical, whether a local max was computed
-#' @param fs.ll.rt: per functional sequence, per segment log-likelihood ratio. Is empty list if local.max == FALSE
-#' @return list: $pp_ordered, $layer_ll_ordered, $fs_ll_rt_ordered
-#' @export order_pps()
-
-order_pps <- function(input.pp, input.total.ll, input.data, input.alpha0, input.alpha1,
-                      guide.efficiency, local.max, fs.ll.rt){
-
-  final.ll <- input.total.ll
-  final.pp <- input.pp
-  layer.ll.diff <- c()
-
-  for(f in 2:nrow(final.pp)){
-    temp.final.pp <- final.pp
-    temp.final.pp[f,] <- 0
-
-    temp.final.pp.sum <- colSums(temp.final.pp)
-    temp.final.pp.sum[temp.final.pp.sum > 1] <- 1
-
-    temp.guide.ll <- compute_perGuide_fs_ll(temp.final.pp.sum, input.data$guide_to_seg_lst)
-
-    temp.ll <- 0
-    for(r in 1:length(input.data$data)){
-      temp.hypers <- list(alpha0 = input.alpha0[[r]], alpha1 = input.alpha1[[r]])
-      temp.sgRNa.ll <- estimate_relics_sgrna_log_like(temp.hypers,
-                                                      input.data$data[[r]],
-                                                      temp.guide.ll,
-                                                      guide.efficiency)
-
-      temp.dirichlet.ll <- sum(temp.sgRNa.ll$total_guide_ll)
-      temp.ll <- temp.ll + temp.dirichlet.ll
-    }
-
-    layer.ll.diff <- c(layer.ll.diff, temp.ll - final.ll)
-  }
-
-  out.list <- list()
-
-  if(nrow(input.pp) == 2){
-    out.list$pp_ordered <- input.pp
-    out.list$layer_ll_ordered <- layer.ll.diff
-    out.list$fs_ll_rt_ordered <- fs.ll.rt
-
-    return(out.list)
-  } else {
-    pp.to.order <- input.pp[2:nrow(input.pp),]
-    pp.ordered <- pp.to.order[order(layer.ll.diff),]
-
-    out.pp <- rbind(input.pp[1,], pp.ordered)
-
-    layer.ll.diff.ordered <- layer.ll.diff[order(layer.ll.diff)]
-
-    fs.ll.rt.ordered  <- fs.ll.rt
-    if(local.max){
-      fs.ll.rt.to.order <- fs.ll.rt[2:nrow(input.pp),]
-      fs.ll.rt.ordered <- fs.ll.rt.to.order[order(layer.ll.diff),]
-      fs.ll.rt.ordered <- rbind(fs.ll.rt[1, ], fs.ll.rt.ordered)
-    }
-
-    out.list$pp_ordered <- out.pp
-    out.list$layer_ll_ordered <- layer.ll.diff.ordered
-    out.list$fs_ll_rt_ordered <- fs.ll.rt.ordered
-
-  }
-
-  return(out.list)
-}
-
-
 #' @title Set initial hyper parameters, generate the fs posterior matrix
 #' @param hyper: hyperparameters
 #' @param in.data.list: list, $seg_info, $fs0_idx
@@ -9405,421 +4417,6 @@ init_relics_param <- function(hyper, in.data.list, local.max, recompute.fs0) {
   return(param)
 }
 
-#' @title Display the credible sets along with cumulative posteriors. Formerly 'dirichlet_addLayers_mrvr_norm'
-#' @param input.param, list containing the matrix for the posteriors
-#' @param input.hyper: hyper parameters
-#' @param input.data.list, list: $guide_to_seg_lst, $data, $true_pos_seg, $overlapMat, $guide_to_seg_lst, $seg_to_guide_lst
-#' @param input.tol: nr of layers to create
-#' @param nr.segs: max. length a functional segment is considered to have
-#' @param geom.p: proababilty of the genometric distribution to penalize for enhancers of increasing length
-#' @param min.pp: minimum posterior required to be part of a regulatory set
-#' @param guide.efficiency: data.frame of guide efficiences. Either vector of guide efficiency or NULL
-#' @param one.dispersion: whether the hyper parameters should be estimated with one or two dispersions
-#' @param local.max: logical, whether a local maximum should be computed
-#' @param local.max.range: number of segments to include in addition to the the ones with highest PP (one way, so multiply by 2 for total nr of segs)
-#' @param area.of.effect: type of area of effect. Currently either 'normal' or 'uniform'
-#' @param guide.dist.to.seg, list of lists, pre-computed distances of guides to FS
-#' @return ll_tract, posterior_trace_list, alpha0_est, alpha1_est, max_iter_reached, fs_ll_rt_trace
-#' @export relics_compute_FS_k()
-
-relics_compute_FS_k <- function(input.param,
-                          input.hyper,
-                          input.data.list,
-                          input.tol = 0.001,
-                          nr.segs = 10, geom.p = 0.1,
-                          min.pp = 0.1,
-                          guide.efficiency,
-                          one.dispersion,
-                          local.max, local.max.range,  
-                          area.of.effect,
-                          guide.dist.to.seg){
-
-
-  dirichlet.hyper <- input.hyper
-  dirichlet.param <- input.param
-
-  dirichlet.pp <- colSums(dirichlet.param$delta.pp)
-  dirichlet.pp[dirichlet.pp > 1] <- 1
-
-  tol <- input.tol
-  max.iter <- 20
-  max.iter.reached <- FALSE
-  max.diff <- 1e6
-  iter <- 0
-
-  dirichlet.ll.trace <- c()
-  dirichlet.posterior.trace <- list()
-  max.diff.trace <- c()
-  fs.ll.rt.trace <- list() # per functional sequence, per segment log-likelihood ratio of local max
-
-  too.low.pps <- 3 # 3 strikes to get posteriors higher than lowest possibility
-
-  while((max.diff > tol) & (iter < max.iter) & too.low.pps > 0) {
-
-    iter <- iter + 1
-
-    cur.delta <- dirichlet.param$delta.pp
-
-    dirichlet.param <- relics_estimate_pp(dirichlet.param,
-                                          dirichlet.hyper,
-                                          input.data.list$data,
-                                          input.data.list$true_pos_seg,
-                                          input.data.list$guide_to_seg_lst,
-                                          input.data.list$seg_to_guide_lst,
-                                          input.data.list$next_guide_lst,
-                                          nr.segs, geom.p, guide.efficiency,
-                                          local.max, local.max.range, area.of.effect,
-                                          guide.dist.to.seg)
-
-
-    # keep track of changes in posterior estimates for delta
-    delta.diff <- cur.delta - dirichlet.param$delta.pp
-    max.diff <- max(abs(delta.diff))
-
-    max.diff.trace <- c(max.diff.trace, max.diff)
-    dirichlet.posterior.trace[[iter]] <- dirichlet.param$delta.pp
-
-    if(local.max){
-      fs.ll.rt.trace[[iter]] <- dirichlet.param$ll_rt
-    }
-
-    dirichlet.pp <- colSums(dirichlet.param$delta.pp)
-    dirichlet.pp[dirichlet.pp > 1] <- 1
-
-    dirichlet.guide.ll <- compute_perGuide_fs_ll(dirichlet.pp, input.data.list$guide_to_seg_lst)
-    dirichlet.ll <- 0
-    for(i in 1:length(input.data.list$data)){
-      temp.hypers <- list(alpha0 = dirichlet.hyper$alpha0[[i]], alpha1 = dirichlet.hyper$alpha1[[i]])
-      temp.sgRNa.ll <- estimate_relics_sgrna_log_like(temp.hypers,
-                                                      input.data.list$data[[i]],
-                                                      dirichlet.guide.ll,
-                                                      guide.efficiency)
-
-      temp.dirichlet.ll <- sum(temp.sgRNa.ll$total_guide_ll)
-      dirichlet.ll <- dirichlet.ll + temp.dirichlet.ll
-    }
-
-    dirichlet.ll.trace <- rbind(dirichlet.ll.trace, dirichlet.ll)
-
-    # check if the last layer has a posterior below a certain threshold
-    if(nrow(dirichlet.param$delta.pp) > 2){
-      iter.pps <- dirichlet.param$delta.pp[2:nrow(dirichlet.param$delta.pp),]
-      iter.pps.max <- apply(iter.pps, 1, max)
-
-      # three attempts to not have a low layer
-      if(length(which(iter.pps.max < min.pp)) > 0){
-        too.low.pps <- too.low.pps - 1
-      }
-    }
-
-  }
-
-  # if max.inter has been reached, look back 5 iterations, select the one with best ll to continue with
-  if(iter == max.iter){
-
-    max.iter.reached = TRUE
-
-    # if there still was a constant decrease in the posterior difference then keep the last iteration, otherwise pick the one with min-ll
-    last.iter.diffs <- round(max.diff.trace[iter:(iter-5)],3)
-
-    # if either there was no constand decrease in posterior difference or that the derease is too small
-    if(is.unsorted(last.iter.diffs) | sum(last.iter.diffs - last.iter.diffs[1]) < 0.01){
-      max.ll.idx <- which(dirichlet.ll.trace[iter:(iter-5)] == max(dirichlet.ll.trace[iter:(iter-5)]))[1]
-      dirichlet.posterior.trace[[iter]] <- dirichlet.posterior.trace[[iter - max.ll.idx + 1]]
-      dirichlet.ll.trace[iter] <- dirichlet.ll.trace[iter - max.ll.idx + 1]
-
-      if(local.max){
-        fs.ll.rt.trace[[iter]] <- fs.ll.rt.trace[[iter - max.ll.idx + 1]]
-      }
-
-    }
-
-  }
-
-  out.list <- list(ll_tract = dirichlet.ll.trace,
-                   posterior_trace_list = dirichlet.posterior.trace,
-                   max_iter_reached = max.iter.reached,
-                   fs_ll_rt_trace = fs.ll.rt.trace)
-
-  return(out.list)
-
-}
-
-
-#' @title re-estimate the dirichlet sorting proportions (dispersions are already provided)
-#' @param param: matrix of all posterior probs
-#' @param guide.seg.idx.lst: list: each element is a guide, contaiing the indexes of the segments it overlaps
-#' @param hyper.components: individual components of the hyper parameters
-#' @param data.par.list: list, contains the elements of the processed and formatted data
-#' @param guide.efficiency: either a vector of guide efficiency or NULL
-#' @param hyper: hyperparameters, already divided into alpha0 and alpha1
-#' @param analysis.parameters: list of analysis paramters
-#' @return list of the re-estimated dirichlet hyperparameters / sorting proportions
-#' @export recompute_dirichlet_hypers()
-
-recompute_dirichlet_hypers <- function(param, guide.seg.idx.lst, hyper.components, data.par.list, guide.efficiency, hyper, analysis.parameters){
-  
-  cumulative.pp <- colSums(param$delta.pp)
-  cumulative.pp[cumulative.pp > 1] <- 1
-  
-  guide.lls.list <- compute_perGuide_fs_ll(cumulative.pp, guide.seg.idx.lst)
-  
-  for(i in 1:length(data.par.list)){
-    
-    temp.hyper.params <- c(sqrt(hyper.components$bkg_alpha[[i]]), sqrt(hyper.components$FS_alpha[[i]]))
-    temp.bkg.idx <- c(1:length(hyper.components$bkg_alpha[[i]]))
-    temp.fs.idx <- c(1:length(hyper.components$FS_alpha[[i]])) + max(temp.bkg.idx)
-    temp.repl.disp <- hyper.components$dispersion[[i]]
-
-    temp.res.drch <- c()
-    temp.res.drch <- optim(temp.hyper.params, prior_dirichlet_proportions, method= 'L-BFGS-B',
-                           data = data.par.list[[i]], 
-                           region.ll.list = guide.lls.list,
-                           bkg.idx = temp.bkg.idx, 
-                           fs.idx = temp.fs.idx, 
-                           guide.efficiency = guide.efficiency, 
-                           repl.disp = temp.repl.disp,
-                           model.disp = analysis.parameters$model_dispersion)
-    
-    if(temp.res.drch$convergence %in% c(0, 52) ) {
-      
-      temp.bkg.alpha <- c(1, temp.res.drch$par[temp.bkg.idx]**2) / sum(c(1, temp.res.drch$par[temp.bkg.idx]**2))
-      temp.fs.alpha <- c(1, temp.res.drch$par[temp.fs.idx]**2) / sum(c(1, temp.res.drch$par[temp.fs.idx]**2))
-
-      hyper.components$bkg_alpha[[i]] <- temp.res.drch$par[temp.bkg.idx]**2
-      hyper.components$FS_alpha[[i]] <- temp.res.drch$par[temp.fs.idx]**2
-
-      temp.hyper <- reparameterize_hypers(temp.bkg.alpha, temp.fs.alpha, temp.repl.disp, guide.efficiency, analysis.parameters$model_dispersion)
-      hyper$alpha0[[i]] <- temp.hyper$alpha0
-      hyper$alpha1[[i]] <- temp.hyper$alpha1
-      # hyper$alpha0[[i]] <- t(temp.bkg.alpha %*% t(temp.repl.disp) )
-      # hyper$alpha1[[i]] <- t(temp.fs.alpha %*% t(temp.repl.disp) )
-      
-    } else {
-      warning("estimation of hyperparameters failed to converge")
-    }
-
-  }
-  
-  out.list <- list(hyper_pars = hyper,
-                   hyper_par_components = hyper.components)
-  
-  return(out.list)
-}
-
-
-#' @title wrapper which returns -log likelihood given provided prior distribution hyperparameters, and current estimates of the cumulative posteriors. Formerly 'fit_prior_dirichlet_distr_mvr'
-#' @param hyper: hyperparameters, already divided into alpha0 and alpha1
-#' @param hyper.components: individual components of the hyper parameters
-#' @param param: matrix of all posterior probs
-#' @param data: data, consists of: $y1, $y2 and $n
-#' @param guide.seg.idx.lst: list: each element is a guide, contaiing the indexes of the segments it overlaps
-#' @param guide.efficiency: either a vector of guide efficiency or NULL
-#' @param analysis.parameters: list of analysis paramters
-#' @return list of the re-estimated hyperparameters
-#' @export recompute_hyper_parameters()
-
-recompute_hyper_parameters <- function(param, hyper, hyper.components, data, guide.seg.idx.lst, guide.efficiency, analysis.parameters) {
-  cumulative.pp <- colSums(param$delta.pp) #apply(param$delta.pp, 2, sum)
-  cumulative.pp[cumulative.pp > 1] <- 1
-
-  guide.lls.list <- compute_perGuide_fs_ll(cumulative.pp, guide.seg.idx.lst)
-
-  for(i in 1:length(data)){
-
-    temp.hyper.params <- c(sqrt(hyper.components$bkg_alpha[[i]]), sqrt(hyper.components$FS_alpha[[i]]), hyper.components$bkg_dispersion[[i]])
-    temp.bkg.idx <- c(1:length(hyper.components$bkg_alpha[[i]]))
-    temp.fs.idx <- c(1:length(hyper.components$FS_alpha[[i]])) + max(temp.bkg.idx)
-    temp.disp.idx <- c(1:length(hyper.components$bkg_dispersion[[i]])) + max(temp.fs.idx)
-    
-    temp.res.drch <- optim(temp.hyper.params, prior_dirichlet_parameters, method= 'L-BFGS-B',
-                           data = data[[i]], 
-                           region.ll.list = guide.lls.list,
-                           bkg.idx = temp.bkg.idx, 
-                           fs.idx = temp.fs.idx, 
-                           disp.idx = temp.disp.idx, 
-                           guide.efficiency = guide.efficiency, 
-                           mean.var.type = analysis.parameters$mean_var_type,
-                           model.disp = analysis.parameters$model_dispersion)
-
-    # account for flat surface!
-    if(temp.res.drch$convergence %in% c(0, 52) ) {
-      # return new estimates of hyperparamers
-      
-      temp.bkg.alpha <- c(1, temp.res.drch$par[temp.bkg.idx]**2) / sum(c(1, temp.res.drch$par[temp.bkg.idx]**2))
-      temp.fs.alpha <- c(1, temp.res.drch$par[temp.fs.idx]**2) / sum(c(1, temp.res.drch$par[temp.fs.idx]**2))
-      temp.bkg.disp <- temp.res.drch$par[temp.disp.idx]
-      
-      hyper.components$bkg_alpha[[i]] <- temp.res.drch$par[temp.bkg.idx]**2
-      hyper.components$FS_alpha[[i]] <- temp.res.drch$par[temp.fs.idx]**2
-      hyper.components$bkg_dispersion[[i]] <- temp.bkg.disp
-      
-      if(analysis.parameters$mean_var_type == 'independent'){
-        temp.disp <- rep(temp.bkg.disp[1]^2, nrow(data[[i]]))
-        temp.hyper <- reparameterize_hypers(temp.bkg.alpha, temp.fs.alpha, temp.disp, guide.efficiency, TRUE)
-        hyper$alpha0[[i]] <- temp.hyper$alpha0
-        hyper$alpha1[[i]] <- temp.hyper$alpha1
-        # hyper$alpha0[[i]] <- t(temp.bkg.alpha %*% t(temp.disp) )
-        # hyper$alpha1[[i]] <- t(temp.fs.alpha %*% t(temp.disp) )
-      }
-
-     } else {
-      warning("estimation of hyperparameters failed to converge")
-    }
-  }
-
-  out.list <- list(hyper_pars = hyper,
-                   hyper_par_components = hyper.components)
-  
-  # return(hyper)
-  return(out.list)
-}
-
-
-#' @title estimate the posterior probabilities for placing a specified number of functional sequences over a specified number of segments. Formerly 'fit_dirichlet_model_fast1_mrvr_norm'
-#' @param hyper: hyperparameters
-#' @param param: matrix of posterior probabilities
-#' @param data: list, each element is a replicate
-#' @param known.reg: region positions of the known regions
-#' @param guide.to.seg.lst: mapping of guides to segments
-#' @param seg.to.guide.lst: mapping of segments to guides, both $guide_idx, $nonGuide_idx
-#' @param next.guide.lst: list that contains the index of $next_guide_idx and next_nonGuide_idx
-#' @param nr.segs: max number of segemnts that can be combined
-#' @param geom.p: probability of the geometic distribution used to calculate the probability of there being x segments in the regulatory element
-#' @param guide.efficiency: data.frame of guide efficiences. Either vector of guide efficiency or NULL
-#' @param local.max: logical, whether a local maximum should be computed
-#' @param local.max.range: number of segments to include in addition to the the ones with highest PP (one way, so multiply by 2 for total nr of segs)
-#' @param area.of.effect: type of area of effect. Currently either 'normal' or 'uniform'
-#' @param guide.dist.to.seg, list of lists, pre-computed distances of guides to FS
-#' @return log likelihood for each region
-#' @export relics_estimate_pp()
-
-relics_estimate_pp <- function(param, hyper, data, known.reg,
-                                guide.to.seg.lst, seg.to.guide.lst,
-                                next.guide.lst, nr.segs = 10,
-                               geom.p = 0.1, guide.efficiency,
-                               local.max, local.max.range, area.of.effect,
-                               guide.dist.to.seg) {
-  
-  n.sgrna <- length(guide.to.seg.lst)
-  n.region <- length(seg.to.guide.lst)
-
-  for(l in 2:(hyper$L+1)) {
-    # set posteriors for this row to 0
-    param$delta.pp[l,] <- rep(0, n.region)
-
-    # sum posteriors from other rows
-    pp <- apply(param$delta.pp, 2, sum)
-
-    # cumulative posterior probability can become greater than 1,
-    # So we restrict it to 1.  doesn't seem like the ideal solution...
-    pp[pp > 1.0] <- 1.0
-
-    # Compute the ll for each RE length for both replicates, combine the lls and then add to the ll total
-    # set up the data structues as lists to access the different replicates
-    layer.guide.ll <- compute_perGuide_fs_ll(pp, guide.to.seg.lst) # processed.pp
-    sgrna.log.like.list <- list()
-    data.mat.list <- list()
-    data.total.list <- list()
-
-    for(repl in 1:length(data)){
-      temp.hypers <- list(alpha0 = hyper$alpha0[[repl]], alpha1 = hyper$alpha1[[repl]])
-      temp.data <- data[[repl]]
-      temp.data.counts <- temp.data[, c(1:(ncol(temp.data) - 1))]
-      temp.data.totals <- temp.data[, ncol(temp.data)]
-
-      data.mat.list[[repl]] <- temp.data.counts
-      data.total.list[[repl]] <- temp.data.totals
-
-      temp.sgrna.log.like <- estimate_relics_sgrna_log_like(temp.hypers, temp.data, layer.guide.ll, guide.efficiency)
-      sgrna.log.like.list[[repl]] <- temp.sgrna.log.like
-
-    }
-
-    delta.pps <- c()
-    if(area.of.effect == 'normal'){
-      delta.pps <- estimate_fs_AoE_pp(hyper, data.mat.list, data.total.list, guide.to.seg.lst,
-                                      seg.to.guide.lst, next.guide.lst, nr.segs, geom.p, 
-                                      sgrna.log.like.list, seg.adjust = 0, 
-                                      total.segs = length(seg.to.guide.lst),
-                                      guide.dist.to.seg)
-    } else {
-      delta.pps <- estimate_fs_pp(seg.to.guide.lst, next.guide.lst, 
-                                  nr.segs, geom.p, sgrna.log.like.list)
-    }
-
-    # if the signal is to be located at a local region
-    if(local.max){
-
-      # identify segment with highest posterior, pull our segments +/- local.max.region
-      local.max.idx <- extract_local_max_idx(delta.pps, local.max.range)
-      local.seg.to.guide.lst <- seg.to.guide.lst[local.max.idx]
-      local.next.guide.lst <- next.guide.lst[local.max.idx]
-
-      local.delta.pps <- c()
-      if(area.of.effect == 'normal'){
-        local.delta.pps <- estimate_fs_AoE_pp(hyper, data.mat.list, data.total.list, guide.to.seg.lst,
-                                              seg.to.guide.lst, next.guide.lst, nr.segs, geom.p, 
-                                              sgrna.log.like.list, seg.adjust = min(local.max.idx) - 1, 
-                                              total.segs = length(local.max.idx), guide.dist.to.seg)
-      } else {
-        local.delta.pps <- estimate_fs_pp(local.seg.to.guide.lst, local.next.guide.lst,
-                                          nr.segs, geom.p, sgrna.log.like.list)
-      }
-
-      delta.pps <- rep(0, length(delta.pps))
-      delta.pps[local.max.idx] <- local.delta.pps
-
-      # compute log-lik. ratio for each segment
-      ll.rt <- rep(0, length(delta.pps))
-
-      for(repl in 1:length(data)){
-        temp.hypers <- list(alpha0 = hyper$alpha0[[repl]], alpha1 = hyper$alpha1[[repl]])
-        temp.data <- data[[repl]]
-        temp.data.counts <- temp.data[, c(1:(ncol(temp.data) - 1))]
-        temp.data.totals <- temp.data[, ncol(temp.data)]
-
-        temp.guide.model.ll <- estimate_relics_sgrna_log_like(temp.hypers, temp.data, layer.guide.ll, guide.efficiency, return.model.ll = TRUE)
-
-        local.ll.rt <- compute_local_ll_ratio(temp.guide.model.ll, local.seg.to.guide.lst)
-        ll.rt[local.max.idx] <- ll.rt[local.max.idx] + local.ll.rt
-
-      }
-
-      param$ll_rt[l, ] <- ll.rt
-
-    }
-
-    param$delta.pp[l, ] <- delta.pps
-  }
-
-  return(param)
-}
-
-
-#' @title Identifying the segment with the highest PP and surrounding segments (focuses on the first segment if multiple max PPs)
-#' @param input.pps: vector, contains the PPs
-#' @param local.max.range: number of segments to include in addition to the the ones with highest PP (one way, so multiply by 2 for total nr of segs)
-#' @return vector with idx of region to look for signal
-#' @export extract_local_max_idx()
-
-extract_local_max_idx <- function(input.pps, local.max.range){
-
-  center.idx <- which(input.pps == max(input.pps))[1]
-  min.idx <- center.idx - local.max.range
-  max.idx <- center.idx + local.max.range
-
-  if(min.idx < 1){
-    min.idx <- 1
-  }
-  if(max.idx > length(input.pps)){
-    max.idx <- length(input.pps)
-  }
-
-  return(c(min.idx:max.idx))
-
-}
-
 
 #' @title comput log-lik. ratio for the selected idx
 #' @param local.seg.to.guide.lst: list, $guide_idx, $nonGuide_idx
@@ -9844,219 +4441,6 @@ compute_local_ll_ratio <- function(guide.ll.df, local.seg.to.guide.lst){
 }
 
 
-#' @title Compute the log likelihood of each possible configuration of the placement of a fs. Take into account distance between segment and the guide target site
-#' @param hyper: list, hyperparameters
-#' @param in.data.list: list, each element contains a replicate, the total column has already been removed
-#' @param in.data.totals: list, each element contains the per-guide totals for a replicate
-#' @param guide.to.seg.lst: list, mapping of guides to segments
-#' @param seg.to.guide.lst: list, each element is a segment, contains a list with guide_idx, nonGuide_idx
-#' @param next.guide.lst: list that contains the index of $next_guide_idx and next_nonGuide_idx
-#' @param nr.segs: max number of segemnts that can be combined
-#' @param geom.p: probability of the geometic distribution used to calculate the probability of there being x segments in the regulatory element
-#' @param sg.ll.list: list, each element is a data frame per.guide log likelihood given the posteriors for a replicate and alt. ll (total_guide_ll, alt_only_ll)
-#' @param seg.adjust: numeric, offset used when calculating lmax
-#' @param total.segs: how many segments to calculate PP for, adjusted for lmax, otherwise = length(seg.to.guide.lst)
-#' @param guide.dist.to.seg, list of lists, pre-computed distances of guides to FS
-#' @return log likelihood for each segment
-#' @export estimate_fs_AoE_pp()
-
-estimate_fs_AoE_pp <- function(hyper, in.data.list, in.data.totals, guide.to.seg.lst,
-                               seg.to.guide.lst, next.guide.lst, nr.segs = 10, geom.p = 0.1,
-                               sg.ll.list, seg.adjust = 0, total.segs, guide.dist.to.seg) {
-  
-  # set up a list, the length of the number of segments
-  # each element contains a vector, which contains the ll of that segment being overlapped by a regulatory element
-  segment.ll.list <- list()
-  
-  region.priors <- rep(1/total.segs, total.segs)
-  geom.norm.factr <- pgeom(nr.segs, geom.p)
-  
-  total.ll <- log(0)
-  fs.length <- 1
-  
-  # make an initial pass with one-segment length RE placements
-  for(seg in 1:total.segs){
-    curr.seg <- seg + seg.adjust
-    temp.segment.ll <- 0
-    temp.guide.idx<- seg.to.guide.lst[[curr.seg]]$guide_idx
-    temp.nonGuide.idx<- seg.to.guide.lst[[curr.seg]]$nonGuide_idx
-    
-    # temp.seg.poi.bkg <- unlist(lapply(guide.to.seg.lst[temp.guide.idx], function(x){
-    #   adj.seg.idx <- which(x$seg_overlapped %in% curr.seg )
-    #   temp.dist.to.seg <- x$dist_to_seg[adj.seg.idx]
-    #   dpoibin(0, temp.dist.to.seg)
-    # }))
-    temp.seg.poi.bkg <- guide.dist.to.seg[[curr.seg]][[fs.length]]
-
-    for(repl in 1:length(sg.ll.list)){
-      
-      temp.guide.ll <- vector('numeric', length = length(temp.seg.poi.bkg))
-      
-      for(i in 1:length(temp.seg.poi.bkg)){
-        temp.guide.ll[i] <- addlogs(sg.ll.list[[repl]][temp.guide.idx[i],2] + log(1 - temp.seg.poi.bkg[i]),
-                                    sg.ll.list[[repl]][temp.guide.idx[i],1] + log(temp.seg.poi.bkg[i]))
-      }
-
-      temp.nonGuide.ll <- sum(sg.ll.list[[repl]][temp.nonGuide.idx,1])
-
-      temp.segment.ll <- temp.segment.ll + sum(temp.guide.ll) + temp.nonGuide.ll + log(dgeom(1, geom.p) / geom.norm.factr)
-    }
-    segment.ll.list[[seg]] <- temp.segment.ll
-    total.ll <- addlogs(total.ll, temp.segment.ll)
-  }
-  
-  all.guide.idx <- c(1:nrow(in.data.list[[1]])) # helps to differentitate between guides for null vs alternative
-  
-  # now make a pass through all 2 to nr.segs length segments
-  if(nr.segs > 1){
-    for(ns in 1:(nr.segs-1) ){
-      fs.length <- fs.length + 1
-      for(seg in 1:(total.segs - ns)){
-        temp.stretch.ll <- 0
-        temp.stretch.segs <- c(seg:(seg + ns)) # index of segments to be included as part of the stretch and be updated in this iteration
-        curr.seg <- seg + seg.adjust
-        curr.stretch.segs <- temp.stretch.segs + seg.adjust
-        temp.guide.idx <- c(seg.to.guide.lst[[curr.seg]]$guide_idx, unlist(next.guide.lst[(curr.seg + 1):(curr.seg + ns)]))
-        temp.nonGuide.idx <- all.guide.idx[-temp.guide.idx]
-        
-        # temp.seg.poi.bkg <- unlist(lapply(guide.to.seg.lst[temp.guide.idx], function(x){
-        #   adj.seg.idx <- which(x$seg_overlapped %in% curr.stretch.segs )
-        #   temp.dist.to.seg <- x$dist_to_seg[adj.seg.idx]
-        #   dpoibin(0, temp.dist.to.seg)
-        # }))
-        temp.seg.poi.bkg <- guide.dist.to.seg[[curr.seg]][[fs.length]]
-        
-        for(repl in 1:length(sg.ll.list)){ # in.data.list
-          
-          temp.guide.ll <- vector('numeric', length = length(temp.seg.poi.bkg))
-          
-          for(i in 1:length(temp.seg.poi.bkg)){
-            temp.guide.ll[i] <- addlogs(sg.ll.list[[repl]][temp.guide.idx[i],2] + log(1 - temp.seg.poi.bkg[i]),
-                                        sg.ll.list[[repl]][temp.guide.idx[i],1] + log(temp.seg.poi.bkg[i]))
-            
-          }
-          
-          temp.nonGuide.ll <- sum(sg.ll.list[[repl]][temp.nonGuide.idx,1])
-          
-          temp.stretch.ll <- temp.stretch.ll + sum(temp.guide.ll) + temp.nonGuide.ll + log(dgeom(1 + ns, geom.p) / geom.norm.factr)
-          
-        }
-        
-        total.ll <- addlogs(total.ll, temp.stretch.ll)
-        
-        for(span in 1:length(temp.stretch.segs)){
-          segment.ll.list[[temp.stretch.segs[span]]] <- c(segment.ll.list[[temp.stretch.segs[span]]], temp.stretch.ll)
-        }
-      }
-    }
-    
-  }
-   
-  # normalize the list by the total, and add the logs across the segments
-  segment.lls <- unlist(lapply(segment.ll.list, function(x){
-    x.norm <- x - total.ll
-    
-    x.norm.sum <- combine_segment_ll(x.norm)
-    x.norm.sum
-  }))
-  
-  segment.posteriors <- exp(segment.lls)
-  
-  return(segment.posteriors)
-  
-}
-
-
-#' @title Compute the log likelihood of each possible configuration of the placement of a fs amonst a set f segments. Formerly 'compute_dirichlet_delta_ll_mrvr_nromSegLLMat'
-#' @param hyper: list, hyperparameters
-#' @param in.data.list: list, each element contains a replicate, the total column has already been removed
-#' @param in.data.totals: list, each element contains the per-guide totals for a replicate
-#' @param seg.to.guide.lst: list, each element is a segment, contains a list with guide_idx, nonGuide_idx
-#' @param next.guide.lst: list that contains the index of $next_guide_idx and next_nonGuide_idx
-#' @param nr.segs: max number of segemnts that can be combined
-#' @param geom.p: probability of the geometic distribution used to calculate the probability of there being x segments in the regulatory element
-#' @param sg.ll.list: list, each element is a data frame per.guide log likelihood given the posteriors for a replicate and alt. ll (total_guide_ll, alt_only_ll)
-#' @return log likelihood for each segment
-#' @export estimate_fs_pp()
-
-estimate_fs_pp <- function(#hyper, in.data.list, in.data.totals,
-                           seg.to.guide.lst, next.guide.lst, nr.segs = 10, geom.p = 0.1,
-                           sg.ll.list) {
-
-  # set up a list, the length of the number of segments
-  # each element contains a vector, which contains the ll of that segment being overlapped by a regulatory element
-  segment.ll.list <- list()
-
-  total.segs <- length(seg.to.guide.lst)
-  region.priors <- rep(1/total.segs, total.segs)
-  geom.norm.factr <- pgeom(nr.segs, geom.p)
-  
-  total.ll <- log(0)
-
-  # make an initial pass with one-segment length RE placements
-  for(seg in 1:total.segs){
-    temp.segment.ll <- 0
-    temp.guide.idx<- seg.to.guide.lst[[seg]]$guide_idx
-    temp.nonGuide.idx<- seg.to.guide.lst[[seg]]$nonGuide_idx
-
-    for(repl in 1:length(sg.ll.list)){ 
-      temp.guide.ll <- sum(sg.ll.list[[repl]][temp.guide.idx,2])
-      temp.nonGuide.ll <- sum(sg.ll.list[[repl]][temp.nonGuide.idx,1])
-      temp.segment.ll <- temp.segment.ll + temp.guide.ll + temp.nonGuide.ll + log(dgeom(1, geom.p) / geom.norm.factr)
-    }
-    segment.ll.list[[seg]] <- temp.segment.ll
-    total.ll <- addlogs(total.ll, temp.segment.ll)
-  }
-
-  all.guide.idx <- c(1:length(sg.ll.list[[1]][,1])) # helps to differentitate between guides for null vs alternative
-
-  # now make a pass through all 2 to nr.segs length segments
-  if(nr.segs > 1){
-    for(ns in 1:(nr.segs-1) ){
-      
-      for(seg in 1:(total.segs - ns)){
-        
-        temp.stretch.ll <- 0
-        temp.stretch.segs <- c(seg:(seg + ns)) # index of segments to be included as part of the stretch and be updated in this iteration
-        temp.guide.idx <- c(seg.to.guide.lst[[seg]]$guide_idx, unlist(next.guide.lst[(seg + 1):(seg + ns)]))
-        temp.nonGuide.idx <- all.guide.idx[-temp.guide.idx]
-        
-        for(repl in 1:length(sg.ll.list)){
-          temp.guide.ll <- sum(sg.ll.list[[repl]][temp.guide.idx,2])
-          temp.nonGuide.ll <- sum(sg.ll.list[[repl]][temp.nonGuide.idx,1])
-          
-          # likelihood of this continous stretch of bins to contain a regulatory element
-          temp.stretch.ll <- temp.stretch.ll + temp.guide.ll + temp.nonGuide.ll + log(dgeom(1 + ns, geom.p) / geom.norm.factr)
-          
-        }
-        
-        total.ll <- addlogs(total.ll, temp.stretch.ll)
-        
-        for(span in 1:length(temp.stretch.segs)){
-          segment.ll.list[[temp.stretch.segs[span]]] <- c(segment.ll.list[[temp.stretch.segs[span]]], temp.stretch.ll)
-        }
-      }
-    }
-    
-  }
-  
-  final.total.ll <- addlogs_vectorized(unlist(segment.ll.list)) # total.ll
-
-  # normalize the list by the total, and add the logs across the segments
-  segment.lls <- unlist(lapply(segment.ll.list, function(x){
-    x.norm <- x - final.total.ll #total.ll
-
-    x.norm.sum <- combine_segment_ll(x.norm)
-    x.norm.sum
-  }))
-
-  segment.posteriors <- exp(segment.lls)
-
-  return(segment.posteriors)
-
-}
-
-
 #' @title given the already computed segment log-likelihoods, update the bins specified with the addition of the log-lik.
 #' @param input.segment.lls: vector, contains log-likelihoods of the different regulalotry elements overlapping it
 #' @return list of processed posteriors and vector of length equivalent to the number of segments handled
@@ -10076,6 +4460,7 @@ combine_segment_ll <- function(input.segment.lls){
 
 }
 
+
 #' @title Numerically stable addition of logs
 #' @param loga: first log value
 #' @param logb: second log value
@@ -10085,6 +4470,7 @@ combine_segment_ll <- function(input.segment.lls){
 addlogs <- function(loga, logb) {
   max(loga, logb) + log(1 + exp(-abs(loga - logb)))
 }
+
 
 #' @title Numerically stable addition of logs but vectorized. from https://leimao.github.io/blog/LogSumExp/
 #' @param loga: first log value
