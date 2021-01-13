@@ -1015,10 +1015,10 @@ run_RELICS_7 <- function(input.data, final.layer.nr, out.dir = NULL,
       print('Max. FS nr. reached.')
       record_relics_results(fs.data, analysis.parameters, input.data, i, relics.hyper, hyper.components, '_finalFS')
       if(fs.data$conditional_fs_ll_w_prior[i] > analysis.parameters$fs_ll_signif){
-        print(paste0('RELICS probably found all FS given the expected number (', analysis.parameters$expected_fs_nr,')'))
+        #print(paste0('RELICS probably found all FS given the expected number (', analysis.parameters$expected_fs_nr,')'))
       } else {
-        print(paste0('Given the expected number (', analysis.parameters$expected_fs_nr,") RELICS might be able to detect more FS.\t 
-                     Maybe set 'expected_fs_nr' or 'max_fs_nr' to a higher number and run RELICS again?"))
+        #print(paste0('Given the expected number (', analysis.parameters$expected_fs_nr,") RELICS might be able to detect more FS.\t 
+        #             Maybe set 'expected_fs_nr' or 'max_fs_nr' to a higher number and run RELICS again?"))
       }
       break()
     }
@@ -1301,9 +1301,14 @@ record_relics_results <- function(input.results.list, analysis.parameters, input
   if(fs.iter == 1){
     hyperparameter_recording(list(bkg_hyper = hyper.components$bkg_alpha, fs_hyper = hyper.components$FS_alpha, bkg_disp = hyper.components$bkg_dispersion), 
                              fs.iter, hyper.components, analysis.parameters, file.extension) 
+    
+    # record dispersion
+    record_dispersion(fs.iter, hyper.components, analysis.parameters, file.extension)
   } else if(! analysis.parameters$fix_hypers){
     hyperparameter_recording(list(bkg_hyper = hyper.components$bkg_alpha, fs_hyper = hyper.components$FS_alpha, bkg_disp = hyper.components$bkg_dispersion), 
                              fs.iter, hyper.components, analysis.parameters, file.extension) 
+    # record dispersion
+    record_dispersion(fs.iter, hyper.components, analysis.parameters, file.extension)
   }
   
   # guide efficiency vars:
@@ -1364,6 +1369,35 @@ record_relics_results <- function(input.results.list, analysis.parameters, input
   
   create_bedgraphs(to.bg.list, paste0(out.dir, file.extension, '_k', fs.iter) )
 
+}
+
+
+#' @title initialize the results list
+#' @param input.delta: matrix, contains placement of FS
+#' @param input.pp, matrix of posterior probabilities
+#' @param dirichlet.hyper: hyper parameters
+#' @param input.data.list, list: $guide_to_seg_lst, $data, $true_pos_seg, $overlapMat, $guide_to_seg_lst, $seg_to_guide_lst
+#' @param guide.efficiency: data.frame of guide efficiences. Either vector of guide efficiency or NULL
+#' @param fix.hypers: logical, whether the hyperparameters are fixed
+#' @return list: posteriors, total_model_ll, conditional_fs_ll, model_fs_ll, fs_placement_ll, fs_total_ll
+#' @export record_dispersion()
+
+record_dispersion <- function(fs.iter, hyper.components, analysis.parameters, file.extension){
+  
+  out.dir <- paste0(analysis.parameters$out_dir, '/', analysis.parameters$dataName)
+  
+  hyper.names <- names(hyper.components)
+  if("dispersion" %in% hyper.names){
+    disp.df <- data.frame(disp_repl1 = hyper.components$dispersion[[1]], stringsAsFactors = F)
+    if(length(hyper.components$dispersion[[1]]) > 1){
+      for(i in 2:length(hyper.components$dispersion)){
+        disp.df[paste0('disp_repl',i)] <- hyper.components$dispersion[[i]]
+      }
+    }
+    
+    write.csv(disp.df, file = paste0(out.dir, file.extension, '_k', fs.iter, '_disp.csv'), row.names = F)
+  }
+  
 }
 
 
@@ -2442,6 +2476,7 @@ disp_from_spline <- function(repl.spline.df, input.data, out.dir, nr.bins = 20, 
                         input.data = x, method= 'L-BFGS-B')
       temp.res$par^2
     }))
+    temp.repl.group.disp[which(temp.repl.group.disp < 0.1)] <- 0.1
     
     # extract the mean counts of each bin
     temp.repl.group.means <- unlist(lapply(temp.repl.counts.groups, function(x){
@@ -2450,7 +2485,8 @@ disp_from_spline <- function(repl.spline.df, input.data, out.dir, nr.bins = 20, 
     
     # now we can plot the estimated dispersions for each bin
     pdf(paste0(out.dir, '_countsVSdispersion_repl', i, '.pdf'))
-    plot(x = temp.repl.group.means, y = temp.repl.group.disp, xlab = 'mean bin count', ylab = 'bin dispersion', main = 'Bin dispersion estimate')
+    plot(x = temp.repl.group.means, y = 1/temp.repl.group.disp, pch = 19,
+         xlab = 'Counts', ylab = 'Dispersion', main = 'Dispersion estimates')
     
     # the df parameter stands for degrees of freedom
     # it refers to the number of data points that is spaces around the range of all data points to fit the spline
@@ -2466,7 +2502,15 @@ disp_from_spline <- function(repl.spline.df, input.data, out.dir, nr.bins = 20, 
     spline.mdl.1.predict <- suppressWarnings(predict(spline.mdl.1, vals.df))
     
     # With the predictions we can see how well they actually get modeled
-    points(x = vals.df$counts, y = spline.mdl.1.predict, col = 'red') 
+    points(x = vals.df$counts[order(vals.df$counts)], y = 1/spline.mdl.1.predict[order(vals.df$counts)], 
+           pch = 19, col = 'red', cex = 0.5) 
+    lgndTxt<-c('black dot = per-bin estimated dispersion','red dot = per-guide dispersion')
+    if(1/temp.repl.group.disp[1] < 
+       mean(1/temp.repl.group.disp[(length(temp.repl.group.disp)-min(10, length(temp.repl.group.disp)) ):length(temp.repl.group.disp)])){
+      legend('topright',legend=lgndTxt, text.col=c('black','red'), pch = c(19,19), col = c('black','red'))
+    } else {
+      legend('bottomright',legend=lgndTxt, text.col=c('black','red'), pch = c(19,19), col = c('black','red'))
+    }
     dev.off()
     
     # cap the dispersion predictions at the highest mean value
