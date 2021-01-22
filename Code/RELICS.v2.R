@@ -63,7 +63,11 @@ RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.
   # plot the per-segment ll-ratio
   out.pars <- list(out_dir = paste0(analysis.parameters$out_dir, '/', analysis.parameters$dataName),
                    iter = 0)
-  record_ll_ratio(analysis.parameters$hyper_pars, data.setup, out.pars)
+  # issue is that this does not take into account the AoE
+  # an option is to to run the full pp ll calculation and use that instead
+  # as safety I should check if using the normal AoE will result in the same as the current implemetation
+  # while the new one with AoE should mirror the acutal results more....
+  record_ll_ratio(analysis.parameters$hyper_pars, data.setup, out.pars, analysis.parameters)
   
   analysis.parameters <- set_up_fs_priors(analysis.parameters, data.setup)
   
@@ -131,7 +135,7 @@ read_parameters <- function(input.parameter.list, input.parameter.file, data.fil
 #' @return list with parameters for running RELICS or logical FALSE if required parameter is missing
 #' @export record_ll_ratio()
 
-record_ll_ratio <- function(input.hypers, input.data, input.parameters){
+record_ll_ratio <- function(input.hypers, input.data, out.pars, input.parameters){
   
   not.used <- c()
   guide.efficiency <- NULL
@@ -146,7 +150,8 @@ record_ll_ratio <- function(input.hypers, input.data, input.parameters){
                        alpha1 = input.hypers$alpha1[[i]])
     
     guide.model.ll <- estimate_relics_sgrna_log_like(temp.hyper, temp.data, not.used, guide.efficiency, return.model.ll = TRUE)
-    temp.ll.rt <- compute_local_ll_ratio(guide.model.ll, input.data$seg_to_guide_lst)
+    temp.ll.rt <- compute_seg_ll_ratio(guide.model.ll, input.data$seg_to_guide_lst, 
+                                       input.data$guide_to_seg_lst, input.parameters$areaOfEffect_type)
     ll.rt <- ll.rt + temp.ll.rt
   }
   
@@ -158,7 +163,7 @@ record_ll_ratio <- function(input.hypers, input.data, input.parameters){
   to.bg.list <- list(seg_llRt = segment.info)
   
   # write bedgraph to output
-  out.dir <- paste0(input.parameters$out_dir, '_FS', input.parameters$iter)
+  out.dir <- paste0(out.pars$out_dir, '_FS', out.pars$iter)
   create_bedgraphs(to.bg.list, out.dir)
 }
 
@@ -1266,7 +1271,6 @@ record_relics_results <- function(input.results.list, analysis.parameters, input
     plot_relics_pp_as_tiff(input.results.list$posteriors,
                            input.data$segLabels,
                            paste0(out.dir, file.extension, '_k_', fs.iter, '_raw_PP'),
-                           analysis.parameters$min_fs_pp,
                            input.data$seg_info,
                            input.results.list$deltas)
   }
@@ -1274,7 +1278,6 @@ record_relics_results <- function(input.results.list, analysis.parameters, input
     plot_relics_pp_as_tiff(input.results.list$cs_posteriors,
                            input.data$segLabels,
                            paste0(out.dir, file.extension, '_k_', fs.iter, '_raw_cs_PP'),
-                           analysis.parameters$min_fs_pp,
                            input.data$seg_info,
                            input.results.list$deltas)
   }
@@ -1282,7 +1285,6 @@ record_relics_results <- function(input.results.list, analysis.parameters, input
     plot_relics_pp_as_tiff(input.results.list$posteriors_w_prior,
                            input.data$segLabels,
                            paste0(out.dir, file.extension, '_k_', fs.iter, '_cs_PP'),
-                           analysis.parameters$min_fs_pp,
                            input.data$seg_info,
                            input.results.list$deltas)
   }
@@ -1319,6 +1321,7 @@ record_relics_results <- function(input.results.list, analysis.parameters, input
     write.csv(ge.coff.df, file = paste0(out.dir, file.extension, '_k', fs.iter, '_ge_coeff.csv'), row.names = F)
   }
   
+  write.table(input.results.list$posteriors_w_prior, file = paste0(out.dir, file.extension, '_k', fs.iter,'_cs_pp.csv'), row.names = F, col.names = F, sep = ',')
   record.pp.w.priors <- colSums(input.results.list$posteriors_w_prior)
   record.pp.w.priors[which(record.pp.w.priors > 1)] <- 1
   out.bedgraph <- input.data$seg_info
@@ -1335,8 +1338,8 @@ record_relics_results <- function(input.results.list, analysis.parameters, input
   }
   
   if(analysis.parameters$record_cs_pp){
-    write.table(input.results.list$record_cs_pp, file = paste0(out.dir, file.extension, '_k', fs.iter,'_raw_cs_pp.csv'), row.names = F, col.names = F, sep = ',')
-    record.cs.pp <- colSums(input.results.list$record_cs_pp)
+    write.table(input.results.list$cs_posteriors, file = paste0(out.dir, file.extension, '_k', fs.iter,'_raw_cs_pp.csv'), row.names = F, col.names = F, sep = ',')
+    record.cs.pp <- colSums(input.results.list$cs_posteriors)
     record.cs.pp[which(record.cs.pp > 1)] <- 1
     record.cs.pp.bedgraph <- input.data$seg_info
     record.cs.pp.bedgraph$score <- record.cs.pp
@@ -1389,7 +1392,7 @@ record_dispersion <- function(fs.iter, hyper.components, analysis.parameters, fi
   hyper.names <- names(hyper.components)
   if("dispersion" %in% hyper.names){
     disp.df <- data.frame(disp_repl1 = hyper.components$dispersion[[1]], stringsAsFactors = F)
-    if(length(hyper.components$dispersion[[1]]) > 1){
+    if(length(hyper.components$dispersion) > 1){
       for(i in 2:length(hyper.components$dispersion)){
         disp.df[paste0('disp_repl',i)] <- hyper.components$dispersion[[i]]
       }
@@ -1712,7 +1715,7 @@ order_FS <- function(input.fs.list, input.model.lls){
   ordered.pp <- input.fs.list$posteriors[c(1,fs.order.idx+1),]
   ordered.cs.pp <- input.fs.list$cs_posteriors[c(1,fs.order.idx+1),]
   ordered.delta <- input.fs.list$deltas[c(1,fs.order.idx+1),]
-  ordered.lls <- input.fs.list$segment_lls[fs.order.idx,]
+  ordered.lls <- input.fs.list$segment_lls[fs.order.idx,, drop = F]
   ordered.cs.pp.total <- input.fs.list$cs_total_pp[c(1,fs.order.idx+1)]
   
   ordered.model.ll <- input.model.lls$total_model_ll # don't order this
@@ -1829,7 +1832,7 @@ estimate_FS_CS <- function(input.posteriors, hyper, data,
     segment.lls[fs-1,] <- fs.lls
     
     # compute CS
-    cs.list <- compute_CS(fs.pps, cs.params)
+    cs.list <- compute_CS(fs.pps, cs.params, fs.config)
     fs.delta.idx <- cs.list$cs_idx
     new.delta.mtx[fs, fs.delta.idx] <- 1
     
@@ -1852,10 +1855,11 @@ estimate_FS_CS <- function(input.posteriors, hyper, data,
 #' @title Compute the credible set from the PP to update the delta matrix. Use a sliding window to determine optimal CS idx
 #' @param input.pp: vector of pp
 #' @param cs.params: list, $cs_sw_size, $cs_threshold, $cs_sw_continous, $min_cs_sum
+#' @param fs.config: vector of posteriors, wherever it's not 0 means an FS has already been placed
 #' @return index of optimal CS
 #' @export compute_CS()
 
-compute_CS <- function(input.pp, cs.params){
+compute_CS <- function(input.pp, cs.params,fs.config){
   
   window.size <- cs.params$cs_sw_size
   sw.idx.list <- list()
@@ -1868,32 +1872,37 @@ compute_CS <- function(input.pp, cs.params){
   for(i in 1:(length(input.pp) - window.size + 1)){
     
     temp.sw.idx <- c(1:window.size) + (i-1)
-    temp.pp <- input.pp[temp.sw.idx]
-    temp.pp.sum <- sum(temp.pp)
+    if(sum(fs.config[temp.sw.idx]) > 0){
+      temp.sw.idx <- temp.sw.idx[-which(fs.config[temp.sw.idx] > 0)]
+    }
     
-    if(temp.pp.sum > 0){
-      temp.sw.idx.ordered <- temp.sw.idx[order(temp.pp, decreasing = TRUE)]
-      temp.pp.ordered <- temp.pp[order(temp.pp, decreasing = TRUE)]
+    if(length(temp.sw.idx) > 0){
+      temp.pp <- input.pp[temp.sw.idx]
+      temp.pp.sum <- sum(temp.pp)
       
-      # compute the relative proportion of the CS
-      temp.sw.idx.pass <- c()
-      for(j in 1:length(temp.sw.idx.ordered)){
-        temp.sw.pp.sum <- sum(temp.pp.ordered[1:j])
-        temp.fract.pp <- temp.sw.pp.sum / temp.pp.sum
-        temp.sw.idx.pass <- c(temp.sw.idx.pass, temp.sw.idx.ordered[j])
-        if(temp.fract.pp > cs.params$cs_threshold){
-          if(temp.sw.pp.sum > max.sw.pp){
-            max.sw.pp <- temp.sw.pp.sum
-            max.sw.idx <- temp.sw.idx.pass
-            max.idx.total.pp <- temp.pp.sum
+      if(temp.pp.sum > 0){
+        temp.sw.idx.ordered <- temp.sw.idx[order(temp.pp, decreasing = TRUE)]
+        temp.pp.ordered <- temp.pp[order(temp.pp, decreasing = TRUE)]
+        
+        # compute the relative proportion of the CS
+        temp.sw.idx.pass <- c()
+        for(j in 1:length(temp.sw.idx.ordered)){
+          temp.sw.pp.sum <- sum(temp.pp.ordered[1:j])
+          temp.fract.pp <- temp.sw.pp.sum / temp.pp.sum
+          temp.sw.idx.pass <- c(temp.sw.idx.pass, temp.sw.idx.ordered[j])
+          if(temp.fract.pp > cs.params$cs_threshold){
+            if(temp.sw.pp.sum > max.sw.pp){
+              max.sw.pp <- temp.sw.pp.sum
+              max.sw.idx <- temp.sw.idx.pass
+              max.idx.total.pp <- temp.pp.sum
+            }
+            sw.idx.list[[i]] <- temp.sw.idx.pass
+            sw.pp[i] <- temp.sw.pp.sum
+            break()
           }
-          sw.idx.list[[i]] <- temp.sw.idx.pass
-          sw.pp[i] <- temp.sw.pp.sum
-          break()
         }
       }
     }
-    
   }
   
   # the the FS output is to be continuous, set the idx to the range from min to max idx
@@ -1901,6 +1910,9 @@ compute_CS <- function(input.pp, cs.params){
     min.idx <- min(max.sw.idx)
     max.idx <- max(max.sw.idx)
     idx.range <- min.idx:max.idx
+    if(sum(fs.config[idx.range]) > 0){
+      idx.range <- idx.range[-which(fs.config[idx.range] > 0)]
+    }
   } else {
     idx.range <- max.sw.idx
   }
@@ -4466,9 +4478,43 @@ init_relics_param <- function(hyper, in.data.list, local.max, recompute.fs0) {
 #' @param local.seg.to.guide.lst: list, $guide_idx, $nonGuide_idx
 #' @param guide.ll.df: data.frame, null_only_ll, alt_only_ll
 #' @return vector with idx of region to look for signal
-#' @export compute_local_ll_ratio()
+#' @export compute_seg_ll_ratio()
 
-compute_local_ll_ratio <- function(guide.ll.df, local.seg.to.guide.lst){
+compute_seg_ll_ratio <- function(guide.ll.df, seg.to.guide.lst, guide.dist.to.seg, input.aoe){
+  
+  background.ll <- unlist(lapply(seg.to.guide.lst, function(x){
+    sum(guide.ll.df$null_only_ll[x$guide_idx])
+  }))
+  
+  fs.ll <- c()
+  
+  if(input.aoe != 'normal'){
+    fs.ll <- unlist(lapply(local.seg.to.guide.lst, function(x){
+      sum(guide.ll.df$alt_only_ll[x$guide_idx])
+    }))
+  } else {
+    fs.ll <- rep(0, length(seg.to.guide.lst))
+    for(seg in 1:length(seg.to.guide.lst)){
+      temp.guide.idx<- seg.to.guide.lst[[seg]]$guide_idx
+      temp.seg.poi.bkg <- guide.dist.to.seg[[seg]][[1]]
+      temp.guide.ll <- vector('numeric', length = length(temp.seg.poi.bkg))
+      
+      # issue with sg.ll.list and temp.guide.idx
+      for(i in 1:length(temp.seg.poi.bkg)){
+        temp.guide.ll[i] <- addlogs(guide.ll.df[temp.guide.idx[i],2] + log(1 - temp.seg.poi.bkg[i]),
+                                  guide.ll.df[temp.guide.idx[i],1] + log(temp.seg.poi.bkg[i]))
+      }
+      fs.ll[seg] <- sum(temp.guide.ll)
+    }
+  }
+
+  out.ll.rt <- -2 * (background.ll - fs.ll)
+  
+  return(out.ll.rt)
+  
+}
+
+compute_seg_ll_ratio_old <- function(guide.ll.df, local.seg.to.guide.lst){
 
   fs.ll <- unlist(lapply(local.seg.to.guide.lst, function(x){
     sum(guide.ll.df$alt_only_ll[x$guide_idx])
