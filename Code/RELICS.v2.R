@@ -11,6 +11,7 @@ suppressMessages(library(gtools)) # for getting all combinations when computing 
 suppressMessages(library(splines)) # enables computing of splines
 
 
+
 #' @title RELICS 2.0 analysis function. Uses IBSS to return a set of functional sequences FS for CRISPR regulatory screens
 #' @param input.parameter.file: location of file containing all analysis parameters
 #' @param input.parameter.list: RELICS analysis parameters in list format. Default = NULL
@@ -21,7 +22,7 @@ suppressMessages(library(splines)) # enables computing of splines
 #' @export RELICS()
 
 RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.split = FALSE,
-                   record.all.fs = FALSE, return.init.hypers = FALSE){
+                   record.all.fs = FALSE, return.init.hypers = FALSE, input.hyper.prop = NULL){
 
   analysis.parameters <- read_parameters(input.parameter.list, input.parameter.file, data.file.split)
 
@@ -36,8 +37,19 @@ RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.
 
   
   
-  # # obtain hyperparameters()
-  analysis.parameters <- compute_hyperparameters(analysis.parameters, data.setup)
+  if(is.null(input.hyper.prop)){
+    analysis.parameters <- compute_hyperparameters(analysis.parameters, data.setup)
+    if(return.init.hypers){
+      out.hyper.list <- record_hyperparameters(input.bkg.alpha = analysis.parameters$hyper_par_components$bkg_alpha, 
+                             input.fs.alpha = analysis.parameters$hyper_par_components$FS_alpha, 
+                             input.bkg.disp = analysis.parameters$hyper_par_components$dispersion, 
+                             paste0(analysis.parameters$out_dir, '/', analysis.parameters$dataName), 
+                             0, analysis.parameters$pool_names, print.out = TRUE)
+      return(out.hyper.list)
+    }
+  } else {
+    analysis.parameters <- integrate_hyperparameters(analysis.parameters, data.setup, input.hyper.prop)
+  }
 
   data.setup$fixed_ge_coeff <- analysis.parameters$fixed_ge_coeff
   # # if guide efficiency scores are provided, calculate guide efficiency and include in the model
@@ -67,7 +79,7 @@ RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.
   # an option is to to run the full pp ll calculation and use that instead
   # as safety I should check if using the normal AoE will result in the same as the current implemetation
   # while the new one with AoE should mirror the acutal results more....
-  record_ll_ratio(analysis.parameters$hyper_pars, data.setup, out.pars, analysis.parameters)
+  record_ll_ratio(analysis.parameters$hyper_pars, data.setup, out.pars, analysis.parameters, '')
   
   analysis.parameters <- set_up_fs_priors(analysis.parameters, data.setup)
   
@@ -94,6 +106,132 @@ RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.
                analysis.parameters = analysis.parameters,
                guide.dist.to.seg = data.setup$guide_dist_to_seg)
   
+}
+
+
+#' @title helper function, manages the reading in of the analysis parameters
+#' @param analysis.parameters: list, contains necessary flags and elements
+#' @param data.setup: data fromatted for RELICS analysis
+#' @param input.hyper.prop: list of lists, containing new hyperparameter sorting proportions
+#' @return list: all parameters embedded in a list
+#' @export read_parameters()
+
+integrate_hyperparameters <- function(analysis.parameters, data.setup, input.hyper.prop){
+  
+  if(analysis.parameters$model_dispersion){
+    
+    if(analysis.parameters$estimateSpline){
+      print('not implemented yet')
+      # repl.splines <- identify_splines()
+      break()
+    } else {
+      repl.spline.df <- analysis.parameters$repl_spline_df
+      repl.disp <- disp_from_spline(repl.spline.df, data.setup$data,
+                                    paste0(analysis.parameters$out_dir, '/', analysis.parameters$dataName),
+                                    analysis.parameters$nr_disp_bins,
+                                    analysis.parameters$FS0_label, 
+                                    data.setup$guide_info)
+      analysis.parameters$repl_disp <- repl.disp
+    }
+    
+    fs0.alphas <- reverse_hyperparameters(data.setup, analysis.parameters, input.hyper.prop, analysis.parameters$FS0_label)
+    
+  } else {
+    print('not implemented yet')
+  }
+  
+  analysis.parameters$hyper_pars <- fs0.alphas$hyper_pars
+  analysis.parameters$hyper_par_components <- fs0.alphas$hyper_par_components
+  analysis.parameters$init_model_ll <- fs0.alphas$init_model_ll
+  
+  # if 'intermediate' signal selected:
+  if(analysis.parameters$hyper_adj < 1){
+    record_orig_fs0_alphas(fs0.alphas$orig_hyper_par_components, analysis.parameters, analysis.parameters$pool_names) # record just the fs.alphas
+  }
+  
+  return(analysis.parameters)
+  
+}
+
+
+#' @title helper function, manages the reading in of the analysis parameters
+#' @param data.par.list: list, contains the elements of the processed and formatted data
+#' @param analysis.par.list: list, contains all analysis flags
+#' @param input.hyper.prop: list of lists, containing new hyperparameter sorting proportions
+#' @param fs0.label: label of FS0
+#' @return list: all parameters embedded in a list
+#' @export reverse_hyperparameters()
+
+reverse_hyperparameters <- function(data.par.list, analysis.par.list, input.hyper.prop, fs0.label){
+  
+  model.ll <- 0
+  
+  orig.fs.par <- list()
+  
+  final.dirichlet.pars <- list()
+  final.dirichlet.pars$bkg_alpha <- list()
+  final.dirichlet.pars$FS_alpha <- list()
+  final.dirichlet.pars$dispersion <- list()
+  
+  final.alpha <- list()
+  final.alpha$alpha0 <- list()
+  final.alpha$alpha1 <- list()
+  
+  # make sure all guides are considered to be the same category
+  fs.assignment <- rep(0, nrow(data.par.list$seg_info))
+  fs.assignment[which(data.par.list$seg_info$label %in% fs0.label)] <- 1
+  
+  dirichlet.guide.ll <- compute_perGuide_fs_ll(fs.assignment, data.par.list$guide_to_seg_lst, hyper.setup = TRUE)
+  
+  for(i in 1:length(data.par.list$data)){
+    
+    bkg.prop <- input.hyper.prop$bkg_prop[[i]]
+    fs.prop <- input.hyper.prop$fs_prop[[i]]
+    bkg.multiplier <- 1/bkg.prop[1]
+    fs.multiplier <- 1/fs.prop[1]
+    bkg.par <- bkg.prop[2:length(bkg.prop)] * bkg.multiplier
+    fs.par <- fs.prop[2:length(fs.prop)] * fs.multiplier
+    
+    temp.hyper.params <- c(bkg.par, fs.par)
+    temp.bkg.idx <- c(1:length(bkg.par))
+    temp.fs.idx <- c(1:length(fs.par)) + max(temp.bkg.idx)
+    
+    repl.data <- data.par.list$data[[i]]
+    temp.repl.disp <- analysis.par.list$repl_disp[[i]]$repl_disp
+    
+    model.ll <- model.ll + prior_dirichlet_proportions(temp.hyper.params, data = repl.data, 
+                                                       region.ll.list = dirichlet.guide.ll,
+                                                       bkg.idx = temp.bkg.idx, 
+                                                       fs.idx = temp.fs.idx, 
+                                                       guide.efficiency = data.par.list$guide_efficiency, 
+                                                       repl.disp = temp.repl.disp,
+                                                       model.disp = analysis.par.list$model_dispersion)
+    
+    orig.fs.par[[i]] <- fs.par
+    
+    if(analysis.par.list$hyper_adj < 1){
+      fs.par <- adjust_hypers(bkg.par, fs.par, analysis.par.list$hyper_adj)
+    }
+    
+    temp.bkg.alpha <- c(1, bkg.par) / sum(c(1, bkg.par))
+    temp.fs.alpha <- c(1, fs.par) / sum(c(1, fs.par))
+    
+    final.dirichlet.pars$bkg_alpha[[i]] <- bkg.par
+    final.dirichlet.pars$FS_alpha[[i]] <- fs.par
+    final.dirichlet.pars$dispersion[[i]] <- temp.repl.disp
+    
+    temp.hyper <- reparameterize_hypers(temp.bkg.alpha, temp.fs.alpha, temp.repl.disp, data.par.list$guide_efficiency, analysis.par.list$model_dispersion)
+    final.alpha$alpha0[[i]] <- temp.hyper$alpha0
+    final.alpha$alpha1[[i]] <- temp.hyper$alpha1
+  }
+  
+  final.alpha$L <- 1
+  
+  out.list <- list(hyper_pars = final.alpha,
+                   hyper_par_components = final.dirichlet.pars,
+                   init_model_ll = model.ll,
+                   orig_hyper_par_components = orig.fs.par)
+  return(out.list)
 }
 
 
@@ -135,7 +273,7 @@ read_parameters <- function(input.parameter.list, input.parameter.file, data.fil
 #' @return list with parameters for running RELICS or logical FALSE if required parameter is missing
 #' @export record_ll_ratio()
 
-record_ll_ratio <- function(input.hypers, input.data, out.pars, input.parameters){
+record_ll_ratio <- function(input.hypers, input.data, out.pars, input.parameters, file.extension){
   
   not.used <- c()
   guide.efficiency <- NULL
@@ -151,19 +289,20 @@ record_ll_ratio <- function(input.hypers, input.data, out.pars, input.parameters
     
     guide.model.ll <- estimate_relics_sgrna_log_like(temp.hyper, temp.data, not.used, guide.efficiency, return.model.ll = TRUE)
     temp.ll.rt <- compute_seg_ll_ratio(guide.model.ll, input.data$seg_to_guide_lst, 
-                                       input.data$guide_to_seg_lst, input.parameters$areaOfEffect_type)
+                                       input.data$guide_dist_to_seg, input.parameters$areaOfEffect_type)
     ll.rt <- ll.rt + temp.ll.rt
   }
   
   # combine with segment info
   segment.info <- input.data$seg_info
-  segment.info$score <- ll.rt
+  segment.info$score <- round(ll.rt, 3)
   
   # create bedgraph
   to.bg.list <- list(seg_llRt = segment.info)
   
   # write bedgraph to output
-  out.dir <- paste0(out.pars$out_dir, '_FS', out.pars$iter)
+  # out.dir <- paste0(out.pars$out_dir, '_FS', out.pars$iter)
+  out.dir <- paste0(out.pars$out_dir, file.extension, '_FS', out.pars$iter)
   create_bedgraphs(to.bg.list, out.dir)
 }
 
@@ -365,21 +504,14 @@ check_parameter_list <- function(input.parameter.list, data.file.split){
     
     # check if fixed
     if(! 'fixed_ge_coeff' %in% par.given){
-      out.parameter.list$fixed_ge_coeff <- FALSE
+      out.parameter.list$fixed_ge_coeff <- TRUE
       # check if betas are provided, else give default
     } else {
       out.parameter.list$fixed_ge_coeff <- input.parameter.list$fixed_ge_coeff
     }
-    
-    if(! 'ge_beta_estimation' %in% par.given){
-      out.parameter.list$ge_beta_estimation <- FALSE
-    } else {
-      out.parameter.list$ge_beta_estimation <- input.parameter.list$ge_beta_estimation
-    }
-    
   } else {
     out.parameter.list$guide_efficiency_scores <- NULL
-    out.parameter.list$fixed_ge_coeff <- NULL
+    out.parameter.list$fixed_ge_coeff <- TRUE
   }
   
   # l2fc related parameters
@@ -930,7 +1062,6 @@ set_up_fs_priors <- function(input.params, input.data.setup){
 #' @param out.dir: directory to which all files are to be written. Default = NULL
 #' @param adjust.tol: whether convergence tolerance should be adjusted dynamically as layers are computed (increasingly more rigorous)
 #' @param fix.hypers: whether the input parameters remain unchanged or are altered after calculation of posteriors. Default = FALSE
-#' @param iterative.hyper.est: whether hyper parameters are to be estimated iteratively with the posteriors (TRUE) or after convergence of posteriors (FALSE)
 #' @param input.hypers: list, $alpha0, $alpha1, both elements contain lists of length wequal to nr. replicates (input.hypers$alpha0[[1]])
 #' @param nr.segs, number of segments to consider for the length of a regulatory element
 #' @param geom.p: proababilty of the genometric distribution to penalize for enhancers of increasing length
@@ -952,7 +1083,6 @@ set_up_fs_priors <- function(input.params, input.data.setup){
 
 run_RELICS_7 <- function(input.data, final.layer.nr, out.dir = NULL,
                          fix.hypers = FALSE,
-                         iterative.hyper.est = FALSE,
                          input.hypers = NULL,
                          input.hyper.components,
                          nr.segs = 10,
@@ -1037,8 +1167,9 @@ run_RELICS_7 <- function(input.data, final.layer.nr, out.dir = NULL,
     relics.param$deltas <- rbind(fs.result.lists$deltas, rep(0, ncol(relics.param$deltas)))
     relics.param$cs_pps <- rbind(fs.result.lists$cs_posteriors, rep(0, ncol(relics.param$pps)))
     
-    # if the hyper parameters are reestimated after convergence of the posteriors
-    if(! fix.hypers & !iterative.hyper.est){
+    # if the hyper parameters are re-estimated after convergence of the posteriors
+    # or if the guide efficiency scores are re-estimated
+    if(! fix.hypers | (! is.null(input.data$guide_efficiency_scores) & ! input.data$fixed_ge_coeff)){
       
       relics.hyper.list <- c()
       if(analysis.parameters$model_dispersion){
@@ -3914,10 +4045,11 @@ ll_ratio_recording <- function(input.data, analysis.parameters, relics.hyper, fs
   
   out.dir <- paste0(analysis.parameters$out_dir, '/', analysis.parameters$dataName)
   
-  if(!analysis.parameters$fix_hypers | !is.null(input.data$guide_efficiency_scores)){
+  if(!analysis.parameters$fix_hypers | (!is.null(input.data$guide_efficiency_scores) &! input.data$fixed_ge_coeff) ){
     out.pars <- list(out_dir = out.dir,
                      iter = fs.iter)
-    record_AoE_ll_ratio(relics.hyper, input.data, out.pars, file.extension) # record_ll_ratio
+    # record_AoE_ll_ratio(relics.hyper, input.data, out.pars, file.extension) # record_ll_ratio
+    record_ll_ratio(relics.hyper, input.data, out.pars, analysis.parameters, file.extension)
   }
   
 }
@@ -4169,8 +4301,8 @@ guide_coeff_ll <- function(ge.coeff.param, data, region.ll.list, bkg.alpha, fs.a
     # hyper <- list(alpha0 = alpha0.input[[i]],
     #               alpha1 = alpha1.input[[i]])
     
-    temp.bkg.alpha <- c(1,bkg.alpha[[i]]**2)/ sum(c(1, bkg.alpha[[i]]**2))
-    temp.fs.alpha <- c(1,fs.alpha[[i]]**2)/ sum(c(1, fs.alpha[[i]]**2))
+    temp.bkg.alpha <- c(1,bkg.alpha[[i]])/ sum(c(1, bkg.alpha[[i]]))
+    temp.fs.alpha <- c(1,fs.alpha[[i]])/ sum(c(1, fs.alpha[[i]]))
     
     hyper <- reparameterize_hypers(temp.bkg.alpha, temp.fs.alpha, input.dispersion[[i]], guide.efficiency, model.disp)
     
@@ -4238,7 +4370,7 @@ extract_fs_locations <- function(input.fs.pp, input.seg.info, fs.threshold){
 #' @export record_hyperparameters()
 
 record_hyperparameters <- function(input.bkg.alpha, input.fs.alpha, input.bkg.disp,
-                                    input.alpha.outDir, layer.nr, pool.names){
+                                    input.alpha.outDir, layer.nr, pool.names, print.out = FALSE){
   
   out.alpha.df <- c()
   
@@ -4251,6 +4383,10 @@ record_hyperparameters <- function(input.bkg.alpha, input.fs.alpha, input.bkg.di
   
   alpha.matrix <- matrix(0, nrow = total.rows, ncol = total.cols)
   
+  alpha.list <- list()
+  alpha.list$bkg_prop <- list()
+  alpha.list$fs_prop <- list()
+  
   if(! is.null(pool.names)){
     temp.pool.names <- unique(unlist(pool.names))
     
@@ -4260,6 +4396,9 @@ record_hyperparameters <- function(input.bkg.alpha, input.fs.alpha, input.bkg.di
       
       temp.bkg.alpha <- c(1,input.bkg.alpha[[i]]) / sum(c(1, input.bkg.alpha[[i]]))
       temp.fs.alpha <- c(1,input.fs.alpha[[i]]) / sum(c(1, input.fs.alpha[[i]]))
+      
+      alpha.list$bkg_prop[[i]] <- temp.bkg.alpha
+      alpha.list$fs_prop[[i]] <- temp.fs.alpha
       
       alpha0.scores[match(pool.names[[i]], temp.pool.names)] <- round(temp.bkg.alpha, 3)
       alpha1.scores[match(pool.names[[i]], temp.pool.names)] <- round(temp.fs.alpha, 3)
@@ -4278,11 +4417,13 @@ record_hyperparameters <- function(input.bkg.alpha, input.fs.alpha, input.bkg.di
     
     for(i in 1:length(input.bkg.alpha)){
       temp.bkg.alpha <- c(1,input.bkg.alpha[[i]]) / sum(c(1, input.bkg.alpha[[i]]))
+      alpha.list$bkg_prop[[i]] <- temp.bkg.alpha
       alpha.matrix[i, c(1:length(temp.bkg.alpha))] <- round(temp.bkg.alpha, 3)
     }
     
     for(j in (length(input.bkg.alpha) + 1):total.rows){
       temp.fs.alpha <- c(1,input.fs.alpha[[j - length(input.bkg.alpha)]]) / sum(c(1, input.fs.alpha[[j - length(input.bkg.alpha)]]))
+      alpha.list$fs_prop[[j - length(input.bkg.alpha)]] <- temp.fs.alpha
       alpha.matrix[j, c(1:length(temp.fs.alpha))] <- round(temp.fs.alpha, 3)
     }
     
@@ -4296,6 +4437,11 @@ record_hyperparameters <- function(input.bkg.alpha, input.fs.alpha, input.bkg.di
   disp.df <- do.call(cbind, input.bkg.disp)
   colnames(disp.df) <- paste0('repl_', c(1:length(input.bkg.disp)))
   write.csv(disp.df, file = paste0(input.alpha.outDir, '_k', layer.nr, '_replDispersions.csv'), row.names = F, quote = F)
+  
+  if(print.out){
+    print(out.alpha.df)
+    return(alpha.list)
+  }
 }
 
 #' @title Record the hyper parameters for the background and the functional sorting probabilities
@@ -4489,7 +4635,7 @@ compute_seg_ll_ratio <- function(guide.ll.df, seg.to.guide.lst, guide.dist.to.se
   fs.ll <- c()
   
   if(input.aoe != 'normal'){
-    fs.ll <- unlist(lapply(local.seg.to.guide.lst, function(x){
+    fs.ll <- unlist(lapply(seg.to.guide.lst, function(x){
       sum(guide.ll.df$alt_only_ll[x$guide_idx])
     }))
   } else {
