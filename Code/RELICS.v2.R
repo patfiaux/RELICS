@@ -68,6 +68,12 @@ RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.
 
       data.setup$guide_efficiency <- ge.list$guide_efficiency
       data.setup$ge_coeff <- ge.list$ge_coeff
+      
+      analysis.parameters$hyper_pars <- incorporate_ge(analysis.parameters$hyper_pars,
+                                                       analysis.parameters$hyper_par_components,
+                                                       data.setup$data,
+                                                       data.setup$guide_efficiency,
+                                                       analysis.parameters)
     }
 
   }
@@ -1169,7 +1175,7 @@ run_RELICS_7 <- function(input.data, final.layer.nr, out.dir = NULL,
     
     # if the hyper parameters are re-estimated after convergence of the posteriors
     # or if the guide efficiency scores are re-estimated
-    if(! fix.hypers | (! is.null(input.data$guide_efficiency_scores) & ! input.data$fixed_ge_coeff)){
+    if(! fix.hypers){
       
       relics.hyper.list <- c()
       if(analysis.parameters$model_dispersion){
@@ -1205,10 +1211,50 @@ run_RELICS_7 <- function(input.data, final.layer.nr, out.dir = NULL,
         
         input.data$guide_efficiency <- ge.list$guide_efficiency
         input.data$ge_coeff <- ge.list$ge_coeff
+        
+        relics.hyper <- incorporate_ge(relics.hyper,
+                                           hyper.components,
+                                           input.data$data,
+                                           input.data$guide_efficiency,
+                                           analysis.parameters)
       }
     }
   }
   
+}
+
+
+#' @title use re-computed guide-efficiency scores to adjust the alphas
+#' @param hyper.components: individual components of the hyper parameters
+#' @param data: list, contains the elements of the processed and formatted data
+#' @param guide.efficiency: either a vector of guide efficiency or NULL
+#' @param hyper: hyperparameters, already divided into alpha0 and alpha1
+#' @param analysis.parameters: list of analysis paramters
+#' @return alphas
+#' @export incorporate_ge()
+
+incorporate_ge <- function(hyper, hyper.components, data, guide.efficiency, analysis.parameters){
+  
+  for(i in 1:length(data)){
+    
+    temp.bkg.alpha <- c(1, hyper.components$bkg_alpha[[i]]) / sum(c(1, hyper.components$bkg_alpha[[i]]))
+    temp.fs.alpha <- c(1, hyper.components$FS_alpha[[i]]) / sum(c(1, hyper.components$FS_alpha[[i]]))
+    
+    if(analysis.parameters$model_dispersion){
+      temp.repl.disp <- hyper.components$dispersion[[i]]
+      temp.hyper <- reparameterize_hypers(temp.bkg.alpha, temp.fs.alpha, temp.repl.disp, 
+                                          guide.efficiency, analysis.parameters$model_dispersion)
+      hyper$alpha0[[i]] <- temp.hyper$alpha0
+      hyper$alpha1[[i]] <- temp.hyper$alpha1
+    } else {
+      temp.disp <- hyper.components$bkg_dispersion[[i]]
+      temp.hyper <- reparameterize_hypers(temp.bkg.alpha, temp.fs.alpha, temp.disp, guide.efficiency, TRUE)
+      hyper$alpha0[[i]] <- temp.hyper$alpha0
+      hyper$alpha1[[i]] <- temp.hyper$alpha1
+    }
+  }
+  
+  return(hyper)
 }
 
 
