@@ -135,12 +135,14 @@ In both cases the flags are given either as string or as vector of strings.
 relics.parameters$FS0_label <- 'CD69_promoter' # use all sgRNAs that overlap the CD69 promoter are used to initially train the FS parameters
 
 # option: specify the background parameters
-# relics.parameters$glmm_negativeTraining <- c('chr', 'exon') # specify what sgRNAs to use to initially train the background parameters
+# relics.parameters$background_label <- c('chr', 'exon') # specify what sgRNAs to use to initially train the background parameters
 ```
 
-6. Specify the minimum number of functional sequences to look for. It is possible that the data will have more or less FS than you specify. In this example, RELICS will find 4. Because is reaches convergence after 4 FS it will stop. In case RELICS does not converge we recommend you increase the allowed number of FS.
+6. Specify the number of functional sequences to look for and the number of functional sequences you expect to find. RELICS will look for a total of `max_fs_nr` functional sequences and eight their signal according to the prior which is specified by the `expected_fs_nr`. We recommned setting the `max_fs_nr` to at least `expected_fs_nr` + 3. For larger `expected_fs_nr` we recommend `expected_fs_nr` + 1/3*`expected_fs_nr`.
 ```r
-relics.parameters$min_FS_nr <- 8
+# specify the expected number of functional sequences and how many to look for in total
+analysis.specs$max_fs_nr <- 15
+analysis.specs$expected_fs_nr <- 5 # expected based on previous findings by Simeonov et al., 2017 and Fiaux et al., 2020
 ```
 
 7. Specify the CRISPR system used. Depending on the CRISPR system used, the area of effect is different. By default RELICS assumes that it's 20bp for `CRISPRcas9` and 400bp for both `CRISPRi` and `CRISPRa`. In case of a `dualCRISPR` system RELICS will automatically use the deletion range between guide 1 and guide 2 as effect range. It is also possible to manually set the area of effect using the `crisprEffectRange` flag.
