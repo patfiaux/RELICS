@@ -221,14 +221,26 @@ RELICS explicitly models the relationship between guide counts and their dispers
 
 The splnie parameters have to be estimated for each replicate. While usually there isn't much difference between replicates we have observed cases where it's beneficial to use different degrees of freedom across different replciates.
 
-We proivde a function to help users determine their correct settings. `spline_fitting` takes the same parameters as the main analysis function (`RELICS`) so you'll only have to set up the input list once. By default `spline_fitting` will return the fit to 3, 5, 10 and 15 degrees of freedom for a given bin size. We generally recommend bin sizes around 20 to 100. 
+We proivde a function to help users determine their correct settings. `spline_fitting` takes the same parameters as the main analysis function (`RELICS`) so you'll only have to set up the input list once. By default `spline_fitting` will return the fit to 3, 5, 10 and 15 degrees of freedom for a given bin size. We generally recommend bin sizes around 20 to 100. Increasing the number of bins can help in cases where some bins have very high counts.
 
 ```
 # use the same parameter list used for the RELICS analysis
+analysis.specs$nr_disp_bins <- 15 
 spline_fitting(input.parameter.list = analysis.specs, repl = 1) # plot the splie fits for replicate 1
 ```
 
 ![CD69 example spline fitting](RELICS_tutorial/Spline_fitting_example.png)
+
+In the example above it seems having 3 degrees of freedom with 15 bins leads to the best result. The spline does not overfit to the data. In general, if two splines fit approximately equelly well it's better to pick the one with less degrees of freedom to avoid overfitting. Not that here we've plotted the 1/dispersion values. This helps with the resolution to choose the best fit. If you are interested in seeing what the final dispersion values look like you can set the `plot.true.disp` flag to `TRUE`.
+
+```
+# use the same parameter list used for the RELICS analysis
+spline_fitting(input.parameter.list = relics.parameters,repl = 1, plot.true.disp = TRUE)
+```
+
+![CD69 example spline fitting_trueDisp](RELICS_tutorial/Spline_fitting_example_trueDispersion.png)
+
+
 
 # Advanced flags
 
