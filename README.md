@@ -228,7 +228,7 @@ We proivde a function to help users determine their correct settings. `spline_fi
 spline_fitting(input.parameter.list = analysis.specs, repl = 1) # plot the splie fits for replicate 1
 ```
 
-![CD69 example spline fitting](RELICS_tutorial/Spline_fitting_example.tiff)
+![CD69 example spline fitting](RELICS_tutorial/Spline_fitting_example.png)
 
 # Advanced flags
 
