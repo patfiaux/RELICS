@@ -145,12 +145,9 @@ analysis.specs$max_fs_nr <- 15
 analysis.specs$expected_fs_nr <- 5 # expected based on previous findings by Simeonov et al., 2017 and Fiaux et al., 2020
 ```
 
-7. Specify the CRISPR system used. Depending on the CRISPR system used, the area of effect is different. By default RELICS assumes that it's 20bp for `CRISPRcas9` and 400bp for both `CRISPRi` and `CRISPRa`. In case of a `dualCRISPR` system RELICS will automatically use the deletion range between guide 1 and guide 2 as effect range. It is also possible to manually set the area of effect using the `crisprEffectRange` flag.
+7. Specify the CRISPR system used. Depending on the CRISPR system used, the area of effect (AoE) is different. By default RELICS assumes that the AoE follows a normal distribution.  For more details see section Area of Effect below.
 ```r
 relics.parameters$crisprSystem <- 'CRISPRa' # other options: CRISPRcas9, CRISPRi, dualCRISPR
-
-# optional: specify the area of effect for your CRISPR system
-# relics.parameters$crisprEffectRange <- 200
 ```
 
 8. Give the location of the output directory by setting the `out_dir` flag. Either reference to full path or the path from the current working directory. In this example we will do the latter and assume you are in the `RELICS_tutorial` folder. We recommend you create a new file in which the results are saved. Nore, RELICS will NOT create non-existent files for you. In this example, first create the `CD69_tutorial_output` folder, then set the flag:
