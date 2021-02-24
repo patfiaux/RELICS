@@ -86,6 +86,7 @@ RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.
   # as safety I should check if using the normal AoE will result in the same as the current implemetation
   # while the new one with AoE should mirror the acutal results more....
   record_ll_ratio(analysis.parameters$hyper_pars, data.setup, out.pars, analysis.parameters, '')
+  record_guide_ll_ratio(analysis.parameters$hyper_pars, data.setup, out.pars, analysis.parameters, '')
   
   analysis.parameters <- set_up_fs_priors(analysis.parameters, data.setup)
   
@@ -120,7 +121,7 @@ RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.
 #' @param data.setup: data fromatted for RELICS analysis
 #' @param input.hyper.prop: list of lists, containing new hyperparameter sorting proportions
 #' @return list: all parameters embedded in a list
-#' @export read_parameters()
+#' @export integrate_hyperparameters()
 
 integrate_hyperparameters <- function(analysis.parameters, data.setup, input.hyper.prop){
   
@@ -434,7 +435,7 @@ check_parameter_list <- function(input.parameter.list, data.file.split){
     out.parameter.list$mean_var_type <- 'spline'
   }
   if(! 'estimateSpline' %in% par.given){
-    out.parameter.list$estimateSpline <- TRUE
+    out.parameter.list$estimateSpline <- FALSE
   }
   if(! 'nr_disp_bins' %in% par.given){
     out.parameter.list$nr_disp_bins <- 20
@@ -449,7 +450,7 @@ check_parameter_list <- function(input.parameter.list, data.file.split){
     out.parameter.list$convergence_tol <- 0.1
   }
   if(! 'fix_hypers' %in% par.given){
-    out.parameter.list$fix_hypers <- FALSE
+    out.parameter.list$fix_hypers <- TRUE
   }
   if(! 'recompute_fs0' %in% par.given){
     out.parameter.list$recompute_fs0 <- FALSE
@@ -491,9 +492,6 @@ check_parameter_list <- function(input.parameter.list, data.file.split){
   if(! 'one_dispersion' %in% par.given){
     out.parameter.list$one_dispersion <- TRUE
   }
-  if(! 'dualToSingle' %in% par.given){
-    out.parameter.list$dualToSingle <- FALSE
-  }
   if(! 'pool_names' %in% par.given){
     out.parameter.list$pool_names <- NULL
   }
@@ -510,7 +508,7 @@ check_parameter_list <- function(input.parameter.list, data.file.split){
     
     # check if fixed
     if(! 'fixed_ge_coeff' %in% par.given){
-      out.parameter.list$fixed_ge_coeff <- TRUE
+      out.parameter.list$fixed_ge_coeff <- FALSE
       # check if betas are provided, else give default
     } else {
       out.parameter.list$fixed_ge_coeff <- input.parameter.list$fixed_ge_coeff
@@ -551,9 +549,9 @@ check_parameter_list <- function(input.parameter.list, data.file.split){
   
   minimum.parameters <- c()
   if(data.file.split){
-    minimum.parameters <- c('dataName','repl_groups', 'CountFileLoc', 'sgRNAInfoFileLoc', 'min_FS_nr', 'crisprSystem', 'FS0_label')
+    minimum.parameters <- c('dataName','repl_groups', 'CountFileLoc', 'sgRNAInfoFileLoc', 'crisprSystem', 'FS0_label')
   } else {
-    minimum.parameters <- c('dataName','repl_groups', 'DataInputFileLoc', 'min_FS_nr', 'crisprSystem', 'FS0_label')
+    minimum.parameters <- c('dataName','repl_groups', 'DataInputFileLoc', 'crisprSystem', 'FS0_label')
   }
   
   par.given <- names(input.parameter.list)
@@ -823,9 +821,6 @@ read_analysis_parameters <- function(parameter.file.loc){
     }
     if('crisprSystem' == parameter.id){
       out.parameter.list$crisprSystem <- strsplit(parameter,':')[[1]][2]
-    }
-    if('dualToSingle' == parameter.id){
-      out.parameter.list$dualToSingle <- as.logical(strsplit(parameter,':')[[1]][2])
     }
     if('FS0_label' == parameter.id){
       out.parameter.list$FS0_label <- strsplit(parameter,':')[[1]][2]
@@ -4096,9 +4091,54 @@ ll_ratio_recording <- function(input.data, analysis.parameters, relics.hyper, fs
                      iter = fs.iter)
     # record_AoE_ll_ratio(relics.hyper, input.data, out.pars, file.extension) # record_ll_ratio
     record_ll_ratio(relics.hyper, input.data, out.pars, analysis.parameters, file.extension)
+    record_guide_ll_ratio(relics.hyper, input.data, out.pars, analysis.parameters, file.extension)
   }
   
 }
+
+
+#' @title given hyper parameters and guide efficiency (optional), report the per-guide ll ratio to extract efficient guide (pairs)
+#' @param input.hypers: list: hyper parameters
+#' @param input.data: list: $seg_to_guide_lst, $guide_efficiency_scores (and $guide_efficiency if former not NULL)
+#' @param input.ge: guide efficiency
+#' @param input.seg.to.guide.lst: list: hyper parameters
+#' @return list with parameters for running RELICS or logical FALSE if required parameter is missing
+#' @export record_guide_ll_ratio()
+
+record_guide_ll_ratio <- function(input.hypers, input.data, out.pars, input.parameters, file.extension){
+  
+  not.used <- c()
+  guide.efficiency <- NULL
+  if(! is.null(input.data$guide_efficiency_scores)){
+    guide.efficiency <- input.data$guide_efficiency
+  }
+  
+  guide.ll.rt <- vector('numeric', length = nrow(input.data$guide_info))
+  for(i in 1:length(input.data$data)){
+    temp.data <- input.data$data[[i]]
+    temp.hyper <- list(alpha0 = input.hypers$alpha0[[i]],
+                       alpha1 = input.hypers$alpha1[[i]])
+    
+    guide.model.ll <- estimate_relics_sgrna_log_like(temp.hyper, temp.data, not.used, guide.efficiency, return.model.ll = TRUE)
+    temp.guide.ll.rt <- -2*(guide.model.ll$null_only_ll - guide.model.ll$alt_only_ll)
+    guide.ll.rt <- guide.ll.rt + temp.guide.ll.rt
+  }
+  
+  # combine with segment info
+  guide.info <- input.data$guide_info
+  guide.info$score <- round(guide.ll.rt, 3)
+  
+  write.csv(guide.info, file = paste0(out.pars$out_dir, file.extension, '_FS', out.pars$iter, '_guideLLR.csv'), row.names = F)
+  
+  # # create bedgraph
+  # to.bg.list <- list(seg_llRt = segment.info)
+  # 
+  # # write bedgraph to output
+  # # out.dir <- paste0(out.pars$out_dir, '_FS', out.pars$iter)
+  # out.dir <- paste0(out.pars$out_dir, file.extension, '_FS', out.pars$iter)
+  # create_bedgraphs(to.bg.list, out.dir)
+}
+
 
 
 #' @title given hyper parameters and guide efficiency (optional), report the per-segment ll ratio while accounting for the area of effect
