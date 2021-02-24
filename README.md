@@ -155,6 +155,13 @@ relics.parameters$crisprSystem <- 'CRISPRa' # other options: CRISPRcas9, CRISPRi
 relics.parameters$out_dir <- 'CD69_tutorial_output/'
 ```
 
+9. RELICS now explicityl models the count-dispersion relationship. This drastically imporves performance and helps reduce the number of false positives. See the section `Count-Dispersion modeling` below for details on how to best estimate `nr_disp_bins` and `repl_spline_df`:
+```r
+# specify the number of bins to group the guide counts into and the degrees of freedom of the spline function for each replicate
+analysis.specs$nr_disp_bins <- 15
+analysis.specs$repl_spline_df <- list(repl_1 = 3, repl_2 = 3)
+```
+
 ### 3. Run RELICS
 Once you have set up your parameters you can run RELICS by directly giving it the list we set up above, or by first saving it to a `.txt` file. In the latter case, the flags and their values should be separated by a colon (`:`, see `Example_analysis_specifications.txt`).
 The CD69 example provided should take about 10 minutes to run on a typical desktop computer.
@@ -209,6 +216,19 @@ In all subsequent file names, the pattern `_kX_` refers to `X` functional sequen
 * `{dataName}_final_kX.tiff`: This file contains the plots of the individual functional sequence probabilities and notes how many segments are contained within each. Segments which are above the functional sequence threshold are labelled in purple. The 'Sum of Posteriors' shows the sum of all functional sequence probabilities.
 * `{dataName}_final_kX_FS_locations.bed`: This file contains all genome segments part of the functional sequences detected.
 
+## Count-dispersion modeling
+RELICS explicitly models the relationship between guide counts and their dispersion (variance). It has been observed that the dispersion of biological count data changes with increasing count size (see Fig. 1 in [Love, Huber, Anders., 2014](https://genomebiology.biomedcentral.com/articles/10.1186/s13059-014-0550-8)). We use a spline function to account for the wide range of possible count-dispersion relationships. To estimate the correct spline function we first sort and bin the guides according to their total per-replicate counts. Using differen degrees of freedom (number of points that a spline can use to fit to the data) we compute the the best fit for the number of bins followed by  calculating the dispersion for each individual guide. Based on the plotted output the best fit can then be used to the RELICS analysis.
+
+The splnie parameters have to be estimated for each replicate. While usually there isn't much difference between replicates we have observed cases where it's beneficial to use different degrees of freedom across different replciates.
+
+We proivde a function to help users determine their correct settings. `spline_fitting` takes the same parameters as the main analysis function (`RELICS`) so you'll only have to set up the input list once. By default `spline_fitting` will return the fit to 3, 5, 10 and 15 degrees of freedom for a given bin size. We generally recommend bin sizes around 20 to 100. 
+
+```
+# use the same parameter list used for the RELICS analysis
+spline_fitting(input.parameter.list = analysis.specs, repl = 1) # plot the splie fits for replicate 1
+```
+
+![CD69 example spline fitting](RELICS_tutorial/Spline_fitting_example.tiff)
 
 # Advanced flags
 
