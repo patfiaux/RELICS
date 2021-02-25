@@ -211,6 +211,8 @@ In all subsequent file names, the pattern `_kX_` refers to `X` functional sequen
 
 * `{dataName}_finalFS_kX_alphas.csv`: This file contains the dirichlet sorting parameters for the background (`alpha0`) and for functional sequences (`alpha1`) for all replicates.
 
+* `{dataName}_finalFS_kX_disp.csv`: This file contains the per-guide assigned dispersions.
+
 ## Count-dispersion modeling
 RELICS explicitly models the relationship between guide counts and their dispersion (variance). It has been observed that the dispersion of biological count data changes with increasing count size (see Fig. 1 in [Love, Huber, Anders., 2014](https://genomebiology.biomedcentral.com/articles/10.1186/s13059-014-0550-8)). We use a spline function to account for the wide range of possible count-dispersion relationships. To estimate the correct spline function we first sort and bin the guides according to their total per-replicate counts. Using differen degrees of freedom (number of points that a spline can use to fit to the data) we compute the the best fit for the number of bins followed by  calculating the dispersion for each individual guide. Based on the plotted output the best fit can then be used to the RELICS analysis.
 
