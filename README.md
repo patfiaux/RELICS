@@ -176,6 +176,7 @@ RELICS(input.parameter.list = relics.parameters)
 RELICS will return several output files. They all start with the `dataName` specified in step 2 above. All output files are one-indexed except for the `.bedgraph` and `.bed` files which are zero-indexed. By default, RELICS will give you the genome segments that were used, as well as the files associated with finding the last functional sequence before convergence:
 
 * `{dataName}_segmentInfo.csv`: This file contains the segments used by RELICS. It contains the information of chromosome, start and end location of the segment, as well as the label of the segment.
+
 |Column name | Column description |
 |----------|----------|
 | chrom | chromosome of the region |
@@ -200,6 +201,7 @@ In all subsequent file names, the pattern `_kX_` refers to `X` functional sequen
 * `{dataName}_finalFS_kX_cs_pp.csv`: This file contains the credible set functional sequence probabilities of all functional sequences detected. Each column corresponds to a genome segment, ordered as in `{dataName}_segmentInfo.csv`. Each row corresponds to the functional sequence probabilities of a particular functional sequence. The first row corresponds to FS0, the second to FS1 etc.
 
 * `{dataName}_finalFS_kX_model_lls.csv`: This file contains the per-functional sequence log-likelihood contribution to the model improvement as well as the model lig-likelihood progression. The raw likelihoods are also given, which have not yet been weighted by the prior given for the number of FS.
+
 |Column name | Column description |
 |----------|----------|
 | FS | the functional sequence |
