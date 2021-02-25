@@ -91,14 +91,13 @@ RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.
   analysis.parameters <- set_up_fs_priors(analysis.parameters, data.setup)
   
   run_RELICS_7(input.data = data.setup,
-               final.layer.nr = analysis.parameters$min_FS_nr,
+               final.layer.nr = analysis.parameters$max_fs_nr,
                out.dir = paste0(analysis.parameters$out_dir, '/', analysis.parameters$dataName),
                input.hypers = analysis.parameters$hyper_pars,
                input.hyper.components = analysis.parameters$hyper_par_components,
                fix.hypers = analysis.parameters$fix_hypers,
                nr.segs = analysis.parameters$nr_segs,
                geom.p = analysis.parameters$geom_p,
-               fs.correlation.cutoff = analysis.parameters$fs_correlation_cutoff,
                input.min.rs.pp = analysis.parameters$min_fs_pp,
                auto.stop = analysis.parameters$auto_stop,
                record.all.fs = record.all.fs,
@@ -109,7 +108,6 @@ RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.
                local.max.range = analysis.parameters$local_max_range,
                pool.names = analysis.parameters$pool_names,
                mean.var.type = analysis.parameters$mean_var_type,
-               pp.calculation = analysis.parameters$pp_calculation,
                analysis.parameters = analysis.parameters,
                guide.dist.to.seg = data.setup$guide_dist_to_seg)
   
@@ -363,11 +361,6 @@ check_parameter_list <- function(input.parameter.list, data.file.split){
   } else {
     out.parameter.list$cs_params$cs_sw_continous <- input.parameter.list$cs_sw_continous
   }
-  if(! 'compute_sw_pp' %in% par.given){
-    out.parameter.list$cs_params$compute_sw_pp <- TRUE
-  } else {
-    out.parameter.list$cs_params$compute_sw_pp <- input.parameter.list$compute_sw_pp
-  }
   if(! 'cs_sw_size' %in% par.given){
     out.parameter.list$cs_params$cs_sw_size <- 10
   } else {
@@ -378,46 +371,31 @@ check_parameter_list <- function(input.parameter.list, data.file.split){
   } else {
     out.parameter.list$cs_params$min_cs_sum <- input.parameter.list$min_cs_sum
   }
-  if(! 'min_cs_pp' %in% par.given){
-    out.parameter.list$cs_params$min_cs_pp <- 0.01
-  } else {
-    out.parameter.list$cs_params$min_cs_pp <- input.parameter.list$min_cs_pp
-  }
-  if(! 'cs_type' %in% par.given){
-    out.parameter.list$cs_params$cs_type <- 'broad'
-  } else {
-    out.parameter.list$cs_params$cs_type <- input.parameter.list$cs_type
-  }
-  if(! 'max_cs_nr' %in% par.given){
-    out.parameter.list$cs_params$max_cs_nr <- 20
-  } else {
-    out.parameter.list$cs_params$max_cs_nr <- input.parameter.list$max_cs_nr
-  }
   if(! 'cs_threshold' %in% par.given){
     out.parameter.list$cs_params$cs_threshold <- 0.9
   } else {
     out.parameter.list$cs_params$cs_threshold <- input.parameter.list$cs_threshold
   }
-  if(! 'max_cs_seg' %in% par.given){
-    out.parameter.list$cs_params$max_cs_seg <- 10
-  } else {
-    out.parameter.list$cs_params$max_cs_seg <- input.parameter.list$max_cs_seg
-  }
-  if(! 'max_mu' %in% par.given){
-    out.parameter.list$max_mu <- 50
-  }
-  if(! 'max_size' %in% par.given){
-    out.parameter.list$max_size <- 100
-  }
-  if(! 'record_posteriors_w_priors' %in% par.given){
-    out.parameter.list$record_posteriors_w_priors <- FALSE
-  }
-  if(! 'record_posteriors' %in% par.given){
-    out.parameter.list$record_posteriors <- FALSE
-  }
-  if(! 'record_segment_lls' %in% par.given){
-    out.parameter.list$record_segment_lls <- FALSE
-  }
+  # if(! 'max_cs_seg' %in% par.given){
+  #   out.parameter.list$cs_params$max_cs_seg <- 10
+  # } else {
+  #   out.parameter.list$cs_params$max_cs_seg <- input.parameter.list$max_cs_seg
+  # }
+  # if(! 'max_mu' %in% par.given){
+  #   out.parameter.list$max_mu <- 50
+  # }
+  # if(! 'max_size' %in% par.given){
+  #   out.parameter.list$max_size <- 100
+  # }
+  # if(! 'record_posteriors_w_priors' %in% par.given){
+  #   out.parameter.list$record_posteriors_w_priors <- FALSE
+  # }
+  # if(! 'record_posteriors' %in% par.given){
+  #   out.parameter.list$record_posteriors <- FALSE
+  # }
+  # if(! 'record_segment_lls' %in% par.given){
+  #   out.parameter.list$record_segment_lls <- FALSE
+  # }
   if(! 'model_dispersion' %in% par.given){
     if(! 'mean_var_type' %in% par.given){
       out.parameter.list$mean_var_type <- 'spline'
@@ -461,9 +439,9 @@ check_parameter_list <- function(input.parameter.list, data.file.split){
   if(! 'local_max_range' %in% par.given){
     out.parameter.list$local_max_range <- 5
   }
-  if(! 'iterative_hyper_est' %in% par.given){
-    out.parameter.list$iterative_hyper_est <- FALSE
-  }
+  # if(! 'iterative_hyper_est' %in% par.given){
+  #   out.parameter.list$iterative_hyper_est <- FALSE
+  # }
   if(! 'nr_segs' %in% par.given){
     out.parameter.list$nr_segs <- 10
   }
@@ -699,42 +677,30 @@ read_analysis_parameters <- function(parameter.file.loc){
     if('cs_sw_continous' == parameter.id){
       out.parameter.list$cs_sw_continous <- as.logical(strsplit(parameter,':')[[1]][2])
     }
-    if('compute_sw_pp' == parameter.id){
-      out.parameter.list$compute_sw_pp <- as.logical(strsplit(parameter,':')[[1]][2])
-    }
     if('cs_sw_size' == parameter.id){
       out.parameter.list$cs_sw_size <- as.numeric(strsplit(parameter,':')[[1]][2])
     }
     if('min_cs_sum' == parameter.id){
       out.parameter.list$min_cs_sum <- as.numeric(strsplit(parameter,':')[[1]][2])
     }
-    if('min_cs_pp' == parameter.id){
-      out.parameter.list$min_cs_pp <- as.numeric(strsplit(parameter,':')[[1]][2])
-    }
-    if('cs_type' == parameter.id){
-      out.parameter.list$cs_type <- strsplit(parameter,':')[[1]][2]
-    }
     if('cs_threshold' == parameter.id){
       out.parameter.list$cs_threshold <- as.numeric(strsplit(parameter,':')[[1]][2])
     }
-    if('max_cs_nr' == parameter.id){
-      out.parameter.list$max_cs_nr <- as.numeric(strsplit(parameter,':')[[1]][2])
-    }
-    if('max_cs_seg' == parameter.id){
-      out.parameter.list$max_cs_seg <- as.numeric(strsplit(parameter,':')[[1]][2])
-    }
-    if('max_mu' == parameter.id){
-      out.parameter.list$max_mu <- as.numeric(strsplit(parameter,':')[[1]][2])
-    }
-    if('max_size' == parameter.id){
-      out.parameter.list$max_size <- as.numeric(strsplit(parameter,':')[[1]][2])
-    }
-    if('record_posteriors' == parameter.id){
-      out.parameter.list$record_posteriors <- as.logical(strsplit(parameter,':')[[1]][2])
-    }
-    if('record_segment_lls' == parameter.id){
-      out.parameter.list$record_segment_lls <- as.logical(strsplit(parameter,':')[[1]][2])
-    }
+    # if('max_cs_seg' == parameter.id){
+    #   out.parameter.list$max_cs_seg <- as.numeric(strsplit(parameter,':')[[1]][2])
+    # }
+    # if('max_mu' == parameter.id){
+    #   out.parameter.list$max_mu <- as.numeric(strsplit(parameter,':')[[1]][2])
+    # }
+    # if('max_size' == parameter.id){
+    #   out.parameter.list$max_size <- as.numeric(strsplit(parameter,':')[[1]][2])
+    # }
+    # if('record_posteriors' == parameter.id){
+    #   out.parameter.list$record_posteriors <- as.logical(strsplit(parameter,':')[[1]][2])
+    # }
+    # if('record_segment_lls' == parameter.id){
+    #   out.parameter.list$record_segment_lls <- as.logical(strsplit(parameter,':')[[1]][2])
+    # }
     if('fs_prior' == parameter.id){
       out.parameter.list$fs_prior <- lapply(strsplit(strsplit(strsplit(parameter,':')[[1]][2],';')[[1]],','), as.numeric)
       names(out.parameter.list$repl_groups) <- c('mean', 'sd')
@@ -773,9 +739,9 @@ read_analysis_parameters <- function(parameter.file.loc){
     if('local_max_range' == parameter.id){
       out.parameter.list$local_max_range <- as.numeric(strsplit(parameter,':')[[1]][2])
     }
-    if('iterative_hyper_est' == parameter.id){
-      out.parameter.list$iterative_hyper_est <- as.logical(strsplit(parameter,':')[[1]][2])
-    }
+    # if('iterative_hyper_est' == parameter.id){
+    #   out.parameter.list$iterative_hyper_est <- as.logical(strsplit(parameter,':')[[1]][2])
+    # }
     if('nr_segs' == parameter.id){
       out.parameter.list$nr_segs <- as.numeric(strsplit(parameter,':')[[1]][2])
     }
@@ -1066,7 +1032,6 @@ set_up_fs_priors <- function(input.params, input.data.setup){
 #' @param input.hypers: list, $alpha0, $alpha1, both elements contain lists of length wequal to nr. replicates (input.hypers$alpha0[[1]])
 #' @param nr.segs, number of segments to consider for the length of a regulatory element
 #' @param geom.p: proababilty of the genometric distribution to penalize for enhancers of increasing length
-#' @param fs.correlation.cutoff: what correlation between layers determines stopping of layer calculation (default: 0.1)
 #' @param input.min.rs.pp: minimum posterior required to be part of a regulatory set
 #' @param auto.stop: whether or not computations should be stopped after recomended stopping point
 #' @param record.all.fs: logical, if information of all intermediate FS should be recorded, in addition to the final set of FS
@@ -1076,7 +1041,6 @@ set_up_fs_priors <- function(input.params, input.data.setup){
 #' @param local.max.range: number of segments to include in addition to the the ones with highest PP (one way, so multiply by 2 for total nr of segs)
 #' @param pool.names, if not NULL, the names of the pools to be used when recording output
 #' @param mean.var.type: type of mean-variance relationship
-#' @param pp.calculation: what version to use when calculating PP. 'v2'is for computing with normal AoE
 #' @param analysis.parameters: list, contains various elements used for analysis
 #' @param guide.dist.to.seg, list of lists, pre-computed distances of guides to FS
 #' @return list of final per-layer posteriors
@@ -1088,7 +1052,6 @@ run_RELICS_7 <- function(input.data, final.layer.nr, out.dir = NULL,
                          input.hyper.components,
                          nr.segs = 10,
                          geom.p = 0.1,
-                         fs.correlation.cutoff = 0.1,
                          input.min.rs.pp = 0.1,
                          auto.stop = TRUE,
                          record.all.fs,
@@ -1099,7 +1062,6 @@ run_RELICS_7 <- function(input.data, final.layer.nr, out.dir = NULL,
                          local.max, local.max.range,
                          pool.names,
                          mean.var.type,
-                         pp.calculation,
                          analysis.parameters,
                          guide.dist.to.seg){
   
@@ -1150,12 +1112,7 @@ run_RELICS_7 <- function(input.data, final.layer.nr, out.dir = NULL,
     if(i == final.layer.nr){
       print('Max. FS nr. reached.')
       record_relics_results(fs.data, analysis.parameters, input.data, i, relics.hyper, hyper.components, '_finalFS')
-      if(fs.data$conditional_fs_ll_w_prior[i] > analysis.parameters$fs_ll_signif){
-        #print(paste0('RELICS probably found all FS given the expected number (', analysis.parameters$expected_fs_nr,')'))
-      } else {
-        #print(paste0('Given the expected number (', analysis.parameters$expected_fs_nr,") RELICS might be able to detect more FS.\t 
-        #             Maybe set 'expected_fs_nr' or 'max_fs_nr' to a higher number and run RELICS again?"))
-      }
+
       break()
     }
     
@@ -1472,7 +1429,7 @@ record_relics_results <- function(input.results.list, analysis.parameters, input
   
   ll_ratio_recording(input.data, analysis.parameters, relics.hyper, fs.iter, file.extension)
   
-  if(fs.iter == 1){
+  if(fs.iter == 1 |file.extension == '_finalFS'){
     hyperparameter_recording(list(bkg_hyper = hyper.components$bkg_alpha, fs_hyper = hyper.components$FS_alpha, bkg_disp = hyper.components$bkg_dispersion), 
                              fs.iter, hyper.components, analysis.parameters, file.extension) 
     
@@ -1563,10 +1520,10 @@ record_dispersion <- function(fs.iter, hyper.components, analysis.parameters, fi
   
   hyper.names <- names(hyper.components)
   if("dispersion" %in% hyper.names){
-    disp.df <- data.frame(disp_repl1 = hyper.components$dispersion[[1]], stringsAsFactors = F)
+    disp.df <- data.frame(disp_repl1 = 1/hyper.components$dispersion[[1]], stringsAsFactors = F)
     if(length(hyper.components$dispersion) > 1){
       for(i in 2:length(hyper.components$dispersion)){
-        disp.df[paste0('disp_repl',i)] <- hyper.components$dispersion[[i]]
+        disp.df[paste0('disp_repl',i)] <- 1/hyper.components$dispersion[[i]]
       }
     }
     
@@ -4515,7 +4472,7 @@ record_hyperparameters <- function(input.bkg.alpha, input.fs.alpha, input.bkg.di
     
     out.alpha.df <- cbind(alpha.names, alpha.matrix)
     
-    colnames(out.alpha.df) <- c('hyperPar_type', paste0('pool', c(1:(nrow(out.alpha.df) - 2))))
+    colnames(out.alpha.df) <- c('hyperPar_type', paste0('pool', c(1:(ncol(out.alpha.df) - 1))))
   }
   
   write.csv(out.alpha.df, file = paste0(input.alpha.outDir, '_k', layer.nr, '_hyperPars.csv'), row.names = F, quote = F)
