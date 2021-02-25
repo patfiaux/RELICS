@@ -183,38 +183,33 @@ RELICS will return several output files. They all start with the `dataName` spec
 | end | region end |
 | label | highest overlapping label according to the [label hierarchy](https://github.com/patfiaux/RELICS#advanced-flags) |
 
+* `{dataName}_countsVSdispersion_repl`: The plot of the count-dispersion modeling. It is recommended to check these plots and make sure that the dispersion for each replicate has been well modeled.
+
+* `{dataName}_FS0_seg_llRt.bedgraph`: Bedgarph file of the log-likelihood ratio of each segment containing a functional sequence. This can be a helpfuls representation of the data as it can indicate the number of potential functional sequences. However, a high signal doe not necessarily mean RELICS will detect a functional sequence because the information used to generate this track is reduced and does not correspond to the full RELICS analysis. 
+
+* `{dataName}_FS0_guideLLR.csv`: Contains the log-likeohood ration of each guide overlapping a functional sequence. This can be helpful when sleecting guides for validation.
+
 In all subsequent file names, the pattern `_kX_` refers to `X` functional sequences detected.
 
-* `{dataName}_final_kX_total_pp.bedgraph`: This file contains the sum of posteriors across all functional sequences detected.
+* `{dataName}_finalFS_kX_summaryStatPlots.bedgraph`: Plots of the model log-likelihood progression as more FS are detected as well as the per-FS contribution to the model. The top row is adjusted to account for the prior, the bottowm row contains the raw lieklihoods.
 
-* `{dataName}_final_kX_FS_locations.bed`: This file contains all genome segments part of the functional sequences detected.
+* `{dataName}_final_kX_cs_pp.bedgraph`: This file contains the sum of the credible sets of posterior probabilities across all functional sequences detected.
 
-* `{dataName}_final_kX.csv`: This file contains the functional sequence probabilities of all functional sequences detected. Each column corresponds to a genome segment, ordered as in `{dataName}_segmentInfo.csv`. Each row corresponds to the functional sequence probabilities of a particular functional sequence. The first row corresponds to FS0, the second to FS1 etc.
+* `{dataName}_finalFS_kX_FS_locations.bed`: This file contains all genome segments part of the functional sequences detected.
 
-* `{dataName}_final_kX_ll_progression.csv`: This file keeps track of the -log-likelihood model improvement with each additional functional sequence detected. Correctly detecting an additional functional sequence should improve the model fit. The initial contributions are usually quite large and then start plateauing as all functional sequences are detected.
-|Column name | Column description |
-|----------|----------|
-| FS | the functional sequence which is included in the overall model |
-| FS_ll | the -log-likelihood of the model by including all FS functional sequences |
+* `{dataName}_finalFS_kX_cs_pp.csv`: This file contains the credible set functional sequence probabilities of all functional sequences detected. Each column corresponds to a genome segment, ordered as in `{dataName}_segmentInfo.csv`. Each row corresponds to the functional sequence probabilities of a particular functional sequence. The first row corresponds to FS0, the second to FS1 etc.
 
-* `{dataName}_final_kX_perFS_LLcontributions.csv`: This file contains the per-functional sequence contribution to the model improvement.
+* `{dataName}_finalFS_kX_model_lls.csv`: This file contains the per-functional sequence log-likelihood contribution to the model improvement as well as the model lig-likelihood progression. The raw likelihoods are also given, which have not yet been weighted by the prior given for the number of FS.
 |Column name | Column description |
 |----------|----------|
 | FS | the functional sequence |
-| ll | the number of functional sequences included in the model |
-| nr_fs | the number of genome segments considered to be part of the functional sequence as defined by the functional sequence threshold |
+| fs_ll_contrib | contribution of each FS to the model |
+| raw_fs_ll_contrib | raw contribution of each FS to the model |
+| model_ll | model log-likelihood progression |
+| raw_model_ll | raw model log-likelihood progression |
+| cs_raw_pp | sum of the credible set posterior probability |
 
-* `{dataName}_final_k4_alphas.csv`: This file contains the dirichlet sorting parameters for the background (`alpha0`) and for functional sequences (`alpha1`) for all replicates.
-
-
-* `{dataName}_final_allCorrs_k(X+1).csv`: This file contains all pairwise correlation between the functional sequence probabilities up to and including the functional sequence which resulted in a correlation above the convergence threshold and leading to RELICS to stop.
-
-
-* `{dataName}__summaryStatPlots.pdf`: Plot showing the overall model -log-likelihood progression and the correlation of the functional sequence probabilities.
-
-
-* `{dataName}_final_kX.tiff`: This file contains the plots of the individual functional sequence probabilities and notes how many segments are contained within each. Segments which are above the functional sequence threshold are labelled in purple. The 'Sum of Posteriors' shows the sum of all functional sequence probabilities.
-* `{dataName}_final_kX_FS_locations.bed`: This file contains all genome segments part of the functional sequences detected.
+* `{dataName}_finalFS_kX_alphas.csv`: This file contains the dirichlet sorting parameters for the background (`alpha0`) and for functional sequences (`alpha1`) for all replicates.
 
 ## Count-dispersion modeling
 RELICS explicitly models the relationship between guide counts and their dispersion (variance). It has been observed that the dispersion of biological count data changes with increasing count size (see Fig. 1 in [Love, Huber, Anders., 2014](https://genomebiology.biomedcentral.com/articles/10.1186/s13059-014-0550-8)). We use a spline function to account for the wide range of possible count-dispersion relationships. To estimate the correct spline function we first sort and bin the guides according to their total per-replicate counts. Using differen degrees of freedom (number of points that a spline can use to fit to the data) we compute the the best fit for the number of bins followed by  calculating the dispersion for each individual guide. Based on the plotted output the best fit can then be used to the RELICS analysis.
@@ -241,9 +236,51 @@ spline_fitting(input.parameter.list = relics.parameters,repl = 1, plot.true.disp
 ![CD69 example spline fitting_trueDisp](RELICS_tutorial/Spline_fitting_example_trueDispersion.png)
 
 
+It is also possible to disable the dispersion modeling. Set the mean-variance type to independent and disbale the disperison modeling.
+```
+relics.parameters$mean_var_type <- 'independent'
+relics.parameters$model_dispersion <- FALSE
+```
+
 
 # Advanced flags
 
+### Name the pools
+In the output files it can be convenient to have the pools named.
+```
+# specify the names of the different pools. Helps with naming hyperparameters in the output files
+all.repl.names <- list()
+all.repl.names[[1]] <- c("back", "baseline", "low", "medium", "high")
+all.repl.names[[2]] <- c("back", "baseline", "low", "medium", "high")
+relics.parameters$pool_names <- all.repl.names
+```
+
+### Specify guide efficiency
+RELICS performs better if guide efficeincies are provided. They can be given in a separate .csv file as long as the order is the same as in the input data. An easier option is to directly add them to the input file and specify the column within
+```
+relics.parameters$guide_efficiency_loc <- relics.parameters$DataInputFileLoc
+relics.parameters$guide_efficiency_cols <- c(21)
+```
+
+As additional output file RELICS will give the computed guide-efficeincy coefficient used in the logistic model. By default RELICS will recompute these parameters after each FS placement. This can help in the case of noisy guide scores, which will allow RELICS to downweight their importance on the results. However, if you trust your guide efficeincy scores than you can also fix them to their input values.
+```
+relics.parameters$fixed_ge_coeff <- TRUE
+```
+
+### Recording additional information
+By default RELICS only returns the files from section 4. However, it's possible to get additional info such as the raw posterior probabilities and raw credible sets. All these results have not been weighted by the prior hence they are still raw.
+```r
+relics.parameters$record_pp <- TRUE # returns .csv with all posterior probabilities for each FS and bedgraph of combined prosteriors
+relics.parameters$record_cs_pp <- TRUE # returns .csv with all credible set posterior probabilities for each FS and bedgraph of combined credible set prosteriors
+```
+
+### Record output at each iteration
+By default, RELICS only outputs files once it has discovered all functional sequences. However, it is possible to get the same output for every functional sequence detected. This can be useful when data sets take a long time to run. The intermediate files can already reveal where the first set of functional sequences are located while RELICS still searches for more. To record all intermediate files set the `record.all.fs` to `TRUE` when running RELICS.
+```
+RELICS(input.parameter.list = relics.parameters, record.all.fs = TRUE)
+```
+
+### Set the label hierarchy
 RELICS combines information of guides which overlap with their guide effect. This can lead to scenarios where guides with different labels overlap. By default the label with fewer occurrences in the data set is chosen. However, it is also possible for the user to specify the hierarchy by explicitly setting the `labelHierarchy` flag.
 
 The rightmost label has highest priority. Using the example below: if a region has overlapping guides labeled as both promoter overlapping (`CD69_promoter`) as well as targeting guides with unknown effect (`chr`), then the region will be assigned the label with higher priority in the hierarchy - in this case being `CD69_promoter`.
@@ -254,6 +291,7 @@ If specifying the `labelHierarchy`, all labels should be provided. Guides with l
 relics.parameters$labelHierarchy <- c('chr', 'exon', 'CD69_promoter')
 ```
 
+### Compute the likelihood that at FS spans multiple segments
 By default, RELICS considers functional sequences to be up to 10 genome segments. In the case of 100bp segments that would correspond to 1kb. It is possible to either increase or decrease this functional sequence length by adjusting the `nr_segs` flag. Note, by increasing the number, RELICS' runtime will increase as it will consider all possible functional sequence sizes from 1 up to `nr_segs`.
 ```r
 relics.parameters$nr_segs <- 10 # default is 10
@@ -264,32 +302,46 @@ RELICS uses a truncated geometric distribution for modeling the probability of a
 relics.parameters$geom_p <- 0.1 # default is 0.1
 ```
 
-RELICS stops looking for more functional sequences when a pairwise functional sequence probability exceeds a correlation threshold. Default is 0.1. To adjust that, use the `fs_correlation_cutoff` flag.
+### Modify stopping criteria
+Usually RELICS discovers the specified `max_fs_nr` functional sequences. However, it is possible that the data does not contain as many functional sequences. In this case RELICS will terminate realy. Specifically, RELICS will terminate if the largest credible set sum is below `min_cs_sum` (default: 0.01). This can be adjusted by changing the threshold
 ```r
-relics.parameters$fs_correlation_cutoff <- 0.1 # default is 0.1
+relics.parameters$min_cs_sum <- 0.01
 ```
 
-By default RELICS considers all genome segments which have a functional sequence probability above 0.1 as part of the functional sequence. This can be adjusted with the `min_fs_pp` flag.
+### Modify credible set parameters
+RELICS by default computes a relative 90% credible set across 10 genome segments. This can be adjusted with `cs_threshold` and `cs_sw_size`. Restricting the number of segments considered in a credible set can lead to narrower credible sets while changing the threshold adjusts the number of segments that are included.
 ```r
-relics.parameters$min_fs_pp <- 0.1 # default is 0.1
+relics.parameters$cs_threshold <- 0.9
+relics.parameters$cs_sw_size <- 10
 ```
 
-By default, RELICS only outputs files once it has discovered all functional sequences. However, it is possible to get the same output for every functional sequence detected. This can be useful when data sets take a long time to run. The intermediate files can already reveal where the first set of functional sequences are located while RELICS still searches for more. To record all intermediate files set the `record.all.fs` to `TRUE` when running RELICS.
-```r
-RELICS(input.parameter.list = relics.parameters, record.all.fs = TRUE)
-
-# option: use the parameter file instead
-# RELICS('Example_analysis_specifications.txt', record.all.fs = TRUE)
-```
-
-When searching for the placement of each functional sequence, RELICS uses the IBSS algorithm to place each functional sequence. After each iteration of IBSS, RELICS compares the new placement of the functional sequence probabilities to the old ones. If the maximum absolute difference `(max(abs(pi' - pi))` is less than a defined threshold the RELICS has converged and looks for the next functional sequence. By default this threshold is set to 0.1. It can be made more or less stringent by setting the `convergence_tol` flag.
-```r
-relics.parameters$convergence_tol <- 0.1 # default is 0.1
-```
-
+### Modify segment length
 By default RELICS segments the data into ~100bp segments. This can be adjusted with the `seg_dist` flag
 ```r
 relics.parameters$seg_dist <- 100 # default is 100
+```
+
+### Recomputing hyperparameters
+By default RELICS computes the hyperparameters based on the guides labelled as FS0 and then keeps the hyperparameters the same throughout the rest of the analysis. However, it's also possible to recompute the hyperparameters after each placement of a functional sequence. This could help in a case where the signal at FS0 is a lot stronger than all other functional sequences.
+```r
+relics.parameters$fix_hypers <- FALSE
+```
+
+### Changing the Are of Effect (AoE)
+By default RELICS assumes a normal AoE. This means that base pairs further away from a guide target site are less likely to be perturbed. By default we assume that for Cas9 only half the cell containing a guide have a perturbation more than 10bp away from the target site. For CRISPRi and CRISPRa that we assume that this is the case for 200bp away from the target site. In both cases this is modeled using a normal distribution with adjusted standard deviations. We also specify a max. range beyond which it's unlikely that a base pair is affected `crisprEffectRange`. 
+```r
+# for a Cas9 system
+relics.parameters$normal_areaOfEffect_sd <- 8.5
+relics.parameters$crisprEffectRange <- 21
+
+# for a CRISPRi or CRISPRa system
+relics.parameters$normal_areaOfEffect_sd <- 170 
+relics.parameters$crisprEffectRange <- 415
+```
+
+It is also possible to nor model the AoE and assume a uniform parturbation instead where it's equally likely for any base pair to be perturbed
+```r
+relics.parameters$areaOfEffect_type <- 'uniform'
 ```
 
 
@@ -318,4 +370,10 @@ The guide information file contains all remaining info about the guides such as 
 | NA | NA | NA | neg |
 | chr8 | 128704482 | 128704502 | exon |
 
-Row 1 in the count file should correspond to the guide in row 1 in the info file.
+Row 1 in the count file should correspond to the guide in row 1 in the info file. If the two files are given then that has to be specified accordingly in the input
+```
+relics.parameters$CountFileLoc <- 'location/of/count/file'
+relics.parameters$sgRNAInfoFileLoc <- 'location/of/info/file'
+RELICS(input.parameter.list = relics.parameters, data.file.split = TRUE)
+```
+
