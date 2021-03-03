@@ -69,7 +69,10 @@ Below is part of the example file in the `RELICS_tutorial` folder. It's a subset
 | chr12 | CD69_promoter | 9913429 | 9913449 | 504 | 412 | 2185 | 238 | 580 | 445 | 103 | 570 | 49 | 342 |
 
 ## Quickstart with example data in `RELICS_tutorial`
-We recommed you navigate to the `RELICS_tutorial` folder. In an interactive R session:
+
+Create a directory for the output files. In this case we recommend creating a folder in the tutorial file: `CD69_tutorial_output`
+
+After that, navigate to the `RELICS_tutorial` folder. In an interactive R session:
 ```r
 setwd('path/to/RELICS/RELICS_tutorial/')
 ```
@@ -138,11 +141,11 @@ relics.parameters$FS0_label <- 'CD69_promoter' # use all sgRNAs that overlap the
 # relics.parameters$background_label <- c('chr', 'exon') # specify what sgRNAs to use to initially train the background parameters
 ```
 
-6. Specify the number of functional sequences to look for and the number of functional sequences you expect to find. RELICS will look for a total of `max_fs_nr` functional sequences and eight their signal according to the prior which is specified by the `expected_fs_nr`. We recommned setting the `max_fs_nr` to at least `expected_fs_nr` + 3. For larger `expected_fs_nr` we recommend `expected_fs_nr` + 1/3*`expected_fs_nr`.
+6. Specify the number of functional sequences to look for and the number of functional sequences you expect to find. RELICS will look for a total of `max_fs_nr` functional sequences and eight their signal according to the prior which is specified by the `expected_fs_nr`. We recommned setting the `max_fs_nr` to at least `expected_fs_nr` + 3. For larger `expected_fs_nr` we recommend setting `max_fs_nr` to 4/3*`expected_fs_nr`.
 ```r
 # specify the expected number of functional sequences and how many to look for in total
-analysis.specs$max_fs_nr <- 15
-analysis.specs$expected_fs_nr <- 5 # expected based on previous findings by Simeonov et al., 2017 and Fiaux et al., 2020
+relics.parameters$max_fs_nr <- 15
+relics.parameters$expected_fs_nr <- 5 # expected based on previous findings by Simeonov et al., 2017 and Fiaux et al., 2020
 ```
 
 7. Specify the CRISPR system used. Depending on the CRISPR system used, the area of effect (AoE) is different. By default RELICS assumes that the AoE follows a normal distribution.  For more details see section Area of Effect below.
@@ -150,21 +153,21 @@ analysis.specs$expected_fs_nr <- 5 # expected based on previous findings by Sime
 relics.parameters$crisprSystem <- 'CRISPRa' # other options: CRISPRcas9, CRISPRi, dualCRISPR
 ```
 
-8. Give the location of the output directory by setting the `out_dir` flag. Either reference to full path or the path from the current working directory. In this example we will do the latter and assume you are in the `RELICS_tutorial` folder. We recommend you create a new file in which the results are saved. Nore, RELICS will NOT create non-existent files for you. In this example, first create the `CD69_tutorial_output` folder, then set the flag:
+8. Give the location of the output directory by setting the `out_dir` flag. Either reference to full path or the path from the current working directory. In this example we will do the latter and assume you are in the `RELICS_tutorial` folder. We recommend you create a new file in which the results are saved. Note, RELICS will NOT create non-existent files for you. In this example, first create the `CD69_tutorial_output` folder, then set the flag:
 ```r
-relics.parameters$out_dir <- 'CD69_tutorial_output/'
+relics.parameters$out_dir <- 'CD69_tutorial_output'
 ```
 
 9. RELICS now explicityl models the count-dispersion relationship. This drastically imporves performance and helps reduce the number of false positives. See the section `Count-Dispersion modeling` below for details on how to best estimate `nr_disp_bins` and `repl_spline_df`:
 ```r
 # specify the number of bins to group the guide counts into and the degrees of freedom of the spline function for each replicate
-analysis.specs$nr_disp_bins <- 15
-analysis.specs$repl_spline_df <- list(repl_1 = 3, repl_2 = 3)
+relics.parameters$nr_disp_bins <- 15
+relics.parameters$repl_spline_df <- list(repl_1 = 3, repl_2 = 3)
 ```
 
 ### 3. Run RELICS
 Once you have set up your parameters you can run RELICS by directly giving it the list we set up above, or by first saving it to a `.txt` file. In the latter case, the flags and their values should be separated by a colon (`:`, see `Example_analysis_specifications.txt`).
-The CD69 example provided should take about 10 minutes to run on a typical desktop computer.
+The CD69 example provided should take about 10 minutes to run on a typical desktop computer. RELICS will look for 15 functional sequences as specified above and report the results in the `finalFS_k15` files.
 ```r
 RELICS(input.parameter.list = relics.parameters)
 
