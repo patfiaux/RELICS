@@ -231,7 +231,7 @@ source('/path/to/script/estimate_spline_fitting.R')
 
 # if you moved into the RELICS_tutorial folder:
 # source('../Code/estimate_spline_fitting.R')
-``
+```
 
 ```
 # use the same parameter list used for the RELICS analysis
