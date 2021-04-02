@@ -74,6 +74,13 @@ RELICS <- function(input.parameter.file, input.parameter.list = NULL, data.file.
                                                        data.setup$data,
                                                        data.setup$guide_efficiency,
                                                        analysis.parameters)
+    } else {
+      logit.ge <- apply(data.setup$guide_efficiency_scores, 2, function(x){
+        log(x / (1 - x))
+      })
+      guide.efficiency <- 1 / (1 + exp(-(logit.ge %*% rep(1, ncol(data.setup$guide_efficiency_scores)))))
+      data.setup$guide_efficiency <- guide.efficiency
+      data.setup$ge_coeff <- rep(1, ncol(data.setup$guide_efficiency_scores))
     }
 
   }
@@ -2625,7 +2632,7 @@ disp_from_spline <- function(repl.spline.df, input.data, out.dir, nr.bins = 20, 
     }))
     
     # now we can plot the estimated dispersions for each bin
-    pdf(paste0(out.dir, '_countsVSdispersion_repl', i, '.pdf'))
+    pdf(paste0(out.dir, '_countsVSdispersion_repl', i, '.pdf'), useDingbats = FALSE)
     plot(x = temp.repl.group.means, y = 1/temp.repl.group.disp, pch = 19,
          xlab = 'Counts', ylab = 'Dispersion', main = 'Dispersion estimates')
     
@@ -3405,14 +3412,10 @@ estimate_dirichlet_proportions <- function(data.par.list, analysis.par.list, inp
   
   # most basic implementation of GE
   if(! is.null(data.par.list$guide_efficiency_scores)){
-    if(! analysis.par.list$fixed_ge_coeff){
-      logit.ge <- apply(data.par.list$guide_efficiency_scores, 2, function(x){
-        log(x / (1 - x))
-      })
-      data.par.list$guide_efficiency <- 1 / (1 + exp(-(logit.ge %*% rep(1, ncol(data.par.list$guide_efficiency_scores)))))
-    } else {
-      data.par.list$guide_efficiency <- data.par.list$guide_efficiency_scores
-    }
+    logit.ge <- apply(data.par.list$guide_efficiency_scores, 2, function(x){
+      log(x / (1 - x))
+    })
+    data.par.list$guide_efficiency <- 1 / (1 + exp(-(logit.ge %*% rep(1, ncol(data.par.list$guide_efficiency_scores)))))
   }
   
   # make sure all guides are considered to be the same category
@@ -3602,15 +3605,10 @@ estimate_hyper_parameters <- function(data.par.list, analysis.par.list, input.re
 
   # most basic implementation of GE
   if(! is.null(data.par.list$guide_efficiency_scores)){
-    if(! analysis.par.list$fixed_ge_coeff){
-
-      logit.ge <- apply(data.par.list$guide_efficiency_scores, 2, function(x){
-        log(x / (1 - x))
-      })
-      data.par.list$guide_efficiency <- 1 / (1 + exp(-(logit.ge %*% rep(1, ncol(data.par.list$guide_efficiency_scores)))))
-    } else {
-      data.par.list$guide_efficiency <- data.par.list$guide_efficiency_scores
-    }
+    logit.ge <- apply(data.par.list$guide_efficiency_scores, 2, function(x){
+      log(x / (1 - x))
+    })
+    data.par.list$guide_efficiency <- 1 / (1 + exp(-(logit.ge %*% rep(1, ncol(data.par.list$guide_efficiency_scores)))))
   }
 
   # make sure all guides are considered to be the same category
