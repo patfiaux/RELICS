@@ -1362,7 +1362,7 @@ plot_relics_pp_as_tiff <- function(input.L, input.labels, tiff.name, seg.info, d
 
 plot_fs_model_ll_stats <- function(out.dir, file.extension, fs.nr, input.fs.results){
   
-  pdf(paste0(out.dir, file.extension, '_k', fs.nr, '_summaryStatPlots.pdf'))
+  pdf(paste0(out.dir, file.extension, '_k', fs.nr, '_summaryStatPlots.pdf'), useDingbats = FALSE)
   par(mfrow = c(2,2))
   
   # plot the progression of the total model ll with each FS
