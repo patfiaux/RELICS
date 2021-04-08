@@ -225,9 +225,10 @@ The splnie parameters have to be estimated for each replicate. While usually the
 
 We proivde a function to help users determine their correct settings. `spline_fitting` takes the same parameters as the main analysis function (`RELICS`) so you'll only have to set up the input list once. By default `spline_fitting` will return the fit to 3, 5, 10 and 15 degrees of freedom for a given bin size. We generally recommend bin sizes around 20 to 100. Increasing the number of bins can help in cases where some bins have very high counts.
 
-First, source the spline modling script.
+First, source the spline modling script and the RELICS code.
 ```r
 source('/path/to/script/estimate_spline_fitting.R')
+source('/path/to/script/RELICS.v2.r')
 
 # if you moved into the RELICS_tutorial folder:
 # source('../Code/estimate_spline_fitting.R')
