@@ -581,8 +581,8 @@ check_parameter_list <- function(input.parameter.list, data.file.split){
     
     # # for the crisprSystem, check if effect range is given, else use default
     if(minimum.parameters[i] == 'crisprSystem'){
-      if(! out.parameter.list$crisprSystem %in% c('CRISPRi', 'CRISPRa', 'Cas9', 'CRISPRcas9', 'dualCRISPR')){
-        print(paste0('Please provide a valid CRISPR system: CRISPRi, CRISPRa, Cas9 (or CRISPRcas9) or dualCRISPR'))
+      if(! out.parameter.list$crisprSystem %in% c('CRISPRi', 'CRISPRa', 'Cas9', 'CRISPRcas9', 'dualCRISPR', 'dualCRISPRi', 'dualCRISPRa')){
+        print(paste0('Please provide a valid CRISPR system: CRISPRi, CRISPRa, Cas9 (or CRISPRcas9), dualCRISPR, dualCRISPRi or dualCRISPRa'))
         missing.parameters <- TRUE
       }
     }
@@ -2840,7 +2840,7 @@ set_up_RELICS_data <- function(input.parameter.list, data.file.split, guide.offs
       })
     }
     
-  } else if(input.parameter.list$crisprSystem == 'dualCRISPR'){
+  } else if(input.parameter.list$crisprSystem %in% c('dualCRISPR', 'dualCRISPRi', 'dualCRISPRa') ){
     
     if(! 'sg1_Target' %in% names(sim.info)){
       sim.info$sg1_Target <- sim.info$start + input.parameter.list$crisprEffectRange
