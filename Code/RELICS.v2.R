@@ -604,7 +604,7 @@ check_parameter_list <- function(input.parameter.list, data.file.split){
   }
   
   # set default area of effects sd and crisprEffectRange if not provided for normal AoE
-  if (out.parameter.list$areaOfEffect_type) == 'normal') {
+  if (out.parameter.list$areaOfEffect_type == 'normal') {
       
       # set defaults for area of effect sd based on CRISPR system
       if (! 'normal_areaOfEffect_sd' %in% par.given) {
