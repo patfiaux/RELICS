@@ -221,7 +221,7 @@ In all subsequent file names, the pattern `_kX_` refers to `X` functional sequen
 ## Count-dispersion modeling
 RELICS explicitly models the relationship between guide counts and their dispersion (variance). It has been observed that the dispersion of biological count data changes with increasing count size (see Fig. 1 in [Love, Huber, Anders., 2014](https://genomebiology.biomedcentral.com/articles/10.1186/s13059-014-0550-8)). We use a spline function to account for the wide range of possible count-dispersion relationships. To estimate the correct spline function we first sort and bin the guides according to their total per-replicate counts. Using differen degrees of freedom (number of points that a spline can use to fit to the data) we compute the the best fit for the number of bins followed by  calculating the dispersion for each individual guide. Based on the plotted output the best fit can then be used to the RELICS analysis.
 
-The splnie parameters have to be estimated for each replicate. While usually there isn't much difference between replicates we have observed cases where it's beneficial to use different degrees of freedom across different replciates.
+The spline parameters have to be estimated for each replicate. While usually there isn't much difference between replicates we have observed cases where it's beneficial to use different degrees of freedom across different replciates.
 
 We proivde a function to help users determine their correct settings. `spline_fitting` takes the same parameters as the main analysis function (`RELICS`) so you'll only have to set up the input list once. By default `spline_fitting` will return the fit to 3, 5, 10 and 15 degrees of freedom for a given bin size. We generally recommend bin sizes around 20 to 100. Increasing the number of bins can help in cases where some bins have very high counts.
 
@@ -242,7 +242,7 @@ spline_fitting(input.parameter.list = analysis.specs, repl = 1) # plot the splie
 
 ![CD69 example spline fitting](RELICS_tutorial/Spline_fitting_example.png)
 
-In the example above it seems having 3 degrees of freedom with 15 bins leads to the best result. The spline does not overfit to the data. In general, if two splines fit approximately equelly well it's better to pick the one with less degrees of freedom to avoid overfitting. Not that here we've plotted the 1/dispersion values. This helps with the resolution to choose the best fit. If you are interested in seeing what the final dispersion values look like you can set the `plot.true.disp` flag to `TRUE`.
+In the example above it seems having 3 degrees of freedom with 15 bins leads to the best result. The spline does not overfit to the data. In general, if two splines fit approximately equelly well it's better to pick the one with less degrees of freedom to avoid overfitting. Note that here we've plotted the 1/dispersion values. This helps with the resolution to choose the best fit. If you are interested in seeing what the final dispersion values look like you can set the `plot.true.disp` flag to `TRUE`.
 
 ```
 # use the same parameter list used for the RELICS analysis
