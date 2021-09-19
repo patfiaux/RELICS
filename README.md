@@ -307,7 +307,7 @@ If specifying the `labelHierarchy`, all labels should be provided. Guides with l
 relics.parameters$labelHierarchy <- c('chr', 'exon', 'CD69_promoter')
 ```
 
-### Compute the likelihood that at FS spans multiple segments
+### Compute the likelihood that an FS spans multiple segments
 By default, RELICS considers functional sequences to be up to 10 genome segments. In the case of 100bp segments that would correspond to 1kb. It is possible to either increase or decrease this functional sequence length by adjusting the `nr_segs` flag. Note, by increasing the number, RELICS' runtime will increase as it will consider all possible functional sequence sizes from 1 up to `nr_segs`.
 ```r
 relics.parameters$nr_segs <- 10 # default is 10
@@ -319,7 +319,7 @@ relics.parameters$geom_p <- 0.1 # default is 0.1
 ```
 
 ### Modify stopping criteria
-Usually RELICS discovers the specified `max_fs_nr` functional sequences. However, it is possible that the data does not contain as many functional sequences. In this case RELICS will terminate realy. Specifically, RELICS will terminate if the largest credible set sum is below `min_cs_sum` (default: 0.01). This can be adjusted by changing the threshold
+Usually RELICS discovers the specified `max_fs_nr` functional sequences. However, it is possible that the data does not contain as many functional sequences. In this case RELICS will terminate early. Specifically, RELICS will terminate if the largest credible set sum is below `min_cs_sum` (default: 0.01). This can be adjusted by changing the threshold
 ```r
 relics.parameters$min_cs_sum <- 0.01
 ```
