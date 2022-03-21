@@ -158,7 +158,7 @@ relics.parameters$crisprSystem <- 'CRISPRa' # other options: CRISPRcas9, CRISPRi
 relics.parameters$out_dir <- 'CD69_tutorial_output'
 ```
 
-9. RELICS now explicityl models the count-dispersion relationship. This drastically imporves performance and helps reduce the number of false positives. See the section `Count-Dispersion modeling` below for details on how to best estimate `nr_disp_bins` and `repl_spline_df`:
+9. RELICS now explicitly models the count-dispersion relationship. This drastically improves performance and helps reduce the number of false positives. See the section `Count-Dispersion modeling` below for details on how to best estimate `nr_disp_bins` and `repl_spline_df`:
 ```r
 # specify the number of bins to group the guide counts into and the degrees of freedom of the spline function for each replicate
 relics.parameters$nr_disp_bins <- 15
