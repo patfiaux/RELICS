@@ -141,7 +141,7 @@ relics.parameters$FS0_label <- 'CD69_promoter' # use all sgRNAs that overlap the
 # relics.parameters$background_label <- c('chr', 'exon') # specify what sgRNAs to use to initially train the background parameters
 ```
 
-6. Specify the number of functional sequences to look for and the number of functional sequences you expect to find. RELICS will look for a total of `max_fs_nr` functional sequences and eight their signal according to the prior which is specified by the `expected_fs_nr`. We recommned setting the `max_fs_nr` to at least `expected_fs_nr` + 3. For larger `expected_fs_nr` we recommend setting `max_fs_nr` to 4/3*`expected_fs_nr`.
+6. Specify the number of functional sequences to look for and the number of functional sequences you expect to find. RELICS will look for a total of `max_fs_nr` functional sequences and weight their signal according to the prior which is specified by the `expected_fs_nr`. We recommned setting the `max_fs_nr` to at least `expected_fs_nr` + 3. For larger `expected_fs_nr` we recommend setting `max_fs_nr` to 4/3*`expected_fs_nr`.
 ```r
 # specify the expected number of functional sequences and how many to look for in total
 relics.parameters$max_fs_nr <- 15
@@ -153,7 +153,7 @@ relics.parameters$expected_fs_nr <- 5 # expected based on previous findings by S
 relics.parameters$crisprSystem <- 'CRISPRa' # other options: CRISPRcas9, CRISPRi, dualCRISPR
 ```
 
-8. Give the location of the output directory by setting the `out_dir` flag. Either reference to full path or the path from the current working directory. In this example we will do the latter and assume you are in the `RELICS_tutorial` folder. We recommend you create a new file in which the results are saved. Note, RELICS will NOT create non-existent files for you. In this example, first create the `CD69_tutorial_output` folder, then set the flag:
+8. Give the location of the output directory by setting the `out_dir` flag. Either reference to full path or the path from the current working directory. In this example we will do the latter and assume you are in the `RELICS_tutorial` folder. We recommend you create a new directory in which the results are saved. Note, RELICS will NOT create non-existent directories for you. In this example, first create the `CD69_tutorial_output` folder, then set the flag:
 ```r
 relics.parameters$out_dir <- 'CD69_tutorial_output'
 ```
