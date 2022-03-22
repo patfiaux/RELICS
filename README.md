@@ -355,9 +355,16 @@ relics.parameters$normal_areaOfEffect_sd <- 170
 relics.parameters$crisprEffectRange <- 415
 ```
 
-It is also possible to nor model the AoE and assume a uniform parturbation instead where it's equally likely for any base pair to be perturbed
+It is also possible to not model the AoE and assume a uniform perturbation instead where it's equally likely for any base pair to be perturbed
 ```r
 relics.parameters$areaOfEffect_type <- 'uniform'
+```
+
+A third area of effect approach that can be used with RELICS is a "slab-and-spike" area of effect. In the slab and spike implementation, the genomic regions that overlap the guides are set to a "spike" area of effect of 1, while the base pairs flanking the guide are set to a "slab" area of effect. By default, RELICS uses a flanking distance of 500 base pairs and a "slab" of 0.1, but these parameters can be manually configured as well.
+```r
+relics.parameters$areaOfEffect_type <- 'slab_and_spike'
+relics.parameters$flanking.distance <- 500
+relics.parameters$slab.aoe <- 0.1
 ```
 
 
