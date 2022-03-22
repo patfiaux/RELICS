@@ -141,7 +141,7 @@ relics.parameters$FS0_label <- 'CD69_promoter' # use all sgRNAs that overlap the
 # relics.parameters$background_label <- c('chr', 'exon') # specify what sgRNAs to use to initially train the background parameters
 ```
 
-6. Specify the number of functional sequences to look for and the number of functional sequences you expect to find. RELICS will look for a total of `max_fs_nr` functional sequences and eight their signal according to the prior which is specified by the `expected_fs_nr`. We recommned setting the `max_fs_nr` to at least `expected_fs_nr` + 3. For larger `expected_fs_nr` we recommend setting `max_fs_nr` to 4/3*`expected_fs_nr`.
+6. Specify the number of functional sequences to look for and the number of functional sequences you expect to find. RELICS will look for a total of `max_fs_nr` functional sequences and weight their signal according to the prior which is specified by the `expected_fs_nr`. We recommned setting the `max_fs_nr` to at least `expected_fs_nr` + 3. For larger `expected_fs_nr` we recommend setting `max_fs_nr` to 4/3*`expected_fs_nr`.
 ```r
 # specify the expected number of functional sequences and how many to look for in total
 relics.parameters$max_fs_nr <- 15
@@ -153,12 +153,12 @@ relics.parameters$expected_fs_nr <- 5 # expected based on previous findings by S
 relics.parameters$crisprSystem <- 'CRISPRa' # other options: CRISPRcas9, CRISPRi, dualCRISPR
 ```
 
-8. Give the location of the output directory by setting the `out_dir` flag. Either reference to full path or the path from the current working directory. In this example we will do the latter and assume you are in the `RELICS_tutorial` folder. We recommend you create a new file in which the results are saved. Note, RELICS will NOT create non-existent files for you. In this example, first create the `CD69_tutorial_output` folder, then set the flag:
+8. Give the location of the output directory by setting the `out_dir` flag. Either reference to full path or the path from the current working directory. In this example we will do the latter and assume you are in the `RELICS_tutorial` folder. We recommend you create a new directory in which the results are saved. Note, RELICS will NOT create non-existent directories for you. In this example, first create the `CD69_tutorial_output` folder, then set the flag:
 ```r
 relics.parameters$out_dir <- 'CD69_tutorial_output'
 ```
 
-9. RELICS now explicityl models the count-dispersion relationship. This drastically imporves performance and helps reduce the number of false positives. See the section `Count-Dispersion modeling` below for details on how to best estimate `nr_disp_bins` and `repl_spline_df`:
+9. RELICS now explicitly models the count-dispersion relationship. This drastically improves performance and helps reduce the number of false positives. See the section `Count-Dispersion modeling` below for details on how to best estimate `nr_disp_bins` and `repl_spline_df`:
 ```r
 # specify the number of bins to group the guide counts into and the degrees of freedom of the spline function for each replicate
 relics.parameters$nr_disp_bins <- 15
@@ -355,9 +355,16 @@ relics.parameters$normal_areaOfEffect_sd <- 170
 relics.parameters$crisprEffectRange <- 415
 ```
 
-It is also possible to nor model the AoE and assume a uniform parturbation instead where it's equally likely for any base pair to be perturbed
+It is also possible to not model the AoE and assume a uniform perturbation instead where it's equally likely for any base pair to be perturbed
 ```r
 relics.parameters$areaOfEffect_type <- 'uniform'
+```
+
+A third area of effect approach that can be used with RELICS is a "slab-and-spike" area of effect. In the slab and spike implementation, the genomic regions that overlap the guides are set to a "spike" area of effect of 1, while the base pairs flanking the guide are set to a "slab" area of effect. By default, RELICS uses a flanking distance of 500 base pairs and a "slab" of 0.1, but these parameters can be manually configured as well.
+```r
+relics.parameters$areaOfEffect_type <- 'slab_and_spike'
+relics.parameters$flanking.distance <- 500
+relics.parameters$slab.aoe <- 0.1
 ```
 
 
