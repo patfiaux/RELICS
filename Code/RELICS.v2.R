@@ -2956,12 +2956,12 @@ set_up_RELICS_data <- function(input.parameter.list, data.file.split, guide.offs
         
         # set baseline AoE of 0
         min.dist <- rep(0, length(x$dist_to_seg))
-
-        # set segments that guide overlaps to 1
-        min.dist[x$sg_overl_idx] <- 1
         
         # seg segments within flanking distance of 500bp to slab AoE
         min.dist[x$dist_to_seg < flanking.distance] <- slab.aoe
+        
+        # set segments that guide overlaps to 1
+        min.dist[x$sg_overl_idx] <- 1
         
         # return modified dist_to_seg vector accounting for AoE
         x$dist_to_seg <- min.dist
