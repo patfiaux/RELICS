@@ -527,7 +527,7 @@ check_parameter_list <- function(input.parameter.list, data.file.split){
     }
   }
   
-  # type of area of effect. options are 'normal' (default), 'uniform', 'logistic' (need to implement)
+  # type of area of effect. options are 'normal' (default), 'uniform', 'slab_and_spike'
   if(! 'areaOfEffect_type' %in% par.given){
     out.parameter.list$areaOfEffect_type <- 'normal'
   }
@@ -632,6 +632,21 @@ check_parameter_list <- function(input.parameter.list, data.file.split){
           }
       }
   }
+  
+  # set default parameters for slab and spike AoE
+  if (out.parameter.list$areaOfEffect_type == "slab_and_spike") {
+    
+    # set default flanking distance to 500bp
+    if (! 'flanking.distance' %in% par.given) {
+      out.parameter.list$flanking.distance <- 500
+    }
+    
+    # set default slab AoE to 0.1
+    if (! 'slab.aoe' %in% par.given) {
+      out.parameter.list$slab.aoe <- 0.1
+    }
+  }
+  
           
 #   if(out.parameter.list$areaOfEffect_type == 'normal'){
 #     if(! 'normal_areaOfEffect_sd' %in% par.given){
@@ -2868,6 +2883,27 @@ set_up_RELICS_data <- function(input.parameter.list, data.file.split, guide.offs
         x$dist_to_seg[which(x$dist_to_seg == max(x$dist_to_seg))] <- 1
         x
       })
+    } else if(input.parameter.list$areaOfEffect_type == 'slab_and_spike'){
+      
+      # create variables to hold flanking distance and slab area of effect
+      flanking.distance <- input.parameter.list$flanking.distance
+      slab.aoe <- input.parameter.list$slab.aoe
+      
+      # iterate through every guide in guide.to.seg.lst
+      guide.to.seg.lst <- lapply(guide.to.seg.lst, function(x){
+        
+        # set all segments to have a default AoE of 0
+        x$dist_to_seg <- rep(0, length(x$dist_to_seg))
+        
+        # set AoE to slab value if within flanking distance
+        within.flank <- x$dist_to_seg < flanking.distance
+        x$dist_to_seg[within.flank] <- input.parameter.list$slab.aoe
+        
+        # set closest segment to have an AoE of 1 (spike)
+        x$dist_to_seg[which(x$dist_to_seg == min(x$dist_to_seg))] <- 1
+        
+        x
+      })
     }
     
   } else if(input.parameter.list$crisprSystem %in% c('dualCRISPR', 'dualCRISPRi', 'dualCRISPRa') ){
@@ -2906,6 +2942,10 @@ set_up_RELICS_data <- function(input.parameter.list, data.file.split, guide.offs
       })
     } else if (input.parameter.list$areaOfEffect_type == 'slab_and_spike'){
 
+      # create variables to hold flanking distance and slab area of effect
+      flanking.distance <- input.parameter.list$flanking.distance
+      slab.aoe <- input.parameter.list$slab.aoe
+      
       # apply slab and spike area of effect for each guide in guide.to.seg.lst
       guide.to.seg.lst <- lapply(guide.to.seg.lst, function(x){
         
@@ -2916,7 +2956,7 @@ set_up_RELICS_data <- function(input.parameter.list, data.file.split, guide.offs
         min.dist[x$sg_overl_idx] <- 1
         
         # seg segments within flanking distance of 500bp to slab AoE
-        min.dist[x$dist_to_seg < 500] <- 0.25
+        min.dist[x$dist_to_seg < flanking.distance] <- slab.aoe
         
         # return modified dist_to_seg vector accounting for AoE
         x$dist_to_seg <- min.dist
