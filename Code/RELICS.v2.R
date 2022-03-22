@@ -645,6 +645,11 @@ check_parameter_list <- function(input.parameter.list, data.file.split){
     if (! 'slab.aoe' %in% par.given) {
       out.parameter.list$slab.aoe <- 0.1
     }
+    
+    # set default CRISPR effect range to zero if not provided
+    if (! 'crisprEffectRange' %in% par.given) {
+      out.parameter.crisprEffectRange <- 0
+    }
   }
   
           
