@@ -2904,6 +2904,25 @@ set_up_RELICS_data <- function(input.parameter.list, data.file.split, guide.offs
         
         x
       })
+    } else if (input.parameter.list$areaOfEffect_type == 'slab_and_spike'){
+
+      # apply slab and spike area of effect for each guide in guide.to.seg.lst
+      guide.to.seg.lst <- lapply(guide.to.seg.lst, function(x){
+        
+        # set baseline AoE of 0
+        min.dist <- rep(0, length(x$dist_to_seg))
+
+        # set segments that guide overlaps to 1
+        min.dist[x$sg_overl_idx] <- 1
+        
+        # seg segments within flanking distance of 500bp to slab AoE
+        min.dist[x$dist_to_seg < 500] <- 0.25
+        
+        # return modified dist_to_seg vector accounting for AoE
+        x$dist_to_seg <- min.dist
+        
+        x
+      })
     }
   }
 
